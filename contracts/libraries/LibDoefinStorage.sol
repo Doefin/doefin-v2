@@ -185,7 +185,7 @@ library LibDoefinStorage {
         /// @notice Whether the order is currently active (true = open, false = cancelled/filled/expired)
         bool active;
         // /// @notice Whether the order must be filled completely or can be partially filled
-        // bool fillOrKill;
+        bool fillOrKill;
         /// @notice Buy or Sell side of the order
         OrderDirection direction;
         /// @notice Maker and Taker Fees
