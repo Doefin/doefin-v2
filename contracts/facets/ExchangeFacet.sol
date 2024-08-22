@@ -21,10 +21,11 @@ contract ExchangeFacet is IExchange {
         uint256 pricePerToken,
         uint256 minFillAmount,
         uint256 expiry,
+        bool fillOrKill,
         LibDoefinStorage.OrderDirection direction,
         LibDoefinStorage.ExecutionType executionType
     ) external {
-        LibOrderbook.createOrder(positionId, collateralToken, amount, pricePerToken, minFillAmount, expiry, direction, executionType);
+        LibOrderbook.createOrder(positionId, collateralToken, amount, pricePerToken, minFillAmount, expiry, fillOrKill, direction, executionType);
     }
 
     /// @notice Cancel an existing order by ID
