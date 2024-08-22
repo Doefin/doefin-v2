@@ -30,7 +30,12 @@ contract MarketExecutionFacet is IMarketExecution {
             fillOrKill: fillOrKill,
             direction: direction
         });
-        LibSettlement.executeMatchedRoute(takerOrder, matches);
+        // Convert calldata to memory for compatibility
+        LibDoefinStorage.MatchExecution[] memory matchesMemory = new LibDoefinStorage.MatchExecution[](matches.length);
+        for (uint256 i = 0; i < matches.length; i++) {
+            matchesMemory[i] = matches[i];
+        }
+        LibSettlement.executeMatchedRoute(takerOrder, matchesMemory);
     }
 
     /// @notice Match a limit order against multiple maker orders
