@@ -21,6 +21,7 @@ library LibOrderbook {
         uint256 pricePerToken,
         uint256 minFillAmount,
         uint256 expiry,
+        bool fillOrKill,
         LibDoefinStorage.OrderDirection direction,
         LibDoefinStorage.ExecutionType executionType
     ) internal returns (uint256 orderId) {
@@ -58,6 +59,7 @@ library LibOrderbook {
             active: true,
             orderFeeConfig: orderFeeConfig,
             executionType: executionType,
+            fillOrKill: fillOrKill,
             __gap: [uint256(0), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
         });
 
@@ -69,16 +71,24 @@ library LibOrderbook {
         _insertSorted(order);
 
         emit Events.OrderCreated(orderId, msg.sender, positionId, collateralToken, amount, pricePerToken, minFillAmount, expiry, direction);
-        
-        _tryFillImmediately(orderId);
+
+        _tryFillImmediately(order);
     }
 
-    function _tryFillImmediately(uint256 takerId) internal {
+    function _tryFillImmediately(LibDoefinStorage.Order memory order) internal {
 
-        uint256[] memory makerIds = LibMatchEngine.findPotentialMatchesForOrder(takerId);
+        uint256[] memory makerIds = LibMatchEngine.findPotentialMatchesForOrder(order.orderId);
 
         if (makerIds.length > 0) {
-            LibSettlement.fillLimitOrders(takerId, makerIds);
+            LibSettlement.fillLimitOrders(order.orderId, makerIds);
+            if (order.executionType == LibDoefinStorage.ExecutionType.Market && 
+            order.fillOrKill && 
+            order.remainingAmount > 0) {
+            revert Errors.FillOrKillFailed();
+        }
+        } else if (order.executionType == LibDoefinStorage.ExecutionType.Market && order.fillOrKill) {
+            // Market order with fillOrKill but no matches found
+            revert Errors.FillOrKillFailed();
         }
     }
 
