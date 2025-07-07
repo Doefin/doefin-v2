@@ -7,7 +7,9 @@ import { IERC173 } from "../interfaces/IERC173.sol";
 contract OwnershipFacet is IERC173 {
     function transferOwnership(address _newOwner) external override {
         LibDiamond.enforceIsContractOwner();
+        address _previousOwner = LibDiamond.contractOwner();
         LibDiamond.setContractOwner(_newOwner);
+        emit OwnershipTransferred(_previousOwner, _newOwner);
     }
 
     function owner() external override view returns (address owner_) {
