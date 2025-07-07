@@ -26,5 +26,6 @@ contract DiamondCutFacet is IDiamondCut {
     ) external override {
         LibDiamond.enforceIsContractOwner();
         LibDiamond.diamondCut(_diamondCut, _init, _calldata);
+        emit DiamondCut(_diamondCut, _init, _calldata);
     }
 }
