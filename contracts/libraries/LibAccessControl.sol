@@ -2,17 +2,17 @@
 pragma solidity ^0.8.6;
 
 import {LibDoefinStorage} from "../libraries/LibDoefinStorage.sol";
+import {LibDiamond} from "../libraries/LibDiamond.sol";
 
 library LibAccessControl {
-
     // Owner
     function enforceIsOwner() internal view {
-        require(msg.sender == accessConLibDoefinStorage.diamondStorage().accessControl.owner, "AccessControl: must be owner");
+        require(msg.sender == LibDiamond.contractOwner(), "AccessControl: must be owner");
     }
 
     // MarketMaker
     function isMarketMaker(address _account) internal view returns (bool) {
-        return accessConLibDoefinStorage.diamondStorage().accessControl.marketMakers[_account];
+        return LibDoefinStorage.diamondStorage().accessControl.marketMakers[_account];
     }
 
     function enforceIsMarketMaker() internal view {
@@ -21,16 +21,6 @@ library LibAccessControl {
 
     function setMarketMaker(address _account, bool _status) internal {
         enforceIsOwner();
-        accessConLibDoefinStorage.diamondStorage().accessControl.marketMakers[_account] = _status;
-    }
-
-    function setOwner(address _owner) internal {
-        LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
-        require(ds.accessControl.owner == address(0), "AccessControl: owner already set");
-        ds.accessControl.owner = _owner;
-    }
-
-    function getOwner() internal view returns (address) {
-        return accessControlStorage().owner;
+        LibDoefinStorage.diamondStorage().accessControl.marketMakers[_account] = _status;
     }
 }

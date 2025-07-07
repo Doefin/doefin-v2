@@ -4,8 +4,18 @@ pragma solidity ^0.8.6;
 library LibDoefinStorage {
     bytes32 constant STORAGE_POSITION = keccak256("doefin.storage");
 
-    enum OrderSide { BUY, SELL }
-    enum OrderStatus { OPEN, FILLED, PARTIAL, CANCELLED, EXPIRED, TRIGGERED }
+    enum OrderSide {
+        BUY,
+        SELL
+    }
+    enum OrderStatus {
+        OPEN,
+        FILLED,
+        PARTIAL,
+        CANCELLED,
+        EXPIRED,
+        TRIGGERED
+    }
 
     struct Order {
         bytes32 id;
@@ -86,8 +96,8 @@ library LibDoefinStorage {
     }
 
     struct ConditionalTokensStorage {
-        mapping(bytes32 => uint256[]) payoutNumerators;        // conditionId => numerators
-        mapping(bytes32 => uint256) payoutDenominator;         // conditionId => denominator
+        mapping(bytes32 => uint256[]) payoutNumerators; // conditionId => numerators
+        mapping(bytes32 => uint256) payoutDenominator; // conditionId => denominator
         uint256[10] __gap;
     }
 
@@ -111,10 +121,8 @@ library LibDoefinStorage {
     }
 
     struct AccessControlStorage {
-        address owner;
         mapping(address => bool) marketMakers;
-        mapping(address => bool) admins;
-        uint256[10] __gap
+        uint256[10] __gap;
     }
 
     struct DiamondStorage {
