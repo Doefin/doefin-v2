@@ -1,4 +1,6 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: AGPL-3.0
+// Uses shared storage derived from Gnosis Conditional Tokens Framework: https://github.com/gnosis/conditional-tokens-contracts
+
 pragma solidity ^0.8.6;
 
 library LibCTHelpers {
@@ -8,7 +10,7 @@ library LibCTHelpers {
     function getConditionId(
         address oracle,
         bytes32 questionId,
-        uint256 outcomeSlotCount
+        uint8 outcomeSlotCount
     ) internal pure returns (bytes32) {
         return keccak256(abi.encodePacked(oracle, questionId, outcomeSlotCount));
     }

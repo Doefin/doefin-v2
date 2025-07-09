@@ -1,4 +1,6 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: AGPL-3.0
+// Uses shared storage derived from Gnosis Conditional Tokens Framework: https://github.com/gnosis/conditional-tokens-contracts
+
 pragma solidity ^0.8.6;
 
 library LibDoefinStorage {
@@ -61,11 +63,6 @@ library LibDoefinStorage {
         uint256[20] __gap;
     }
 
-    struct CollateralVaultStorage {
-        mapping(address => mapping(address => uint256)) lockedBalance; // user => token => amount
-        uint256[20] __gap;
-    }
-
     struct OrderbookStorage {
         mapping(bytes32 => Order) orders; // orderId => Order
         mapping(uint256 => bytes32[]) ordersByPosition; // positionId => orderIds
@@ -104,7 +101,7 @@ library LibDoefinStorage {
     struct Condition {
         address oracle;
         bytes32 questionId;
-        uint256 outcomeSlotCount;
+        uint8 outcomeSlotCount;
         string metadataURI;
         bool active;
         address creator;
@@ -137,7 +134,6 @@ library LibDoefinStorage {
     }
 
     struct DiamondStorage {
-        CollateralVaultStorage vault;
         OrderbookStorage orderbook;
         PositionTradingStorage positionTrading;
         ConditionalTokensStorage conditionalTokens;

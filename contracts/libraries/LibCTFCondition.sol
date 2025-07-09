@@ -1,14 +1,17 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: AGPL-3.0
+// Uses shared storage derived from Gnosis Conditional Tokens Framework: https://github.com/gnosis/conditional-tokens-contracts
+
 pragma solidity ^0.8.6;
 
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {LibDoefinStorage} from "./LibDoefinStorage.sol";
 import {LibCTHelpers} from "./LibCTHelpers.sol";
 
 library LibCTFCondition {
     /// @dev Prepares a new condition by initializing payout numerators.
     /// Can be called from both low-level (CTF-compatible) and high-level (managed) flows.
-    function prepareCondition(address oracle, bytes32 questionId, uint256 outcomeSlotCount) internal returns (bytes32 conditionId) {
+    function prepareCondition(address oracle, bytes32 questionId, uint8 outcomeSlotCount) internal returns (bytes32 conditionId) {
+        require(oracle != address(0), "Invalid oracle address");
+
         require(outcomeSlotCount > 1 && outcomeSlotCount <= 256, "ConditionalTokens: invalid outcome count");
 
         LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
