@@ -6,17 +6,12 @@ import {LibCTHelpers} from "../libraries/LibCTHelpers.sol";
 import {LibERC1155} from "../libraries/LibERC1155.sol";
 import {IConditionalTokens} from "../interfaces/IConditionalTokens.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {LibCTFCondition} from "../libraries/LibCTFCondition.sol";
 
 contract ConditionalTokensFacet is IConditionalTokens {
+    event DebugUint256(string label, uint256 value);
     function prepareCondition(address oracle, bytes32 questionId, uint256 outcomeSlotCount) external override {
-        require(outcomeSlotCount > 1 && outcomeSlotCount <= 256, "ConditionalTokens: invalid outcome count");
-
-        LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
-        bytes32 conditionId = LibCTHelpers.getConditionId(oracle, questionId, outcomeSlotCount);
-
-        require(ds.conditionalTokens.payoutNumerators[conditionId].length == 0, "ConditionalTokens: condition already prepared");
-
-        ds.conditionalTokens.payoutNumerators[conditionId] = new uint256[](outcomeSlotCount);
+        bytes32 conditionId = LibCTFCondition.prepareCondition(oracle, questionId, outcomeSlotCount);
 
         emit ConditionPreparation(conditionId, oracle, questionId, outcomeSlotCount);
     }
@@ -58,6 +53,8 @@ contract ConditionalTokensFacet is IConditionalTokens {
         uint256 outcomeSlotCount = ds.conditionalTokens.payoutNumerators[conditionId].length;
         require(outcomeSlotCount > 0, "ConditionalTokens: condition not prepared");
 
+        _validateCollateral(collateralToken, amount);
+
         uint256 fullIndexSet = (1 << outcomeSlotCount) - 1;
         uint256 freeIndexSet = fullIndexSet;
 
@@ -92,6 +89,15 @@ contract ConditionalTokensFacet is IConditionalTokens {
         LibERC1155._batchMint(msg.sender, positionIds, amounts, "");
 
         emit PositionSplit(msg.sender, collateralToken, parentCollectionId, conditionId, partition, amount);
+    }
+
+    function _validateCollateral(address collateralToken, uint256 amount) internal view {
+        LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
+
+        require(ds.adminConfigStorage.isAllowed[collateralToken], "ConditionalTokens: Collateral not allowed");
+
+        uint256 unit = ds.adminConfigStorage.unitPerPair[collateralToken];
+        require(amount % unit == 0, "ConditionalTokens: Collateral amount not aligned to unit");
     }
 
     function mergePositions(
@@ -184,7 +190,21 @@ contract ConditionalTokensFacet is IConditionalTokens {
 
         if (totalPayout > 0) {
             if (parentCollectionId == bytes32(0)) {
-                require(IERC20(collateralToken).transfer(msg.sender, totalPayout), "ConditionalTokens: collateral payout failed");
+                address feeReceiver = ds.adminConfigStorage.feeReceiver;
+                uint256 feeBps = ds.adminConfigStorage.resolutionFeeBps;
+
+                require(feeReceiver != address(0), "ConditionalTokens: invalid feeReceiver");
+
+                uint256 feeAmount = (totalPayout * feeBps) / 10_000; // fee in basis points
+                uint256 userAmount = totalPayout - feeAmount;
+
+                if (feeAmount > 0) {
+                    require(IERC20(collateralToken).transfer(feeReceiver, feeAmount), "ConditionalTokens: fee transfer failed");
+                }
+
+                require(IERC20(collateralToken).transfer(msg.sender, userAmount), "ConditionalTokens: user payout failed");
+
+                emit ResolutionFeePaid(msg.sender, feeReceiver, feeAmount, userAmount);
             } else {
                 uint256 parentPosId = LibCTHelpers.getPositionId(collateralToken, parentCollectionId);
                 LibERC1155._mint(msg.sender, parentPosId, totalPayout, "");
