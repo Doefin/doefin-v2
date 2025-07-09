@@ -9,6 +9,7 @@ pragma solidity ^0.8.0;
 /******************************************************************************/
 
 import {LibDiamond} from "../libraries/LibDiamond.sol";
+import {LibDoefinStorage} from "../libraries/LibDoefinStorage.sol";
 import {IDiamondLoupe} from "../interfaces/IDiamondLoupe.sol";
 import {IDiamondCut} from "../interfaces/IDiamondCut.sol";
 import {IERC173} from "../interfaces/IERC173.sol";
@@ -17,6 +18,7 @@ import {IConditionalTokens} from "../interfaces/IConditionalTokens.sol";
 import {IConditionManager} from "../interfaces/IConditionManager.sol";
 import {IERC1155Facet} from "../interfaces/IERC1155.sol";
 import {IAccessControl} from "../interfaces/IAccessControl.sol";
+import {IAdminConfig} from "../interfaces/IAdminConfig.sol";
 
 // It is expected that this contract is customized if you want to deploy your diamond
 // with data from a deployment script. Use the init function to initialize state variables
@@ -36,6 +38,13 @@ contract DiamondInit {
         ds.supportedInterfaces[type(IConditionManager).interfaceId] = true;
         ds.supportedInterfaces[type(IERC1155Facet).interfaceId] = true;
         ds.supportedInterfaces[type(IAccessControl).interfaceId] = true;
+        ds.supportedInterfaces[type(IAdminConfig).interfaceId] = true;
+
+        LibDoefinStorage.DiamondStorage storage dfs = LibDoefinStorage.diamondStorage();
+        dfs.adminConfigStorage.feeReceiver = msg.sender;
+        dfs.adminConfigStorage.resolutionFeeBps = 500;
+        dfs.adminConfigStorage.makerTradingFeeBps = 100;
+        dfs.adminConfigStorage.takerTradingFeeBps = 200;
 
         // add your own state variables
         // EIP-2535 specifies that the `diamondCut` function takes two optional

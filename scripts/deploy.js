@@ -3,7 +3,7 @@
 
 const { getSelectors, FacetCutAction } = require('./libraries/diamond.js')
 
-async function deployDiamond () {
+async function deployDiamond() {
   const accounts = await ethers.getSigners()
   const contractOwner = accounts[0]
 
@@ -36,7 +36,8 @@ async function deployDiamond () {
     'ERC1155Facet',
     'ConditionalTokensFacet',
     'ConditionManagerFacet',
-    'AccessControlFacet'
+    'AccessControlFacet',
+    'AdminConfigFacet'
   ]
   const cut = []
   for (const FacetName of FacetNames) {
