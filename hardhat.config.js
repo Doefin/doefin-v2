@@ -24,12 +24,12 @@ module.exports = {
       url: "http://127.0.0.1:8545",
       chainId: 31337
     },
-    arbitrumTestnet: {
+    arbitrumSepolia: {
       url: process.env.SEPOLIA_RPC_URL,
       accounts: [process.env.PRIVATE_KEY],
       chainId: 421614,
     },
-    arbitrumMainnet: {
+    arbitrumOne: {
       url: process.env.ARBITRUM_MAINNET_RPC_URL,
       accounts: [process.env.PRIVATE_KEY],
     }
