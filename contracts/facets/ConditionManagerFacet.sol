@@ -44,7 +44,7 @@ contract ConditionManagerFacet is IConditionManager {
     function cancelCondition(bytes32 conditionId) external override {
         LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
         LibDoefinStorage.Condition storage cond = ds.conditionManager.conditions[conditionId];
-        require(cond.creator == msg.sender || LibAccessControl.isOnwer(msg.sender), "ConditionalManager: Not authorized to cancel this condition");
+        require(cond.creator == msg.sender || LibAccessControl.isOwner(msg.sender), "ConditionalManager: Not authorized to cancel this condition");
 
         require(cond.oracle != address(0), "ConditionalManager: Condition does not exist");
         require(cond.active, "ConditionalManager: Condition already inactive");

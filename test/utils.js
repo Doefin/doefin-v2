@@ -1,5 +1,6 @@
 const { keccak256, toUtf8Bytes, solidityPack } = require("ethers/lib/utils");
 const { BigNumber } = require("ethers");
+const { ethers } = require("hardhat");
 
 const P = BigNumber.from("21888242871839275222246405745257275088696311157297823662689037894645226208583");
 const B = BigNumber.from(3);
@@ -47,7 +48,6 @@ async function getCollectionId(parentCollectionId, conditionId, indexSet, ethers
 
     do {
         x1 = x1.add(1).mod(P);
-        yy = x1.mul(x1).mod(P).mul(x1).mod(P).add(B).mod(P);
         yy = x1.mul(x1).mod(P).mul(x1).mod(P).add(B).mod(P);
         y1 = sqrt(yy);
     } while (!y1.mul(y1).mod(P).eq(yy));

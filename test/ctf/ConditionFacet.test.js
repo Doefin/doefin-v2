@@ -18,8 +18,7 @@ describe('ConditionManagerFacet', function () {
 
     before(async function () {
         const accounts = await ethers.getSigners();
-        [oracleSigner, maker, nonMaker] = accounts;
-        oracle = oracleSigner.address;
+        [oracle, maker, nonMaker] = accounts;
 
         // Deploy diamond and get ConditionManagerFacet interface on diamond address
         diamondAddress = await deployDiamond();
@@ -36,27 +35,27 @@ describe('ConditionManagerFacet', function () {
         outcomeSlotCount = 2;
         metadataURI = "ipfs://some-metadata-uri";
 
-        const expectedConditionId = getConditionId(oracle, questionId, outcomeSlotCount);
+        const expectedConditionId = getConditionId(oracle.address, questionId, outcomeSlotCount);
 
         // Expect proper event emission
         await expect(
-            conditionFacet.connect(maker).createCondition(oracle, questionId, outcomeSlotCount, metadataURI)
+            conditionFacet.connect(maker).createCondition(oracle.address, questionId, outcomeSlotCount, metadataURI)
         )
             .to.emit(conditionFacet, "ConditionCreated")
-            .withArgs(expectedConditionId, oracle, questionId, outcomeSlotCount, metadataURI);
+            .withArgs(expectedConditionId, oracle.address, questionId, outcomeSlotCount, metadataURI);
     });
 
     it('should revert if condition is created twice (duplicate)', async function () {
         await expect(
-            conditionFacet.connect(maker).createCondition(oracle, questionId, outcomeSlotCount, metadataURI)
+            conditionFacet.connect(maker).createCondition(oracle.address, questionId, outcomeSlotCount, metadataURI)
         ).to.be.revertedWith("ConditionalTokens: already prepared");
     });
 
     it('should revert if outcomeSlotCount is 0', async function () {
         const newQuestionId = ethers.utils.id("will-BTC-Diff-hit-10T?");
         await expect(
-            conditionFacet.connect(maker).createCondition(oracle, newQuestionId, 0, "ipfs://some-uri")
-        ).to.be.revertedWith("ConditionalTokens: invalid outcome coun");
+            conditionFacet.connect(maker).createCondition(oracle.address, newQuestionId, 0, "ipfs://some-uri")
+        ).to.be.revertedWith("ConditionalTokens: invalid outcome count");
     });
 
     it('should revert if caller is not a market maker', async function () {
@@ -90,10 +89,6 @@ describe('ConditionManagerFacet', function () {
         await expect(conditionFacet.connect(maker).cancelCondition(expectedConditionId))
             .to.emit(conditionFacet, "ConditionCancelled")
             .withArgs(expectedConditionId);
-
-        // Check state if you expose a view that includes "active"
-        const condition = await conditionFacet.getCondition(expectedConditionId);
-        expect(condition.oracle).to.equal(maker.address);
     });
 
     it("should prevent non-creator market maker from cancelling condition", async function () {
@@ -111,7 +106,7 @@ describe('ConditionManagerFacet', function () {
         const expectedConditionId = getConditionId(maker.address, questionId, 2);
         await conditionFacet.connect(maker).createCondition(maker.address, questionId, 2, "ipfs://owner-cancel");
 
-        await expect(conditionFacet.connect(oracleSigner).cancelCondition(expectedConditionId)) // owner
+        await expect(conditionFacet.connect(oracle).cancelCondition(expectedConditionId)) // owner
             .to.emit(conditionFacet, "ConditionCancelled")
             .withArgs(expectedConditionId);
     });

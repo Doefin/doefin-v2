@@ -15,7 +15,7 @@ contract ConditionalTokensFacet is IConditionalTokens {
     using SafeERC20 for IERC20;
 
     function prepareCondition(address oracle, bytes32 questionId, uint8 outcomeSlotCount) external override {
-        require(LibAccessControl.isOnwer(msg.sender), "AccessControl: must be owner");
+        require(LibAccessControl.isOwner(msg.sender), "AccessControl: must be owner");
         bytes32 conditionId = LibCTFCondition.prepareCondition(oracle, questionId, outcomeSlotCount);
 
         emit ConditionPreparation(conditionId, oracle, questionId, outcomeSlotCount);

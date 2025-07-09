@@ -18,7 +18,7 @@ describe('ConditionalTokensFacet', function () {
     let conditionManagerFacet;
     let erc20;
     let owner, oracle, maker;
-    let questionId, outcomeSlotCount, conditionId, collateralAmount;
+    let questionId, outcomeSlotCount, conditionId, collateralAmount, mintAmount;
 
     before(async function () {
         [owner, oracle, maker] = await ethers.getSigners();

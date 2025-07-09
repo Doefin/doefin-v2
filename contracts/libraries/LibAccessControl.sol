@@ -8,7 +8,7 @@ import {LibDiamond} from "../libraries/LibDiamond.sol";
 
 library LibAccessControl {
     // Owner
-    function isOnwer(address _account) internal view returns (bool) {
+    function isOwner(address _account) internal view returns (bool) {
         return _account == LibDiamond.contractOwner();
     }
 
@@ -22,7 +22,7 @@ library LibAccessControl {
     }
 
     function setMarketMaker(address _account, bool _status) internal {
-        require(isOnwer(msg.sender), "AccessControl: must be owner");
+        require(isOwner(msg.sender), "AccessControl: must be owner");
         LibDoefinStorage.diamondStorage().accessControl.marketMakers[_account] = _status;
     }
 }

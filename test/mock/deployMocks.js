@@ -8,7 +8,7 @@ async function deployMockERC20(name = "MockToken", symbol = "MOCK") {
 }
 
 async function deployMockERC1155() {
-    const MockERC1155 = await ethers.getContractFactory("MOCkERC1155");
+    const MockERC1155 = await ethers.getContractFactory("MockERC1155");
     const mockERC1155 = await MockERC1155.deploy();
     await mockERC1155.deployed();
     return mockERC1155;
