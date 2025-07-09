@@ -39,6 +39,8 @@ interface IConditionalTokens {
         uint payout
     );
 
+    event ResolutionFeePaid(address indexed redeemer, address indexed feeReceiver, uint256 feeAmount, uint256 userPayout);
+
     function prepareCondition(address oracle, bytes32 questionId, uint outcomeSlotCount) external;
     function reportPayouts(bytes32 questionId, uint[] calldata payouts) external;
     function splitPosition(address collateralToken, bytes32 parentCollectionId, bytes32 conditionId, uint amount, uint[] calldata partition) external;
