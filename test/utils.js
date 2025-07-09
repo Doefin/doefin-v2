@@ -26,7 +26,7 @@ function sqrt(a) {
 
 // Get condition ID
 function getConditionId(oracle, questionId, outcomeSlotCount) {
-    return keccak256(solidityPack(["address", "bytes32", "uint256"], [oracle, questionId, outcomeSlotCount]));
+    return keccak256(solidityPack(["address", "bytes32", "uint8"], [oracle, questionId, outcomeSlotCount]));
 }
 
 // Get position ID
