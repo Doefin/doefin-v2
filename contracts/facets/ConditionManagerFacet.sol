@@ -1,4 +1,6 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: AGPL-3.0
+// Derived from Gnosis Conditional Tokens Framework: https://github.com/gnosis/conditional-tokens-contracts
+
 pragma solidity ^0.8.6;
 
 import {LibDoefinStorage} from "../libraries/LibDoefinStorage.sol";
@@ -12,7 +14,7 @@ contract ConditionManagerFacet is IConditionManager {
     function createCondition(
         address oracle,
         bytes32 questionId,
-        uint outcomeSlotCount,
+        uint8 outcomeSlotCount,
         string calldata metadataURI
     ) external override returns (bytes32 conditionId) {
         LibAccessControl.enforceIsMarketMaker();
@@ -29,12 +31,12 @@ contract ConditionManagerFacet is IConditionManager {
             __gap: [uint256(0), 0, 0, 0, 0, 0, 0, 0, 0, 0]
         });
 
-        emit ConditionCreated(conditionId, oracle, questionId, metadataURI);
+        emit ConditionCreated(conditionId, oracle, questionId, outcomeSlotCount, metadataURI);
     }
 
     function getCondition(
         bytes32 conditionId
-    ) external view override returns (address oracle, bytes32 questionId, uint outcomeSlotCount, string memory metadataURI) {
+    ) external view override returns (address oracle, bytes32 questionId, uint8 outcomeSlotCount, string memory metadataURI) {
         LibDoefinStorage.Condition storage cond = LibDoefinStorage.diamondStorage().conditionManager.conditions[conditionId];
         return (cond.oracle, cond.questionId, cond.outcomeSlotCount, cond.metadataURI);
     }
