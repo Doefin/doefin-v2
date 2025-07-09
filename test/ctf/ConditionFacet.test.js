@@ -43,7 +43,7 @@ describe('ConditionManagerFacet', function () {
             conditionFacet.connect(maker).createCondition(oracle, questionId, outcomeSlotCount, metadataURI)
         )
             .to.emit(conditionFacet, "ConditionCreated")
-            .withArgs(expectedConditionId, oracle, questionId, metadataURI);
+            .withArgs(expectedConditionId, oracle, questionId, outcomeSlotCount, metadataURI);
     });
 
     it('should revert if condition is created twice (duplicate)', async function () {
@@ -74,7 +74,7 @@ describe('ConditionManagerFacet', function () {
         await expect(
             conditionFacet.connect(maker).createCondition(maker.address, newQuestionId, 2, newMetadata)
         ).to.emit(conditionFacet, "ConditionCreated")
-            .withArgs(expectedConditionId, maker.address, newQuestionId, newMetadata);
+            .withArgs(expectedConditionId, maker.address, newQuestionId, outcomeSlotCount, newMetadata);
     });
 
     it("should allow creator to cancel condition", async function () {
