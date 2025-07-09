@@ -107,6 +107,7 @@ library LibDoefinStorage {
         uint256 outcomeSlotCount;
         string metadataURI;
         bool active;
+        address creator;
         uint256[10] __gap;
     }
 
@@ -125,6 +126,16 @@ library LibDoefinStorage {
         uint256[10] __gap;
     }
 
+    struct AdminConfigStorage {
+        mapping(address => bool) isAllowed;
+        mapping(address => uint256) unitPerPair; // token => unit amount (e.g., 1e6 USDC)
+        address feeReceiver;
+        uint256 resolutionFeeBps;
+        uint256 makerTradingFeeBps;
+        uint256 takerTradingFeeBps;
+        uint256[10] __gap;
+    }
+
     struct DiamondStorage {
         CollateralVaultStorage vault;
         OrderbookStorage orderbook;
@@ -134,6 +145,7 @@ library LibDoefinStorage {
         OracleAdapterStorage oracleAdapter;
         AccessControlStorage accessControl;
         ERC1155Storage erc1155Storage;
+        AdminConfigStorage adminConfigStorage;
         uint256[50] __gap;
     }
 
