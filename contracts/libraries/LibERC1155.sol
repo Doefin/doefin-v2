@@ -1,11 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.6;
 
-import { LibDoefinStorage } from "../libraries/LibDoefinStorage.sol";
-import { IERC1155TokenReceiver } from "../interfaces/IERC1155TokenReceiver.sol";
+import {LibDoefinStorage} from "../libraries/LibDoefinStorage.sol";
+import {IERC1155TokenReceiver} from "../interfaces/IERC1155TokenReceiver.sol";
 
 library LibERC1155 {
-
     function balanceOf(address owner, uint256 id) internal view returns (uint256) {
         require(owner != address(0), "ERC1155: balance query for zero address");
         return LibDoefinStorage.diamondStorage().erc1155Storage.erc1155Balances[id][owner];
@@ -43,7 +42,14 @@ library LibERC1155 {
         _doSafeTransferAcceptanceCheck(operator, from, to, id, value, data);
     }
 
-    function safeBatchTransferFrom(address operator, address from, address to, uint256[] memory ids, uint256[] memory values, bytes memory data) internal {
+    function safeBatchTransferFrom(
+        address operator,
+        address from,
+        address to,
+        uint256[] memory ids,
+        uint256[] memory values,
+        bytes memory data
+    ) internal {
         require(ids.length == values.length, "ERC1155: ids and values length mismatch");
         require(to != address(0), "ERC1155: transfer to zero address");
 
@@ -107,14 +113,20 @@ library LibERC1155 {
     function _doSafeTransferAcceptanceCheck(address operator, address from, address to, uint256 id, uint256 value, bytes memory data) private {
         if (to.code.length > 0) {
             require(
-                IERC1155TokenReceiver(to).onERC1155Received(operator, from, id, value, data) ==
-                    IERC1155TokenReceiver.onERC1155Received.selector,
+                IERC1155TokenReceiver(to).onERC1155Received(operator, from, id, value, data) == IERC1155TokenReceiver.onERC1155Received.selector,
                 "ERC1155: receiver rejected tokens"
             );
         }
     }
 
-    function _doSafeBatchTransferAcceptanceCheck(address operator, address from, address to, uint256[] memory ids, uint256[] memory values, bytes memory data) private {
+    function _doSafeBatchTransferAcceptanceCheck(
+        address operator,
+        address from,
+        address to,
+        uint256[] memory ids,
+        uint256[] memory values,
+        bytes memory data
+    ) private {
         if (to.code.length > 0) {
             require(
                 IERC1155TokenReceiver(to).onERC1155BatchReceived(operator, from, ids, values, data) ==
