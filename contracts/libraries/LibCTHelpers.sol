@@ -64,14 +64,20 @@ library LibCTHelpers {
         return bytes32(x1);
     }
 
-    function sqrt(uint256 xx) internal pure returns (uint256 r) {
-        if (xx == 0) return 0;
-        else if (xx <= 3) return 1;
-        uint256 z = (xx + 1) / 2;
-        r = xx;
-        while (z < r) {
-            r = z;
-            z = (xx / z + z) / 2;
+    function sqrt(uint256 a) internal pure returns (uint256) {
+        return expMod(a, (P + 1) / 4, P);
+    }
+
+    function expMod(uint256 base, uint256 exponent, uint256 modulus) internal pure returns (uint256 result) {
+        require(modulus != 0, "Modulus is zero");
+        result = 1;
+        base = base % modulus;
+        while (exponent > 0) {
+            if (exponent % 2 == 1) {
+                result = mulmod(result, base, modulus);
+            }
+            base = mulmod(base, base, modulus);
+            exponent = exponent / 2;
         }
     }
 }
