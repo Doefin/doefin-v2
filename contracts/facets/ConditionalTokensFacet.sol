@@ -184,12 +184,16 @@ contract ConditionalTokensFacet is IConditionalTokens {
 
         require(feeReceiver != address(0), "ConditionalTokens: invalid feeReceiver");
 
+        if (feeBps == 0) {
+            IERC20(collateralToken).safeTransfer(recipient, amount);
+
+            return;
+        }
+
         uint256 feeAmount = (amount * feeBps) / 10_000;
         uint256 userAmount = amount - feeAmount;
 
-        if (feeAmount > 0) {
-            IERC20(collateralToken).safeTransfer(feeReceiver, feeAmount);
-        }
+        IERC20(collateralToken).safeTransfer(feeReceiver, feeAmount);
         IERC20(collateralToken).safeTransfer(recipient, userAmount);
 
         emit ResolutionFeePaid(recipient, feeReceiver, feeAmount, userAmount);
