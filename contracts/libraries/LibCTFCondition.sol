@@ -12,8 +12,6 @@ library LibCTFCondition {
     function prepareCondition(address oracle, bytes32 questionId, uint8 outcomeSlotCount) internal returns (bytes32 conditionId) {
         require(oracle != address(0), "Invalid oracle address");
 
-        require(outcomeSlotCount > 1 && outcomeSlotCount <= 256, "ConditionalTokens: invalid outcome count");
-
         LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
         conditionId = LibCTHelpers.getConditionId(oracle, questionId, outcomeSlotCount);
 
