@@ -36,7 +36,7 @@ module.exports = {
   },
   etherscan: {
     apiKey: {
-      arbitrumTestnet: process.env.ETHERSCAN_API_KEY
+      arbitrumSepolia: process.env.ETHERSCAN_API_KEY
     }
   }
 };
