@@ -49,6 +49,61 @@ library LibDoefinStorage {
         uint256[10] __gap;
     }
 
+    /// @notice Enum representing whether an order is a Buy or a Sell
+    enum OrderDirection {
+        Buy,
+        Sell
+    }
+
+    /// @notice Struct representing a single limit or market order
+    /// @dev Each order maps to a specific ERC1155 position token and can be either a buy or a sell
+    struct Order {
+        /// @notice Unique order identifier (incremental)
+        uint256 orderId;
+        /// @notice Creator of the order
+        address maker;
+        /// @notice ERC1155 token ID of the position being traded (e.g., YES/NO token)
+        uint256 positionId;
+        /// @notice Total size of the order
+        uint256 amount;
+        /// @notice Amount of the order that has already been filled
+        uint256 filledAmount;
+        /// @notice Minimum amount that must be filled in a single fill (0 for no minimum)
+        uint256 minFillAmount;
+        /// @notice Price per token (in collateral units, e.g., 1.25 USDC per YES)
+        uint256 pricePerToken;
+        /// @notice Timestamp after which the order becomes invalid (0 = no expiry)
+        uint256 expiry;
+        /// @notice Timestamp of the order creation time
+        uint256 createdAt;
+        /// @notice Index set indicating outcome slot(s): 1 = YES, 2 = NO, etc.
+        uint256 indexSet;
+        /// @notice Address of the ERC20 collateral token used for settlement (e.g., USDC)
+        address collateralToken;
+        /// @notice Whether the order is currently active (true = open, false = cancelled/filled/expired)
+        bool active;
+        /// @notice Condition ID that this order’s position belongs to
+        bytes32 conditionId;
+        /// @notice Buy or Sell side of the order
+        OrderDirection direction;
+        /// @dev Reserved gap for future upgrades
+        uint256[20] __gap;
+    }
+
+    /// @notice Global storage layout for the Orderbook facet/module
+    struct OrderbookStorageStruct {
+        /// @notice Mapping from order ID to Order struct
+        mapping(uint256 => Order) orders;
+        /// @notice Mapping of position ID to array of active buy order IDs
+        mapping(uint256 => uint256[]) buyOrdersByPosition;
+        /// @notice Mapping of position ID to array of active sell order IDs
+        mapping(uint256 => uint256[]) sellOrdersByPosition;
+        /// @notice Mapping from maker address to list of their order IDs
+        mapping(address => uint256[]) ordersByMaker;
+        /// @dev Reserved gap for future storage extensions
+        uint256[20] __gap;
+    }
+
     struct DiamondStorage {
         ConditionalTokensStorage conditionalTokens;
         ConditionManagerStorage conditionManager;
