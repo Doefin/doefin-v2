@@ -162,6 +162,7 @@ contract ConditionalTokensFacet is IConditionalTokens {
             } else {
                 uint256 parentPosId = LibCTHelpers.getPositionId(collateralToken, parentCollectionId);
                 LibERC1155._mint(msg.sender, parentPosId, totalPayout, "");
+                emit PayoutRedeemedToParentPosition(msg.sender, collateralToken, parentCollectionId, conditionId, parentPosId, totalPayout);
             }
         }
 
@@ -197,7 +198,7 @@ contract ConditionalTokensFacet is IConditionalTokens {
         IERC20(collateralToken).safeTransfer(feeReceiver, feeAmount);
         IERC20(collateralToken).safeTransfer(recipient, userAmount);
 
-        emit ResolutionFeePaid(recipient, feeReceiver, feeAmount, userAmount);
+        emit PayoutRedemptionFeePaid(recipient, feeReceiver, feeAmount, userAmount);
     }
 
     function _getPositionId(

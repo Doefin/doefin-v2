@@ -2,7 +2,6 @@
 // Based on Diamond Standard by Nick Mudge: https://github.com/mudgen/diamond-3-hardhat
 // Uses shared logic from Gnosis Conditional Tokens Framework: https://github.com/gnosis/conditional-tokens-contracts
 
-
 pragma solidity ^0.8.6;
 
 interface IConditionalTokens {
@@ -43,7 +42,16 @@ interface IConditionalTokens {
         uint payout
     );
 
-    event ResolutionFeePaid(address indexed redeemer, address indexed feeReceiver, uint256 feeAmount, uint256 userPayout);
+    event PayoutRedemptionFeePaid(address indexed redeemer, address indexed feeReceiver, uint256 feeAmount, uint256 userPayout);
+
+    event PayoutRedeemedToParentPosition(
+        address indexed redeemer,
+        address collateralToken,
+        bytes32 parentCollectionId,
+        bytes32 conditionId,
+        uint256 parentPositionId,
+        uint256 payoutAmount
+    );
 
     function prepareCondition(address oracle, bytes32 questionId, uint8 outcomeSlotCount) external;
     function reportPayouts(bytes32 questionId, uint[] calldata payouts) external;
