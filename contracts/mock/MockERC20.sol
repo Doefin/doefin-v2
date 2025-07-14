@@ -4,9 +4,12 @@
 
 pragma solidity ^0.8.6;
 
-interface IOracleAdapter {
-    event OutcomeReported(bytes32 indexed conditionId, uint[] payouts);
+import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
-    function reportOutcome(bytes32 conditionId, uint[] calldata payouts) external;
-    function linkConditionToFeed(bytes32 conditionId, bytes32 externalFeedId) external;
+contract MockERC20 is ERC20 {
+    constructor(string memory name, string memory symbol) ERC20(name, symbol) {}
+
+    function mint(address to, uint256 amount) external {
+        _mint(to, amount);
+    }
 }
