@@ -105,7 +105,7 @@ describe("OrderbookFacet - Extended Tests", function () {
         expect(totalCost).to.equal(totalCostExpected);
 
         // Execute
-        await orderbook.connect(user).fillMarketOrderWithRoute(positionParams, 8, false, 0, { matchedOrderIds, matchedAmounts }, totalCost);
+        await orderbook.connect(user).fillMarketOrderWithRoute(positionParams, 8, false, 0, { matchedOrderIds, matchedAmounts }, 0);
     });
 
     it("should simulate and execute a SELL market order from multiple BUY limit orders", async () => {
@@ -116,7 +116,7 @@ describe("OrderbookFacet - Extended Tests", function () {
         await erc1155.safeTransferFrom(owner.address, user.address, yesId, 10, "0x");
 
         const sim = await orderbook.connect(user).callStatic.simulateMarketOrder(positionParams, 8, 1);
-        await orderbook.connect(user).fillMarketOrderWithRoute(positionParams, 8, false, 1, sim, 10);
+        await orderbook.connect(user).fillMarketOrderWithRoute(positionParams, 8, false, 1, sim, 0);
     });
 
     it("should revert if fillOrKill is true and not enough liquidity", async () => {
@@ -127,7 +127,7 @@ describe("OrderbookFacet - Extended Tests", function () {
     it("should remove orders fully filled", async () => {
         await orderbook.createLimitOrder(positionParams, 3, ethers.utils.parseEther("1"), 1, 0, 1);
         const sim = await orderbook.simulateMarketOrder(positionParams, 3, 0);
-        await orderbook.fillMarketOrderWithRoute(positionParams, 3, false, 0, sim, 10);
+        await orderbook.fillMarketOrderWithRoute(positionParams, 3, false, 0, sim, 0);
         const updatedSim = await orderbook.simulateMarketOrder(positionParams, 1, 0).catch(() => true);
         expect(updatedSim).to.equal(true); // means reverted because no orders left
     });
@@ -171,9 +171,75 @@ describe("OrderbookFacet - Extended Tests", function () {
         const result = await orderbook.callStatic.simulateMarketOrder(positionParams, 12, 1);
         const [matchedOrderIds, matchedAmounts] = result;
 
-        expect(matchedOrderIds[0]).to.equal(firstOrderId); 
+        expect(matchedOrderIds[0]).to.equal(firstOrderId);
         expect(matchedOrderIds[1]).to.equal(secondOrderId);
         expect(matchedOrderIds[2]).to.equal(thirdOrderId);
 
     });
+
+    it("should fill entire market order if avg price is below maxAveragePrice", async () => {
+        // Order 1 @ 1.0, Order 2 @ 1.1
+        await orderbook.createLimitOrder(positionParams, 5, ethers.utils.parseEther("1.0"), 1, 0, 1);
+        await orderbook.createLimitOrder(positionParams, 5, ethers.utils.parseEther("1.1"), 1, 0, 1);
+
+        await erc20.mint(user.address, ethers.utils.parseEther("20"));
+        await erc20.connect(user).approve(diamondAddress, ethers.utils.parseEther("20"));
+
+        const maxAvgPrice = ethers.utils.parseEther("1.1"); // should allow full match
+
+        const sim = await orderbook.connect(user).callStatic.simulateMarketOrder(positionParams, 10, 0);
+        await orderbook.connect(user).fillMarketOrderWithRoute(positionParams, 10, false, 0, sim, maxAvgPrice);
+    });
+
+    it("should partially fill and stop when avg price exceeds maxAveragePrice", async () => {
+        // Order 1 @ 1.0 (5 tokens), Order 2 @ 1.5 (5 tokens)
+        await orderbook.createLimitOrder(positionParams, 5, ethers.utils.parseEther("1.0"), 1, 0, 1);
+        await orderbook.createLimitOrder(positionParams, 5, ethers.utils.parseEther("1.5"), 1, 0, 1);
+
+        await erc20.mint(maker.address, ethers.utils.parseEther("20"));
+        await erc20.connect(maker).approve(diamondAddress, ethers.utils.parseEther("20"));
+
+        const maxAvgPrice = ethers.utils.parseEther("1.2");
+
+        const sim = await orderbook.connect(maker).callStatic.simulateMarketOrder(positionParams, 10, 0);
+        await orderbook.connect(maker).fillMarketOrderWithRoute(positionParams, 10, false, 0, sim, maxAvgPrice);
+
+        const balance = await erc1155.balanceOf(maker.address, yesId);
+        expect(balance).to.equal(9);
+
+        let totalCost = ethers.BigNumber.from(0);
+        let totalFilled = ethers.BigNumber.from(0);
+
+        for (let i = 0; i < sim.matchedOrderIds.length; i++) {
+            const orderId = sim.matchedOrderIds[i];
+            const order = await orderbook.getOrder(orderId);
+            const price = order.pricePerToken;
+            const amount = sim.matchedAmounts[i];
+
+            const fillAmount = ethers.BigNumber.from(amount);
+            totalCost = totalCost.add(fillAmount.mul(price));
+            totalFilled = totalFilled.add(fillAmount);
+        }
+
+        const actualAvgPrice = totalCost.mul(ethers.utils.parseEther("1")).div(totalFilled);
+        expect(actualAvgPrice.lte(maxAvgPrice)).to.be.true;
+
+    });
+
+    it("should revert if fillOrKill is true and avg price exceeds maxAveragePrice", async () => {
+        await orderbook.createLimitOrder(positionParams, 5, ethers.utils.parseEther("1.0"), 1, 0, 1);
+        await orderbook.createLimitOrder(positionParams, 5, ethers.utils.parseEther("1.5"), 1, 0, 1);
+
+        await erc20.mint(user.address, ethers.utils.parseEther("20"));
+        await erc20.connect(user).approve(diamondAddress, ethers.utils.parseEther("20"));
+
+        const maxAvgPrice = ethers.utils.parseEther("1.2");
+
+        const sim = await orderbook.connect(user).callStatic.simulateMarketOrder(positionParams, 10, 0);
+
+        await expect(
+            orderbook.connect(user).fillMarketOrderWithRoute(positionParams, 10, true, 0, sim, maxAvgPrice)
+        ).to.be.revertedWith("Orderbook: FillOrKill failed");
+    });
+
 });
