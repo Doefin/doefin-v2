@@ -34,10 +34,12 @@ async function deployDiamond() {
     'DiamondLoupeFacet',
     'OwnershipFacet',
     'ERC1155Facet',
+    'ERC1155ReceiverFacet',
     'ConditionalTokensFacet',
     'ConditionManagerFacet',
     'AccessControlFacet',
-    'AdminConfigFacet'
+    'AdminConfigFacet',
+    'OrderbookFacet'
   ]
   const cut = []
   for (const FacetName of FacetNames) {

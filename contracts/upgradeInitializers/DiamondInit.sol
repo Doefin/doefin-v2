@@ -20,8 +20,10 @@ import {IERC165} from "../interfaces/IERC165.sol";
 import {IConditionalTokens} from "../interfaces/IConditionalTokens.sol";
 import {IConditionManager} from "../interfaces/IConditionManager.sol";
 import {IERC1155Facet} from "../interfaces/IERC1155.sol";
+import {IERC1155TokenReceiver} from "../interfaces/IERC1155TokenReceiver.sol";
 import {IAccessControl} from "../interfaces/IAccessControl.sol";
 import {IAdminConfig} from "../interfaces/IAdminConfig.sol";
+import {IOrderbookFacet} from "../interfaces/IOrderbook.sol";
 
 // It is expected that this contract is customized if you want to deploy your diamond
 // with data from a deployment script. Use the init function to initialize state variables
@@ -40,8 +42,10 @@ contract DiamondInit {
         ds.supportedInterfaces[type(IConditionalTokens).interfaceId] = true;
         ds.supportedInterfaces[type(IConditionManager).interfaceId] = true;
         ds.supportedInterfaces[type(IERC1155Facet).interfaceId] = true;
+        ds.supportedInterfaces[type(IERC1155TokenReceiver).interfaceId] = true;
         ds.supportedInterfaces[type(IAccessControl).interfaceId] = true;
         ds.supportedInterfaces[type(IAdminConfig).interfaceId] = true;
+        ds.supportedInterfaces[type(IOrderbookFacet).interfaceId] = true;
 
         LibDoefinStorage.DiamondStorage storage dfs = LibDoefinStorage.diamondStorage();
         dfs.adminConfigStorage.feeReceiver = msg.sender;
