@@ -56,14 +56,24 @@ library LibDoefinStorage {
     }
 
     struct Position {
+        /// @notice ERC1155 token ID of the position being traded (e.g., YES/NO token)
         uint256 positionId;
+        /// @notice Index set indicating outcome slot(s): 1 = YES, 2 = NO, etc.
         uint256 indexSet;
+        /// @notice Address of the ERC20 collateral token used for settlement (e.g., USDC)
         address collateralToken;
+        /// @notice Condition ID that this order’s position belongs to
         bytes32 conditionId;
+        /// @notice Parent of the collection Id, for top-level conditions it's 0x0, it's non-zero for nested collections
+        bytes32 parentCollectionId;
     }
 
+    /// @notice Struct used to represent the result of a simulated or actual market order execution
+    /// @dev Each element in `matchedOrderIds` corresponds one-to-one with an entry in `matchedAmounts`
     struct MatchOrderRoute {
+        /// @notice Array of order IDs that were matched during simulation or execution
         uint256[] matchedOrderIds;
+        /// @notice Array of fill amounts corresponding to each matched order
         uint256[] matchedAmounts;
     }
 
@@ -74,8 +84,8 @@ library LibDoefinStorage {
         uint256 orderId;
         /// @notice Creator of the order
         address maker;
-        /// @notice ERC1155 token ID of the position being traded (e.g., YES/NO token)
-        uint256 positionId;
+        /// @notice Encapsulate position related vairables required for validation.
+        Position positionParams;
         /// @notice Total size of the order
         uint256 amount;
         /// @notice Amount of the order that has already been filled
@@ -88,14 +98,8 @@ library LibDoefinStorage {
         uint256 expiry;
         /// @notice Timestamp of the order creation time
         uint256 createdAt;
-        /// @notice Index set indicating outcome slot(s): 1 = YES, 2 = NO, etc.
-        uint256 indexSet;
-        /// @notice Address of the ERC20 collateral token used for settlement (e.g., USDC)
-        address collateralToken;
         /// @notice Whether the order is currently active (true = open, false = cancelled/filled/expired)
         bool active;
-        /// @notice Condition ID that this order’s position belongs to
-        bytes32 conditionId;
         /// @notice Buy or Sell side of the order
         OrderDirection direction;
         /// @dev Reserved gap for future upgrades
