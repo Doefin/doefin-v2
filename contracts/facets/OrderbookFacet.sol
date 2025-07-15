@@ -105,6 +105,17 @@ contract OrderbookFacet is IOrderbookFacet {
         uint256 maxAveragePrice
     ) external override {
         enforceValidPositionId(positionParams);
+        _fillMarketRouteInternal(positionParams, amount, fillOrKill, direction, matchOrderRoute, maxAveragePrice);
+    }
+
+    function _fillMarketRouteInternal(
+        LibDoefinStorage.Position calldata positionParams,
+        uint256 amount,
+        bool fillOrKill,
+        LibDoefinStorage.OrderDirection direction,
+        LibDoefinStorage.MatchOrderRoute calldata matchOrderRoute,
+        uint256 maxAveragePrice
+    ) internal {
         LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
         uint256 totalFilled;
         uint256 totalCost;
@@ -117,57 +128,31 @@ contract OrderbookFacet is IOrderbookFacet {
 
         for (uint256 i = 0; i < len; i++) {
             uint256 orderId = matchOrderRoute.matchedOrderIds[i];
-            uint256 proposedFillAmount = matchOrderRoute.matchedAmounts[i];
 
-            LibDoefinStorage.Order storage order = ds.orderbookStorage.orders[orderId];
+            LibDoefinStorage.FillContext memory ctx = LibDoefinStorage.FillContext({
+                amount: amount,
+                totalFilled: totalFilled,
+                maxAveragePrice: maxAveragePrice,
+                totalCost: totalCost
+            });
 
-            require(order.active, "Orderbook: Order inactive");
-            require(order.expiry == 0 || block.timestamp <= order.expiry, "Orderbook: Order expired");
-            require(order.amount - order.filledAmount >= proposedFillAmount, "Orderbook: Overfill");
+            LibDoefinStorage.SettleContext memory setlleCtx = LibDoefinStorage.SettleContext({
+                taker: msg.sender,
+                maker: msg.sender,
+                collateralToken: collateralToken,
+                positionId: positionId,
+                amount: 0,
+                cost: 0,
+                orderAvailable: 0,
+                direction: direction
+            });
 
-            uint256 remainingToFill = amount - totalFilled;
-            uint256 actualFillAmount = proposedFillAmount > remainingToFill ? remainingToFill : proposedFillAmount;
+            (setlleCtx.amount, setlleCtx.cost, setlleCtx.orderAvailable, setlleCtx.maker) = _calculateFreeMargin(orderId, ctx);
 
-            uint256 cost = actualFillAmount * order.pricePerToken;
-            uint256 projectedTotalCost = totalCost + cost;
-            uint256 projectedTotalFilled = totalFilled + actualFillAmount;
-            uint256 projectedAvgPrice = projectedTotalCost / projectedTotalFilled;
+            _settleTrade(setlleCtx);
 
-            if (maxAveragePrice > 0 && projectedAvgPrice > maxAveragePrice) {
-                if (fillOrKill) {
-                    revert("Orderbook: Slippage exceeded");
-                }
-                break;
-            }
-
-            address maker = order.maker;
-
-            if (direction == LibDoefinStorage.OrderDirection.Buy) {
-                // Taker pays collateral, receives ERC1155
-
-                // Transfer collateral from taker to maker
-                IERC20(collateralToken).safeTransferFrom(msg.sender, maker, cost);
-
-                // Transfer ERC1155 from escrow (locked by maker) to taker
-                LibERC1155.safeTransferFrom(address(this), address(this), msg.sender, positionId, actualFillAmount, "");
-            } else {
-                // Taker sells ERC1155 to maker, receives collateral
-
-                // Transfer ERC1155 from taker to maker
-                LibERC1155.safeTransferFrom(address(this), msg.sender, maker, positionId, actualFillAmount, "");
-
-                // Release collateral from escrow to taker
-                IERC20(collateralToken).safeTransfer(msg.sender, cost);
-            }
-
-            // Update order
-            order.filledAmount += actualFillAmount;
-            totalFilled += actualFillAmount;
-            totalCost += cost;
-
-            if (order.filledAmount == order.amount) {
-                order.active = false;
-            }
+            totalFilled += setlleCtx.amount;
+            totalCost += setlleCtx.cost;
 
             removeOrderIdFromArray(
                 direction == LibDoefinStorage.OrderDirection.Buy
@@ -178,7 +163,7 @@ contract OrderbookFacet is IOrderbookFacet {
 
             delete ds.orderbookStorage.orders[orderId];
 
-            emit MarketOrderFilled(orderId, msg.sender, actualFillAmount, cost, order.amount - order.filledAmount);
+            emit MarketOrderFilled(orderId, msg.sender, setlleCtx.amount, setlleCtx.cost, setlleCtx.orderAvailable);
 
             // Break early if we’ve filled requested amount
             if (totalFilled == amount) {
@@ -189,6 +174,57 @@ contract OrderbookFacet is IOrderbookFacet {
         if (fillOrKill) {
             require(totalFilled == amount, "Orderbook: FillOrKill failed");
         }
+    }
+
+    function _settleTrade(LibDoefinStorage.SettleContext memory ctx) internal {
+        if (ctx.direction == LibDoefinStorage.OrderDirection.Buy) {
+            // Taker pays collateral, receives ERC1155
+            IERC20(ctx.collateralToken).safeTransferFrom(ctx.taker, ctx.maker, ctx.cost);
+            LibERC1155.safeTransferFrom(address(this), address(this), ctx.taker, ctx.positionId, ctx.amount, "");
+        } else {
+            // Taker sells ERC1155 to maker, receives collateral
+            LibERC1155.safeTransferFrom(address(this), ctx.taker, ctx.maker, ctx.positionId, ctx.amount, "");
+            IERC20(ctx.collateralToken).safeTransfer(ctx.taker, ctx.cost);
+        }
+    }
+
+    function _calculateFreeMargin(
+        uint256 orderId,
+        LibDoefinStorage.FillContext memory ctx
+    ) internal returns (uint256 actualFillAmount, uint256 cost, uint256 orderAvailable, address maker) {
+        LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
+        LibDoefinStorage.Order storage order = ds.orderbookStorage.orders[orderId];
+
+        require(order.active, "Orderbook: Order inactive");
+        require(order.expiry == 0 || block.timestamp <= order.expiry, "Orderbook: Order expired");
+
+        uint256 remainingToFill = ctx.amount - ctx.totalFilled;
+        uint256 fillableAmountFromOrder = order.amount - order.filledAmount;
+
+        if (ctx.maxAveragePrice > 0) {
+            // Step 1: How much value is left to spend under the average constraint
+            uint256 maxTotalCostAllowed = ctx.maxAveragePrice * ctx.amount;
+            uint256 freeMargin = maxTotalCostAllowed - ctx.totalCost;
+
+            // Step 2: Based on the price of this order, how much can I fill?
+            uint256 maxFillableAtThisPrice = freeMargin / order.pricePerToken;
+
+            actualFillAmount = _min3(maxFillableAtThisPrice, fillableAmountFromOrder, remainingToFill);
+        } else {
+            actualFillAmount = (fillableAmountFromOrder > remainingToFill ? remainingToFill : fillableAmountFromOrder);
+        }
+        order.filledAmount += actualFillAmount;
+        cost = actualFillAmount * order.pricePerToken;
+        orderAvailable = order.amount - order.filledAmount;
+        maker = order.maker;
+    }
+
+    function _min3(uint256 a, uint256 b, uint256 c) internal pure returns (uint256) {
+        return _min(_min(a, b), c);
+    }
+
+    function _min(uint256 a, uint256 b) internal pure returns (uint256) {
+        return a < b ? a : b;
     }
 
     function modifyLimitOrder(uint256 orderId, uint256 newAmount, uint256 newPrice, uint256 newMinFillAmount, uint256 newExpiry) external override {}
