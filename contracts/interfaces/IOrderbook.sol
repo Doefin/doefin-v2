@@ -82,6 +82,24 @@ interface IOrderbookFacet {
         uint256 totalCost
     );
 
+    event EscrowLocked(
+        address indexed from,
+        address indexed asset,
+        uint256 positionId,
+        uint256 amount,
+        uint256 pricePerToken,
+        LibDoefinStorage.OrderDirection direction
+    );
+
+    event EscrowReleased(
+        address indexed to,
+        address indexed asset,
+        uint256 positionId,
+        uint256 amount,
+        uint256 pricePerToken,
+        LibDoefinStorage.OrderDirection direction
+    );
+
     /// @notice Emitted when expired or inactive orders are removed from storage
     /// @param orderIds Array of removed order IDs.
     event OrdersBatchCleaned(uint256[] orderIds);

@@ -34,7 +34,7 @@ contract OrderbookFacet is IOrderbookFacet {
         address collateralToken = positionParams.collateralToken;
 
         // Lock escrow from msg.sender to contract
-        LibEscrow.lockEscrow(msg.sender, amount, pricePerToken, positionId, collateralToken, direction);
+        _lockEscrowWithEvent(msg.sender, amount, pricePerToken, positionId, collateralToken, direction);
 
         if (direction == LibDoefinStorage.OrderDirection.Sell) {
             // Split positioin to own the Token and then sell it.
@@ -83,7 +83,14 @@ contract OrderbookFacet is IOrderbookFacet {
         uint256 remainingAmount = order.amount - order.filledAmount;
 
         if (remainingAmount > 0) {
-            LibEscrow.releaseEscrow(order.maker, remainingAmount, order.pricePerToken, order.positionParams.positionId, order.positionParams.collateralToken, order.direction);
+            _releaseEscrowWithEvent(
+                order.maker,
+                remainingAmount,
+                order.pricePerToken,
+                order.positionParams.positionId,
+                order.positionParams.collateralToken,
+                order.direction
+            );
         }
 
         emit OrderCanceled(orderId);
@@ -211,6 +218,7 @@ contract OrderbookFacet is IOrderbookFacet {
         uint256 amount,
         LibDoefinStorage.OrderDirection direction
     ) external view returns (uint256[] memory matchedOrderIds, uint256[] memory matchedAmounts, uint256 totalCost, uint256 averagePrice) {
+        enforceValidPositionId(positionParams);
         LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
 
         uint256[] storage book = direction == LibDoefinStorage.OrderDirection.Buy
@@ -322,6 +330,30 @@ contract OrderbookFacet is IOrderbookFacet {
     function getNextOrderId() external view override returns (uint256) {
         LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
         return ds.orderbookStorage.orders[0].orderId + 1;
+    }
+
+    function _releaseEscrowWithEvent(
+        address to,
+        uint256 amount,
+        uint256 pricePerToken,
+        uint256 positionId,
+        address collateralToken,
+        LibDoefinStorage.OrderDirection direction
+    ) internal {
+        LibEscrow.releaseEscrow(to, amount, pricePerToken, positionId, collateralToken, direction);
+        emit EscrowReleased(to, collateralToken, positionId, amount, pricePerToken, direction);
+    }
+
+    function _lockEscrowWithEvent(
+        address from,
+        uint256 amount,
+        uint256 pricePerToken,
+        uint256 positionId,
+        address collateralToken,
+        LibDoefinStorage.OrderDirection direction
+    ) internal {
+        LibEscrow.lockEscrow(from, amount, pricePerToken, positionId, collateralToken, direction);
+        emit EscrowLocked(from, collateralToken, positionId, amount, pricePerToken, direction);
     }
 
     function removeOrderIdFromArray(uint256[] storage arr, uint256 orderId) internal {
