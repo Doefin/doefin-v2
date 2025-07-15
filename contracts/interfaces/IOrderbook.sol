@@ -124,27 +124,19 @@ interface IOrderbookFacet {
 
     /// @notice Executes a market order against specific matched orders
     /// @dev Reverts if FillOrKill is true and full amount cannot be matched
-    /// @param positionId ERC1155 token ID being traded
+    /// @param positionParams includes all required data to compute positionId
     /// @param amount Total desired fill amount
-    /// @param indexSet YES/NO/multi-outcome index - used to validate the positionId
-    /// @param collateralToken Token used to pay/receive collateral
-    /// @param conditionId CTF condition involved - used to validate the positionId
     /// @param fillOrKill Whether the order must be completely filled or revert
     /// @param direction Buy or Sell
-    /// @param matchedOrderIds Array of matched limit order IDs
-    /// @param matchedAmounts Corresponding fill amounts for each matched order
+    /// @param matchOrderRoute Includes matchedOrderIds and matchedAmounts Arrayes of matched limit order IDs
     /// @param totalCost Total collateral to be spent (Buy) or received (Sell), must match simulation to prevent slippage
 
     function fillMarketOrderWithRoute(
-        uint256 positionId,
+        LibDoefinStorage.Position calldata positionParams,
         uint256 amount,
-        uint256 indexSet,
-        address collateralToken,
-        bytes32 conditionId,
         bool fillOrKill,
         LibDoefinStorage.OrderDirection direction,
-        uint256[] calldata matchedOrderIds,
-        uint256[] calldata matchedAmounts,
+        LibDoefinStorage.MatchOrderRoute calldata matchOrderRoute,
         uint256 totalCost
     ) external;
 
@@ -169,35 +161,23 @@ interface IOrderbookFacet {
     /// @return Order struct with full order details
     function getOrder(uint256 orderId) external view returns (LibDoefinStorage.Order memory);
 
-    /// @notice Fetches all orders associated with a positionId
-    /// @param positionId The ERC1155 token ID to query
-    /// @return List of Order structs
-    function getOrdersForPosition(uint256 positionId) external view returns (LibDoefinStorage.Order[] memory);
-
-    /// @notice Fetches all orders created by a user
-    /// @param maker Address of the order creator
-    /// @return Array of Order structs placed by the maker
-    function getOrdersByMaker(address maker) external view returns (LibDoefinStorage.Order[] memory);
+    /// @notice Retrieves the orderbook for a specific positionId and direction
+    /// @param positionId The Position ID of the orderbook
+    /// @return Ordirectionder Direction for the orderbook
+    /// @dev For test/debug only
+    function getOrderbook(uint256 positionId, LibDoefinStorage.OrderDirection direction) external view returns (uint256[] memory);
 
     /// @notice Simulates a market order to preview matched orders and pricing
-    /// @param positionId Position to buy/sell
+    /// @param positionParams includes all required data to compute positionId
     /// @param amount Amount to fill
-    /// @param indexSet YES/NO/multi-outcome index
-    /// @param collateralToken Token for settlement
-    /// @param conditionId CTF condition involved
-    /// @param fillOrKill Require complete fill?
     /// @param direction Buy or Sell
     /// @return matchedOrderIds IDs of matched limit orders
     /// @return matchedAmounts Corresponding fill amounts
     /// @return totalCost Total collateral required (if buying) or received (if selling)
     /// @return averagePrice Weighted average fill price
     function simulateMarketOrder(
-        uint256 positionId,
+        LibDoefinStorage.Position calldata positionParams,
         uint256 amount,
-        uint256 indexSet,
-        address collateralToken,
-        bytes32 conditionId,
-        bool fillOrKill,
         LibDoefinStorage.OrderDirection direction
     ) external view returns (uint256[] memory matchedOrderIds, uint256[] memory matchedAmounts, uint256 totalCost, uint256 averagePrice);
 
