@@ -55,6 +55,18 @@ library LibDoefinStorage {
         Sell
     }
 
+    struct Position {
+        uint256 positionId;
+        uint256 indexSet;
+        address collateralToken;
+        bytes32 conditionId;
+    }
+
+    struct MatchOrderRoute {
+        uint256[] matchedOrderIds;
+        uint256[] matchedAmounts;
+    }
+
     /// @notice Struct representing a single limit or market order
     /// @dev Each order maps to a specific ERC1155 position token and can be either a buy or a sell
     struct Order {
@@ -110,6 +122,7 @@ library LibDoefinStorage {
         AccessControlStorage accessControl;
         ERC1155Storage erc1155Storage;
         AdminConfigStorage adminConfigStorage;
+        OrderbookStorageStruct orderbookStorage;
         uint256[50] __gap;
     }
 
