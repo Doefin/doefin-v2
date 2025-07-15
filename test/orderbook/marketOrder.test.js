@@ -11,7 +11,8 @@ const {
 describe("OrderbookFacet - Extended Tests", function () {
     let owner, user, oracle;
     let diamondAddress, orderbook, erc20, erc1155, conditionalFacet, conditionManagerFacet;
-    let yesId, noId, yesAmount, noAmount, conditionId;
+    let questionId, outcomeSlotCount, conditionId, unit, parentCollectionId;
+    let yesId, noId, yesIndexSet, noIndexSet, yesAmount, noAmount, positionParams;
     let snapshotId;
 
     before(async function () {
@@ -30,9 +31,12 @@ describe("OrderbookFacet - Extended Tests", function () {
         await adminConfig.connect(owner).addCollateralToken(erc20.address, ethers.utils.parseEther("1"));
         await accessControlFacet.addMarketMaker(owner.address);
 
-        const questionId = ethers.utils.id("will-hashrate-increase?");
-        const outcomeSlotCount = 2;
+        questionId = ethers.utils.id("will-hashrate-increase?");
+        outcomeSlotCount = 2;
+        yesIndexSet = 1;
+        noIndexSet = 2;
         conditionId = getConditionId(oracle.address, questionId, outcomeSlotCount);
+        parentCollectionId = ethers.constants.HashZero;
 
         await conditionManagerFacet.connect(owner).createCondition(
             oracle.address,
@@ -41,7 +45,7 @@ describe("OrderbookFacet - Extended Tests", function () {
             "ipfs://dummy"
         );
 
-        const unit = ethers.utils.parseEther("1");
+        unit = ethers.utils.parseEther("1");
         const collateralAmount = unit.mul(2);
 
         const mintAmount = ethers.utils.parseEther("120")
@@ -55,7 +59,7 @@ describe("OrderbookFacet - Extended Tests", function () {
             ethers.constants.HashZero,
             conditionId,
             ethers.utils.parseEther("2"),
-            [1, 2]
+            [yesIndexSet, noIndexSet]
         );
 
         const receipt = await splitTx.wait();
@@ -65,6 +69,8 @@ describe("OrderbookFacet - Extended Tests", function () {
         noId = positionIds[1];
         yesAmount = amounts[0];
         noAmount = amounts[1];
+
+        positionParams = { positionId: yesId, indexSet: yesIndexSet, collateralToken: erc20.address, conditionId, parentCollectionId };
 
         await erc1155.connect(owner).setApprovalForAll(diamondAddress, true);
     });
@@ -79,42 +85,47 @@ describe("OrderbookFacet - Extended Tests", function () {
 
     it("should simulate and execute a BUY market order from multiple SELL limit orders", async () => {
         // Maker places 2 SELL orders for yesId
-        await orderbook.createLimitOrder(yesId, 5, ethers.utils.parseEther("1"), 1, 0, 1, erc20.address, conditionId, 1);
-        await orderbook.createLimitOrder(yesId, 5, ethers.utils.parseEther("1.2"), 1, 0, 1, erc20.address, conditionId, 1);
+        await orderbook.createLimitOrder(positionParams, 5, ethers.utils.parseEther("1"), 1, 0, 1);
+        await orderbook.createLimitOrder(positionParams, 5, ethers.utils.parseEther("1.2"), 1, 0, 1);
 
         // User mints collateral and approves
         await erc20.mint(user.address, ethers.utils.parseEther("20"));
         await erc20.connect(user).approve(diamondAddress, ethers.utils.parseEther("20"));
 
         // Simulate
-        const positionParams = { positionId: yesId, indexSet: 1, collateralToken: erc20.address, conditionId };
-        const sim = await orderbook.connect(user).callStatic.simulateMarketOrder(positionParams, 8, 0);
+        const [matchedOrderIds, matchedAmounts, totalCost, avgPrice] = await orderbook.connect(user).callStatic.simulateMarketOrder(positionParams, 8, 0);
+
+        expect(matchedOrderIds.length).to.equal(2);
+        expect(matchedAmounts[0]).to.equal(5);
+        expect(matchedAmounts[1]).to.equal(3);
+        const totalCostExpected = ethers.utils.parseEther("5").mul(ethers.utils.parseEther("1")).div(ethers.utils.parseEther("1"))
+            .add(
+                ethers.utils.parseEther("3").mul(ethers.utils.parseEther("1.2")).div(ethers.utils.parseEther("1"))
+            );
+        expect(totalCost).to.equal(totalCostExpected);
 
         // Execute
-        await orderbook.connect(user).fillMarketOrderWithRoute(positionParams, 8, false, 0, sim, 10);
+        await orderbook.connect(user).fillMarketOrderWithRoute(positionParams, 8, false, 0, {matchedOrderIds, matchedAmounts}, totalCost);
     });
 
     it("should simulate and execute a SELL market order from multiple BUY limit orders", async () => {
-        await orderbook.createLimitOrder(yesId, 5, ethers.utils.parseEther("1"), 1, 0, 1, erc20.address, conditionId, 0);
-        await orderbook.createLimitOrder(yesId, 5, ethers.utils.parseEther("0.8"), 1, 0, 1, erc20.address, conditionId, 0);
+        await orderbook.createLimitOrder(positionParams, 5, ethers.utils.parseEther("1"), 1, 0, 0);
+        await orderbook.createLimitOrder(positionParams, 5, ethers.utils.parseEther("0.8"), 1, 0, 0);
 
         await erc1155.connect(user).setApprovalForAll(diamondAddress, true);
         await erc1155.safeTransferFrom(owner.address, user.address, yesId, 10, "0x");
 
-        const positionParams = { positionId: yesId, indexSet: 1, collateralToken: erc20.address, conditionId };
         const sim = await orderbook.connect(user).callStatic.simulateMarketOrder(positionParams, 8, 1);
         await orderbook.connect(user).fillMarketOrderWithRoute(positionParams, 8, false, 1, sim, 10);
     });
 
     it("should revert if fillOrKill is true and not enough liquidity", async () => {
-        await orderbook.createLimitOrder(yesId, 5, ethers.utils.parseEther("1"), 1, 0, 1, erc20.address, conditionId, 1);
-        const positionParams = { positionId: yesId, indexSet: 1, collateralToken: erc20.address, conditionId };
+        await orderbook.createLimitOrder(positionParams, 5, ethers.utils.parseEther("1"), 1, 0, 1);
         await expect(orderbook.simulateMarketOrder(positionParams, 6, 1)).to.be.revertedWith("simulateMarketOrder: Couldn't satisify the ammount");
     });
 
     it("should remove orders fully filled", async () => {
-        await orderbook.createLimitOrder(yesId, 3, ethers.utils.parseEther("1"), 1, 0, 1, erc20.address, conditionId, 1);
-        const positionParams = { positionId: yesId, indexSet: 1, collateralToken: erc20.address, conditionId };
+        await orderbook.createLimitOrder(positionParams, 3, ethers.utils.parseEther("1"), 1, 0, 1);
         const sim = await orderbook.simulateMarketOrder(positionParams, 3, 0);
         await orderbook.fillMarketOrderWithRoute(positionParams, 3, false, 0, sim, 10);
         const updatedSim = await orderbook.simulateMarketOrder(positionParams, 1, 0).catch(() => true);
@@ -123,15 +134,14 @@ describe("OrderbookFacet - Extended Tests", function () {
 
     it("should skip expired orders", async () => {
         const now = (await ethers.provider.getBlock()).timestamp;
-        await orderbook.createLimitOrder(yesId, 5, ethers.utils.parseEther("1"), 1, now - 10, 1, erc20.address, conditionId, 1);
-        const positionParams = { positionId: yesId, indexSet: 1, collateralToken: erc20.address, conditionId };
+        await orderbook.createLimitOrder(positionParams, 5, ethers.utils.parseEther("1"), 1, now - 10, 1);
         await expect(orderbook.simulateMarketOrder(positionParams, 1, 0)).to.be.revertedWith("simulateMarketOrder: Couldn't satisify the ammount");
     });
 
     it("should keep order list sorted after inserts", async () => {
-        await orderbook.createLimitOrder(yesId, 5, ethers.utils.parseEther("2.0"), 1, 0, 1, erc20.address, conditionId, 1);
-        await orderbook.createLimitOrder(yesId, 5, ethers.utils.parseEther("1.5"), 1, 0, 1, erc20.address, conditionId, 1);
-        await orderbook.createLimitOrder(yesId, 5, ethers.utils.parseEther("1.0"), 1, 0, 1, erc20.address, conditionId, 1);
+        await orderbook.createLimitOrder(positionParams, 5, ethers.utils.parseEther("2.0"), 1, 0, 1);
+        await orderbook.createLimitOrder(positionParams, 5, ethers.utils.parseEther("1.5"), 1, 0, 1);
+        await orderbook.createLimitOrder(positionParams, 5, ethers.utils.parseEther("1.0"), 1, 0, 1);
         const book = await orderbook.getOrderbook(yesId, 1);
         const prices = await Promise.all(book.map(id => orderbook.getOrder(id).then(o => o.pricePerToken)));
         const sorted = [...prices].sort((a, b) => (a.lt(b) ? -1 : a.gt(b) ? 1 : 0));
