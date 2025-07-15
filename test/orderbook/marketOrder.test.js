@@ -9,14 +9,14 @@ const {
 } = require("../utils.js")
 
 describe("OrderbookFacet - Extended Tests", function () {
-    let owner, user, oracle;
+    let owner, user, maker, oracle;
     let diamondAddress, orderbook, erc20, erc1155, conditionalFacet, conditionManagerFacet;
-    let questionId, outcomeSlotCount, conditionId, unit, parentCollectionId;
+    let questionId, outcomeSlotCount, conditionId, mintAmount, unit, parentCollectionId;
     let yesId, noId, yesIndexSet, noIndexSet, yesAmount, noAmount, positionParams;
     let snapshotId;
 
     before(async function () {
-        [owner, user, oracle] = await ethers.getSigners();
+        [owner, user, maker, oracle] = await ethers.getSigners();
 
         erc20 = await deployMockERC20("MockToken", "MOCK");
 
@@ -48,7 +48,7 @@ describe("OrderbookFacet - Extended Tests", function () {
         unit = ethers.utils.parseEther("1");
         const collateralAmount = unit.mul(2);
 
-        const mintAmount = ethers.utils.parseEther("120")
+        mintAmount = ethers.utils.parseEther("120")
 
         await erc20.mint(owner.address, mintAmount);
         await erc20.connect(owner).approve(diamondAddress, mintAmount);
@@ -105,7 +105,7 @@ describe("OrderbookFacet - Extended Tests", function () {
         expect(totalCost).to.equal(totalCostExpected);
 
         // Execute
-        await orderbook.connect(user).fillMarketOrderWithRoute(positionParams, 8, false, 0, {matchedOrderIds, matchedAmounts}, totalCost);
+        await orderbook.connect(user).fillMarketOrderWithRoute(positionParams, 8, false, 0, { matchedOrderIds, matchedAmounts }, totalCost);
     });
 
     it("should simulate and execute a SELL market order from multiple BUY limit orders", async () => {
@@ -146,5 +146,34 @@ describe("OrderbookFacet - Extended Tests", function () {
         const prices = await Promise.all(book.map(id => orderbook.getOrder(id).then(o => o.pricePerToken)));
         const sorted = [...prices].sort((a, b) => (a.lt(b) ? -1 : a.gt(b) ? 1 : 0));
         expect(prices.map(p => p.toString())).to.eql(sorted.map(p => p.toString()));
+    });
+
+    it("should respect price-time priority when inserting orders", async () => {
+        await erc20.mint(maker.address, mintAmount);
+        await erc20.connect(maker).approve(diamondAddress, mintAmount);
+
+        await erc20.mint(user.address, mintAmount);
+        await erc20.connect(user).approve(diamondAddress, mintAmount);
+
+        // Order 1 (earlier timestamp)
+        await orderbook.connect(maker).createLimitOrder(positionParams, 5, ethers.utils.parseEther("1.0"), 1, 0, 0);
+        const firstOrderId = await orderbook.getNextOrderId() - 1;
+
+        // Order 2 (same price, different creator, later time)
+        await orderbook.connect(user).createLimitOrder(positionParams, 5, ethers.utils.parseEther("1.0"), 1, 0, 0);
+        const secondOrderId = await orderbook.getNextOrderId() - 1;
+
+        // Order 3 (same price, different creator, later time)
+        await orderbook.createLimitOrder(positionParams, 5, ethers.utils.parseEther("1.0"), 1, 0, 0);
+        const thirdOrderId = await orderbook.getNextOrderId() - 1;
+
+        // Simulate a market buy
+        const result = await orderbook.callStatic.simulateMarketOrder(positionParams, 12, 1);
+        const [matchedOrderIds, matchedAmounts] = result;
+
+        expect(matchedOrderIds[0]).to.equal(firstOrderId); 
+        expect(matchedOrderIds[1]).to.equal(secondOrderId);
+        expect(matchedOrderIds[2]).to.equal(thirdOrderId);
+
     });
 });
