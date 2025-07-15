@@ -100,25 +100,19 @@ interface IOrderbookFacet {
     /// ------------------------------
 
     /// @notice Create a new limit order on the orderbook
-    /// @param positionId ERC1155 token ID for the position being traded
+    /// @param positionParams includes all required data to compute positionId
     /// @param amount Total amount of tokens to trade
     /// @param pricePerToken Price per token in collateral units
     /// @param minFillAmount Minimum acceptable fill in a single match
     /// @param expiry Timestamp when the order becomes invalid (0 = no expiry)
-    /// @param indexSet Index representing YES/NO/multi-outcome in the condition - used to validate the positionId
-    /// @param collateralToken Address of ERC20 token used for settlement
-    /// @param conditionId The CTF condition this order pertains to - used to validate the positionId
     /// @param direction Whether the order is Buy or Sell
     /// @return orderId The ID of the newly created order
     function createLimitOrder(
-        uint256 positionId,
+        LibDoefinStorage.Position calldata positionParams,
         uint256 amount,
         uint256 pricePerToken,
         uint256 minFillAmount,
         uint256 expiry,
-        uint256 indexSet,
-        address collateralToken,
-        bytes32 conditionId,
         LibDoefinStorage.OrderDirection direction
     ) external returns (uint256 orderId);
 

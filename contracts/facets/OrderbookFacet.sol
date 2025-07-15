@@ -5,6 +5,7 @@ pragma solidity ^0.8.6;
 
 import {IOrderbookFacet} from "../interfaces/IOrderbook.sol";
 import {LibDoefinStorage} from "../libraries/LibDoefinStorage.sol";
+import {LibCTHelpers} from "../libraries/LibCTHelpers.sol";
 import {LibERC1155} from "../libraries/LibERC1155.sol";
 import {LibEscrow} from "../libraries/LibEscrow.sol";
 import {LibERC1155} from "../libraries/LibERC1155.sol";
@@ -14,21 +15,23 @@ contract OrderbookFacet is IOrderbookFacet {
     using SafeERC20 for IERC20;
 
     function createLimitOrder(
-        uint256 positionId,
+        LibDoefinStorage.Position calldata positionParams,
         uint256 amount,
         uint256 pricePerToken,
         uint256 minFillAmount,
         uint256 expiry,
-        uint256 indexSet,
-        address collateralToken,
-        bytes32 conditionId,
         LibDoefinStorage.OrderDirection direction
     ) external override returns (uint256 orderId) {
+        enforceValidPositionId(positionParams);
         LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
 
         // Generate new order ID
         orderId = ds.orderbookStorage.orders[0].orderId + 1;
         ds.orderbookStorage.orders[0].orderId = orderId;
+
+        uint256 positionId = positionParams.positionId;
+        bytes32 conditionId = positionParams.conditionId;
+        address collateralToken = positionParams.collateralToken;
 
         // Lock escrow from msg.sender to contract
         LibEscrow.lockEscrow(msg.sender, amount, pricePerToken, positionId, collateralToken, direction);
@@ -40,17 +43,14 @@ contract OrderbookFacet is IOrderbookFacet {
         LibDoefinStorage.Order memory order = LibDoefinStorage.Order({
             orderId: orderId,
             maker: msg.sender,
-            positionId: positionId,
+            positionParams: positionParams,
             amount: amount,
             filledAmount: 0,
             minFillAmount: minFillAmount,
             pricePerToken: pricePerToken,
             expiry: expiry,
             createdAt: block.timestamp,
-            indexSet: indexSet,
-            collateralToken: collateralToken,
             active: true,
-            conditionId: conditionId,
             direction: direction,
             __gap: [uint256(0), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
         });
@@ -83,7 +83,7 @@ contract OrderbookFacet is IOrderbookFacet {
         uint256 remainingAmount = order.amount - order.filledAmount;
 
         if (remainingAmount > 0) {
-            LibEscrow.releaseEscrow(order.maker, remainingAmount, order.pricePerToken, order.positionId, order.collateralToken, order.direction);
+            LibEscrow.releaseEscrow(order.maker, remainingAmount, order.pricePerToken, order.positionParams.positionId, order.positionParams.collateralToken, order.direction);
         }
 
         emit OrderCanceled(orderId);
@@ -97,6 +97,7 @@ contract OrderbookFacet is IOrderbookFacet {
         LibDoefinStorage.MatchOrderRoute calldata matchOrderRoute,
         uint256 totalCost
     ) external override {
+        enforceValidPositionId(positionParams);
         LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
         uint256 totalFilled;
         uint256 len = matchOrderRoute.matchedOrderIds.length;
@@ -176,8 +177,8 @@ contract OrderbookFacet is IOrderbookFacet {
                 order.active = false;
 
                 uint256[] storage book = order.direction == LibDoefinStorage.OrderDirection.Buy
-                    ? ds.orderbookStorage.buyOrdersByPosition[order.positionId]
-                    : ds.orderbookStorage.sellOrdersByPosition[order.positionId];
+                    ? ds.orderbookStorage.buyOrdersByPosition[order.positionParams.positionId]
+                    : ds.orderbookStorage.sellOrdersByPosition[order.positionParams.positionId];
 
                 // Remove orderId from the order book array
                 for (uint256 j = 0; j < book.length; j++) {
@@ -189,6 +190,12 @@ contract OrderbookFacet is IOrderbookFacet {
                 }
             }
         }
+    }
+
+    function enforceValidPositionId(LibDoefinStorage.Position calldata pos) internal view {
+        bytes32 collectionId = LibCTHelpers.getCollectionId(pos.parentCollectionId, pos.conditionId, pos.indexSet);
+        uint256 expectedPositionId = LibCTHelpers.getPositionId(pos.collateralToken, collectionId);
+        require(expectedPositionId == pos.positionId, "Orderbook: Invalid positionId");
     }
 
     /// @notice Simulates a market order to preview matched orders and pricing
