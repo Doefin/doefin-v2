@@ -55,6 +55,24 @@ library LibDoefinStorage {
         Sell
     }
 
+    struct FillContext {
+        uint256 amount;
+        uint256 totalFilled;
+        uint256 maxAveragePrice;
+        uint256 totalCost;
+    }
+
+    struct SettleContext {
+        address taker;
+        address maker;
+        address collateralToken;
+        uint256 positionId;
+        uint256 amount;
+        uint256 cost;
+        uint256 orderAvailable;
+        OrderDirection direction;
+    }
+
     struct Position {
         /// @notice ERC1155 token ID of the position being traded (e.g., YES/NO token)
         uint256 positionId;
