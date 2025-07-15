@@ -134,4 +134,73 @@ describe("OrderbookFacet", function () {
         await expect(orderbook.connect(owner).cancelOrder(1)).to.be.revertedWith("Orderbook: Order is inactive or already canceled");
     });
 
+    it("should revert if positionId is invalid (not derived from conditionId, indexSet, collateralToken, parentCollectionId)", async () => {
+        const invalidPositionParams = {
+            positionId: yesId,
+            indexSet: 2,
+            collateralToken: erc20.address,
+            conditionId,
+            parentCollectionId
+        };
+
+        await expect(
+            orderbook.connect(user).simulateMarketOrder(invalidPositionParams, 1, 0)
+        ).to.be.revertedWith("Orderbook: Invalid positionId");
+
+        await expect(
+            orderbook.connect(user).fillMarketOrderWithRoute(invalidPositionParams, 1, false, 0, {
+                matchedOrderIds: [],
+                matchedAmounts: [],
+                totalCost: 0
+            }, 10)
+        ).to.be.revertedWith("Orderbook: Invalid positionId");
+    });
+
+    it("should emit EscrowLocked when creating a SELL limit order", async () => {
+        const amount = 5;
+        await erc1155.safeTransferFrom(owner.address, user.address, yesId, amount, "0x");
+        await erc1155.connect(user).setApprovalForAll(diamondAddress, true);
+
+        const sellParams = { ...positionParams };
+
+        await expect(orderbook.connect(user).createLimitOrder(
+            sellParams, amount, ethers.utils.parseEther("1"), 0, 0, 1 // direction = Sell
+        )).to.emit(orderbook, "EscrowLocked").withArgs(
+            user.address,
+            positionParams.collateralToken,
+            positionParams.positionId,
+            amount,
+            ethers.utils.parseEther("1"),
+            1 // Sell
+        );
+    });
+
+    it("should emit EscrowReleased when cancelling a BUY order", async () => {
+        const price = ethers.utils.parseEther("1.0");
+        const amount = 5;
+        const totalCost = price.mul(amount);
+
+        await erc20.mint(owner.address, totalCost);
+        await erc20.connect(owner).approve(diamondAddress, totalCost);
+
+        const tx = await orderbook.connect(owner).createLimitOrder(
+            positionParams, amount, price, 0, 0, 0 // direction = Buy
+        );
+
+        const receipt = await tx.wait();
+        const orderCreatedEvent = receipt.events.find(e => e.event === "OrderCreated");
+        const orderId = orderCreatedEvent.args.orderId;
+
+        await expect(orderbook.connect(owner).cancelOrder(orderId)).to.emit(orderbook, "EscrowReleased").withArgs(
+            owner.address,
+            positionParams.collateralToken,
+            positionParams.positionId,
+            amount,
+            price,
+            0 // Buy
+        );
+    });
+
+
+
 });
