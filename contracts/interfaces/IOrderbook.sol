@@ -141,7 +141,7 @@ interface IOrderbookFacet {
     /// @param fillOrKill Whether the order must be completely filled or revert
     /// @param direction Buy or Sell
     /// @param matchOrderRoute Includes matchedOrderIds and matchedAmounts Arrayes of matched limit order IDs
-    /// @param totalCost Total collateral to be spent (Buy) or received (Sell), must match simulation to prevent slippage
+    /// @param maxAveragePrice Max accepted average price per unit of token
 
     function fillMarketOrderWithRoute(
         LibDoefinStorage.Position calldata positionParams,
@@ -149,7 +149,7 @@ interface IOrderbookFacet {
         bool fillOrKill,
         LibDoefinStorage.OrderDirection direction,
         LibDoefinStorage.MatchOrderRoute calldata matchOrderRoute,
-        uint256 totalCost
+        uint256 maxAveragePrice
     ) external;
 
     /// @notice Cancels an open order by ID

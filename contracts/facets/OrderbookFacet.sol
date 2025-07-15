@@ -102,53 +102,68 @@ contract OrderbookFacet is IOrderbookFacet {
         bool fillOrKill,
         LibDoefinStorage.OrderDirection direction,
         LibDoefinStorage.MatchOrderRoute calldata matchOrderRoute,
-        uint256 totalCost
+        uint256 maxAveragePrice
     ) external override {
         enforceValidPositionId(positionParams);
         LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
         uint256 totalFilled;
+        uint256 totalCost;
         uint256 len = matchOrderRoute.matchedOrderIds.length;
+
+        require(len == matchOrderRoute.matchedAmounts.length, "Orderbook: Length mismatch");
 
         address collateralToken = positionParams.collateralToken;
         uint256 positionId = positionParams.positionId;
 
-        require(len == matchOrderRoute.matchedAmounts.length, "Orderbook: Length mismatch");
-
         for (uint256 i = 0; i < len; i++) {
             uint256 orderId = matchOrderRoute.matchedOrderIds[i];
-            uint256 fillAmount = matchOrderRoute.matchedAmounts[i];
+            uint256 proposedFillAmount = matchOrderRoute.matchedAmounts[i];
 
             LibDoefinStorage.Order storage order = ds.orderbookStorage.orders[orderId];
 
             require(order.active, "Orderbook: Order inactive");
             require(order.expiry == 0 || block.timestamp <= order.expiry, "Orderbook: Order expired");
-            require(order.amount - order.filledAmount >= fillAmount, "Orderbook: Overfill");
+            require(order.amount - order.filledAmount >= proposedFillAmount, "Orderbook: Overfill");
+
+            uint256 remainingToFill = amount - totalFilled;
+            uint256 actualFillAmount = proposedFillAmount > remainingToFill ? remainingToFill : proposedFillAmount;
+
+            uint256 cost = actualFillAmount * order.pricePerToken;
+            uint256 projectedTotalCost = totalCost + cost;
+            uint256 projectedTotalFilled = totalFilled + actualFillAmount;
+            uint256 projectedAvgPrice = projectedTotalCost / projectedTotalFilled;
+
+            if (maxAveragePrice > 0 && projectedAvgPrice > maxAveragePrice) {
+                if (fillOrKill) {
+                    revert("Orderbook: Slippage exceeded");
+                }
+                break;
+            }
 
             address maker = order.maker;
 
             if (direction == LibDoefinStorage.OrderDirection.Buy) {
                 // Taker pays collateral, receives ERC1155
-                uint256 cost = fillAmount * order.pricePerToken;
 
                 // Transfer collateral from taker to maker
                 IERC20(collateralToken).safeTransferFrom(msg.sender, maker, cost);
 
                 // Transfer ERC1155 from escrow (locked by maker) to taker
-                LibERC1155.safeTransferFrom(address(this), address(this), msg.sender, positionId, fillAmount, "");
+                LibERC1155.safeTransferFrom(address(this), address(this), msg.sender, positionId, actualFillAmount, "");
             } else {
                 // Taker sells ERC1155 to maker, receives collateral
-                uint256 payout = fillAmount * order.pricePerToken;
 
                 // Transfer ERC1155 from taker to maker
-                LibERC1155.safeTransferFrom(address(this), msg.sender, maker, positionId, fillAmount, "");
+                LibERC1155.safeTransferFrom(address(this), msg.sender, maker, positionId, actualFillAmount, "");
 
                 // Release collateral from escrow to taker
-                IERC20(collateralToken).safeTransfer(msg.sender, payout);
+                IERC20(collateralToken).safeTransfer(msg.sender, cost);
             }
 
             // Update order
-            order.filledAmount += fillAmount;
-            totalFilled += fillAmount;
+            order.filledAmount += actualFillAmount;
+            totalFilled += actualFillAmount;
+            totalCost += cost;
 
             if (order.filledAmount == order.amount) {
                 order.active = false;
@@ -163,7 +178,12 @@ contract OrderbookFacet is IOrderbookFacet {
 
             delete ds.orderbookStorage.orders[orderId];
 
-            emit MarketOrderFilled(orderId, msg.sender, fillAmount, fillAmount * order.pricePerToken, order.amount - order.filledAmount);
+            emit MarketOrderFilled(orderId, msg.sender, actualFillAmount, cost, order.amount - order.filledAmount);
+
+            // Break early if we’ve filled requested amount
+            if (totalFilled == amount) {
+                break;
+            }
         }
 
         if (fillOrKill) {
