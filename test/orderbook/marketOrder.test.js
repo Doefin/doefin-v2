@@ -242,4 +242,49 @@ describe("OrderbookFacet - Extended Tests", function () {
         ).to.be.revertedWith("Orderbook: FillOrKill failed");
     });
 
+    it("should correctly charge maker and taker fees on a BUY market order", async () => {
+        const adminConfig = await ethers.getContractAt("AdminConfigFacet", diamondAddress);
+        const feeReceiver = owner.address;
+
+        // Set trading fees
+        await adminConfig.setTradingFeesBps(200, 100); // 2% maker fee, 1% taker fee
+        await adminConfig.setFeeReceiver(feeReceiver);
+
+        // Maker creates a SELL order (price = 1.0)
+        await orderbook.createLimitOrder(positionParams, 5, ethers.utils.parseEther("1.0"), 1, 0, 1);
+
+        // Taker (user) mints collateral
+        const collateralBefore = ethers.utils.parseEther("10");
+        await erc20.mint(user.address, collateralBefore);
+        await erc20.connect(user).approve(diamondAddress, collateralBefore);
+
+        // Record balances
+        const balBefore = {
+            taker: await erc20.balanceOf(user.address),
+            maker: await erc20.balanceOf(owner.address),
+            fee: await erc20.balanceOf(feeReceiver),
+        };
+
+        const sim = await orderbook.connect(user).callStatic.simulateMarketOrder(positionParams, 5, 0);
+        await orderbook.connect(user).fillMarketOrderWithRoute(positionParams, 5, false, 0, sim, 0);
+
+        const balAfter = {
+            taker: await erc20.balanceOf(user.address),
+            maker: await erc20.balanceOf(owner.address),
+            fee: await erc20.balanceOf(feeReceiver),
+        };
+
+        const cost = ethers.utils.parseEther("5"); // 5 tokens at 1.0 = 5 USDT
+        const makerFee = cost.mul(200).div(10_000); // 2%
+        const takerFee = cost.mul(100).div(10_000); // 1%
+
+        expect(balAfter.taker).to.equal(balBefore.taker.sub(cost).sub(takerFee));
+        expect(balAfter.maker).to.equal(balBefore.maker.add(cost).sub(makerFee));
+        expect(balAfter.fee).to.equal(balBefore.fee.add(makerFee).add(takerFee));
+
+        const positionBal = await erc1155.balanceOf(user.address, yesId);
+        expect(positionBal).to.equal(5);
+    });
+
+
 });
