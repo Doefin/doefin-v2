@@ -8,7 +8,6 @@ import {LibDoefinStorage} from "../libraries/LibDoefinStorage.sol";
 import {LibCTHelpers} from "../libraries/LibCTHelpers.sol";
 import {LibERC1155} from "../libraries/LibERC1155.sol";
 import {LibEscrow} from "../libraries/LibEscrow.sol";
-import {LibERC1155} from "../libraries/LibERC1155.sol";
 import {SafeERC20, IERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 contract OrderbookFacet is IOrderbookFacet {
@@ -136,7 +135,7 @@ contract OrderbookFacet is IOrderbookFacet {
                 totalCost: totalCost
             });
 
-            LibDoefinStorage.SettleContext memory setlleCtx = LibDoefinStorage.SettleContext({
+            LibDoefinStorage.SettleContext memory settleCtx = LibDoefinStorage.SettleContext({
                 taker: msg.sender,
                 maker: msg.sender,
                 collateralToken: collateralToken,
@@ -147,12 +146,12 @@ contract OrderbookFacet is IOrderbookFacet {
                 direction: direction
             });
 
-            (setlleCtx.amount, setlleCtx.cost, setlleCtx.orderAvailable, setlleCtx.maker) = _calculateFreeMargin(orderId, ctx);
+            (settleCtx.amount, settleCtx.cost, settleCtx.orderAvailable, settleCtx.maker) = _calculateFreeMargin(orderId, ctx);
 
-            _settleTrade(setlleCtx);
+            _settleTradeWithFees(settleCtx);
 
-            totalFilled += setlleCtx.amount;
-            totalCost += setlleCtx.cost;
+            totalFilled += settleCtx.amount;
+            totalCost += settleCtx.cost;
 
             removeOrderIdFromArray(
                 direction == LibDoefinStorage.OrderDirection.Buy
@@ -163,7 +162,7 @@ contract OrderbookFacet is IOrderbookFacet {
 
             delete ds.orderbookStorage.orders[orderId];
 
-            emit MarketOrderFilled(orderId, msg.sender, setlleCtx.amount, setlleCtx.cost, setlleCtx.orderAvailable);
+            emit MarketOrderFilled(orderId, msg.sender, settleCtx.amount, settleCtx.cost, settleCtx.orderAvailable);
 
             // Break early if we’ve filled requested amount
             if (totalFilled == amount) {
@@ -176,15 +175,30 @@ contract OrderbookFacet is IOrderbookFacet {
         }
     }
 
-    function _settleTrade(LibDoefinStorage.SettleContext memory ctx) internal {
+    function _settleTradeWithFees(LibDoefinStorage.SettleContext memory ctx) internal {
+        LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
+
+        address feeReceiver = ds.adminConfigStorage.feeReceiver;
+        uint256 makerFeeBps = ds.adminConfigStorage.makerTradingFeeBps;
+        uint256 takerFeeBps = ds.adminConfigStorage.takerTradingFeeBps;
+
+        require(feeReceiver != address(0), "Orderbook: Fee receiver not set");
+
+        uint256 makerFee = (ctx.cost * makerFeeBps) / 10_000;
+        uint256 takerFee = (ctx.cost * takerFeeBps) / 10_000;
+
         if (ctx.direction == LibDoefinStorage.OrderDirection.Buy) {
-            // Taker pays collateral, receives ERC1155
-            IERC20(ctx.collateralToken).safeTransferFrom(ctx.taker, ctx.maker, ctx.cost);
-            LibERC1155.safeTransferFrom(address(this), address(this), ctx.taker, ctx.positionId, ctx.amount, "");
+            // Taker is BUYING — pays cost + takerFee
+            IERC20(ctx.collateralToken).safeTransferFrom(ctx.taker, ctx.maker, ctx.cost - makerFee); // To maker
+            IERC20(ctx.collateralToken).safeTransferFrom(ctx.taker, feeReceiver, takerFee + makerFee); // Fee
+
+            LibERC1155.safeTransferFrom(address(this), address(this), ctx.taker, ctx.positionId, ctx.amount, ""); // Position from escrow to taker
         } else {
-            // Taker sells ERC1155 to maker, receives collateral
-            LibERC1155.safeTransferFrom(address(this), ctx.taker, ctx.maker, ctx.positionId, ctx.amount, "");
-            IERC20(ctx.collateralToken).safeTransfer(ctx.taker, ctx.cost);
+            // Taker is SELLING — receives cost - makerFee
+            IERC20(ctx.collateralToken).safeTransfer(ctx.taker, ctx.cost - takerFee); // To taker
+            IERC20(ctx.collateralToken).safeTransfer(feeReceiver, takerFee + makerFee); // Fee
+
+            LibERC1155.safeTransferFrom(address(this), ctx.taker, ctx.maker, ctx.positionId, ctx.amount, ""); // Position from taker to maker
         }
     }
 
