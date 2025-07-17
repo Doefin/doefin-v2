@@ -62,6 +62,11 @@ library LibDoefinStorage {
         uint256 totalCost;
     }
 
+    struct OrderFeeConfig {
+        uint256 makerFeeBps;
+        uint256 takerFeeBps;
+    }
+
     struct SettleContext {
         address taker;
         address maker;
@@ -71,6 +76,7 @@ library LibDoefinStorage {
         uint256 cost;
         uint256 orderAvailable;
         OrderDirection direction;
+        OrderFeeConfig orderFeeConfig;
     }
 
     struct Position {
@@ -120,6 +126,8 @@ library LibDoefinStorage {
         bool active;
         /// @notice Buy or Sell side of the order
         OrderDirection direction;
+        /// @notice Maker and Taker Fees
+        OrderFeeConfig orderFeeConfig;
         /// @dev Reserved gap for future upgrades
         uint256[20] __gap;
     }
@@ -138,6 +146,12 @@ library LibDoefinStorage {
         uint256[20] __gap;
     }
 
+    struct EscrowStorage {
+        mapping(address => mapping(address => uint256)) collateralBalances; // user => ERC20 token => amount
+        mapping(address => mapping(uint256 => uint256)) lockedERC1155Balances; // user => positionId => amount
+        mapping(address => uint256) protocolFees; // ERC20 token => total accumulated
+    }
+
     struct DiamondStorage {
         ConditionalTokensStorage conditionalTokens;
         ConditionManagerStorage conditionManager;
@@ -145,6 +159,7 @@ library LibDoefinStorage {
         ERC1155Storage erc1155Storage;
         AdminConfigStorage adminConfigStorage;
         OrderbookStorageStruct orderbookStorage;
+        EscrowStorage escrowStorage;
         uint256[50] __gap;
     }
 
