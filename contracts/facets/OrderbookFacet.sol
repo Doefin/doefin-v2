@@ -7,7 +7,7 @@ import {IOrderbookFacet} from "../interfaces/IOrderbook.sol";
 import {LibDoefinStorage} from "../libraries/LibDoefinStorage.sol";
 import {LibCTHelpers} from "../libraries/LibCTHelpers.sol";
 import {LibERC1155} from "../libraries/LibERC1155.sol";
-import {LibEscrow} from "../libraries/LibEscrow.sol";
+import {LibEscrowLogic} from "../libraries/LibEscrowLogic.sol";
 import {SafeERC20, IERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 contract OrderbookFacet is IOrderbookFacet {
@@ -39,6 +39,8 @@ contract OrderbookFacet is IOrderbookFacet {
             // Split positioin to own the Token and then sell it.
         }
 
+        LibDoefinStorage.OrderFeeConfig memory orderFeeConfig = LibEscrowLogic.getMarketFees();
+
         LibDoefinStorage.Order memory order = LibDoefinStorage.Order({
             orderId: orderId,
             maker: msg.sender,
@@ -51,6 +53,7 @@ contract OrderbookFacet is IOrderbookFacet {
             createdAt: block.timestamp,
             active: true,
             direction: direction,
+            orderFeeConfig: orderFeeConfig,
             __gap: [uint256(0), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
         });
 
@@ -72,7 +75,6 @@ contract OrderbookFacet is IOrderbookFacet {
 
         LibDoefinStorage.Order storage order = ds.orderbookStorage.orders[orderId];
 
-        require(order.active, "Orderbook: Order is inactive or already canceled");
         require(order.maker == msg.sender, "Orderbook: Only maker can cancel");
 
         // Mark order inactive
@@ -104,7 +106,66 @@ contract OrderbookFacet is IOrderbookFacet {
         uint256 maxAveragePrice
     ) external override {
         enforceValidPositionId(positionParams);
+        _validateMatchRouteInputs(matchOrderRoute);
+        // Define a new struct for amount, fillOrKill, direction, maxAveragePrice?
         _fillMarketRouteInternal(positionParams, amount, fillOrKill, direction, matchOrderRoute, maxAveragePrice);
+    }
+
+    function _validateMatchRouteInputs(LibDoefinStorage.MatchOrderRoute calldata route) internal pure {
+        require(route.matchedOrderIds.length == route.matchedAmounts.length, "Orderbook: Length mismatch");
+    }
+
+    function _buildContexts(
+        LibDoefinStorage.Position calldata pos,
+        uint256 amount,
+        uint256 totalFilled,
+        uint256 totalCost,
+        uint256 maxAveragePrice,
+        LibDoefinStorage.OrderDirection direction
+    ) internal view returns (LibDoefinStorage.FillContext memory ctx, LibDoefinStorage.SettleContext memory settleCtx) {
+        ctx = LibDoefinStorage.FillContext({amount: amount, totalFilled: totalFilled, maxAveragePrice: maxAveragePrice, totalCost: totalCost});
+        LibDoefinStorage.OrderFeeConfig memory orderFeeConfig = LibDoefinStorage.OrderFeeConfig({makerFeeBps: 0, takerFeeBps: 0});
+        settleCtx = LibDoefinStorage.SettleContext({
+            taker: msg.sender,
+            maker: address(0), // ✅ leave unset for now
+            collateralToken: pos.collateralToken,
+            positionId: pos.positionId,
+            amount: 0,
+            cost: 0,
+            orderAvailable: 0,
+            direction: direction,
+            orderFeeConfig: orderFeeConfig
+        });
+    }
+
+    function _processMatchedOrder(
+        uint256 orderId,
+        LibDoefinStorage.FillContext memory ctx,
+        LibDoefinStorage.SettleContext memory settleCtx
+    ) internal returns (uint256 filled, uint256 cost) {
+        (
+            settleCtx.amount,
+            settleCtx.cost,
+            settleCtx.orderAvailable,
+            settleCtx.maker,
+            settleCtx.direction,
+            settleCtx.orderFeeConfig.makerFeeBps,
+            settleCtx.orderFeeConfig.takerFeeBps
+        ) = _calculateFreeMargin(orderId, ctx);
+        _settleTradeWithFees(settleCtx);
+        emit MarketOrderFilled(orderId, msg.sender, settleCtx.amount, settleCtx.cost, settleCtx.orderAvailable);
+        return (settleCtx.amount, settleCtx.cost);
+    }
+
+    function _cleanupMatchedOrder(uint256 orderId, uint256 positionId, LibDoefinStorage.OrderDirection direction) internal {
+        LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
+        removeOrderIdFromArray(
+            direction == LibDoefinStorage.OrderDirection.Buy
+                ? ds.orderbookStorage.sellOrdersByPosition[positionId]
+                : ds.orderbookStorage.buyOrdersByPosition[positionId],
+            orderId
+        );
+        delete ds.orderbookStorage.orders[orderId];
     }
 
     function _fillMarketRouteInternal(
@@ -115,59 +176,28 @@ contract OrderbookFacet is IOrderbookFacet {
         LibDoefinStorage.MatchOrderRoute calldata matchOrderRoute,
         uint256 maxAveragePrice
     ) internal {
-        LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
         uint256 totalFilled;
         uint256 totalCost;
         uint256 len = matchOrderRoute.matchedOrderIds.length;
 
         require(len == matchOrderRoute.matchedAmounts.length, "Orderbook: Length mismatch");
 
-        address collateralToken = positionParams.collateralToken;
-        uint256 positionId = positionParams.positionId;
-
         for (uint256 i = 0; i < len; i++) {
             uint256 orderId = matchOrderRoute.matchedOrderIds[i];
 
-            LibDoefinStorage.FillContext memory ctx = LibDoefinStorage.FillContext({
-                amount: amount,
-                totalFilled: totalFilled,
-                maxAveragePrice: maxAveragePrice,
-                totalCost: totalCost
-            });
+            LibDoefinStorage.FillContext memory ctx;
+            LibDoefinStorage.SettleContext memory settleCtx;
+            (ctx, settleCtx) = _buildContexts(positionParams, amount, totalFilled, totalCost, maxAveragePrice, direction);
 
-            LibDoefinStorage.SettleContext memory settleCtx = LibDoefinStorage.SettleContext({
-                taker: msg.sender,
-                maker: msg.sender,
-                collateralToken: collateralToken,
-                positionId: positionId,
-                amount: 0,
-                cost: 0,
-                orderAvailable: 0,
-                direction: direction
-            });
-
-            (settleCtx.amount, settleCtx.cost, settleCtx.orderAvailable, settleCtx.maker) = _calculateFreeMargin(orderId, ctx);
-
-            _settleTradeWithFees(settleCtx);
+            (settleCtx.amount, settleCtx.cost) = _processMatchedOrder(orderId, ctx, settleCtx);
 
             totalFilled += settleCtx.amount;
             totalCost += settleCtx.cost;
 
-            removeOrderIdFromArray(
-                direction == LibDoefinStorage.OrderDirection.Buy
-                    ? ds.orderbookStorage.sellOrdersByPosition[positionId]
-                    : ds.orderbookStorage.buyOrdersByPosition[positionId],
-                orderId
-            );
-
-            delete ds.orderbookStorage.orders[orderId];
-
-            emit MarketOrderFilled(orderId, msg.sender, settleCtx.amount, settleCtx.cost, settleCtx.orderAvailable);
+            _cleanupMatchedOrder(orderId, positionParams.positionId, direction);
 
             // Break early if we’ve filled requested amount
-            if (totalFilled == amount) {
-                break;
-            }
+            if (totalFilled == amount) break;
         }
 
         if (fillOrKill) {
@@ -176,36 +206,25 @@ contract OrderbookFacet is IOrderbookFacet {
     }
 
     function _settleTradeWithFees(LibDoefinStorage.SettleContext memory ctx) internal {
-        LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
-
-        address feeReceiver = ds.adminConfigStorage.feeReceiver;
-        uint256 makerFeeBps = ds.adminConfigStorage.makerTradingFeeBps;
-        uint256 takerFeeBps = ds.adminConfigStorage.takerTradingFeeBps;
-
-        require(feeReceiver != address(0), "Orderbook: Fee receiver not set");
-
-        uint256 makerFee = (ctx.cost * makerFeeBps) / 10_000;
-        uint256 takerFee = (ctx.cost * takerFeeBps) / 10_000;
-
-        if (ctx.direction == LibDoefinStorage.OrderDirection.Buy) {
-            // Taker is BUYING — pays cost + takerFee
-            IERC20(ctx.collateralToken).safeTransferFrom(ctx.taker, ctx.maker, ctx.cost - makerFee); // To maker
-            IERC20(ctx.collateralToken).safeTransferFrom(ctx.taker, feeReceiver, takerFee + makerFee); // Fee
-
-            LibERC1155.safeTransferFrom(address(this), address(this), ctx.taker, ctx.positionId, ctx.amount, ""); // Position from escrow to taker
-        } else {
-            // Taker is SELLING — receives cost - makerFee
-            IERC20(ctx.collateralToken).safeTransfer(ctx.taker, ctx.cost - takerFee); // To taker
-            IERC20(ctx.collateralToken).safeTransfer(feeReceiver, takerFee + makerFee); // Fee
-
-            LibERC1155.safeTransferFrom(address(this), ctx.taker, ctx.maker, ctx.positionId, ctx.amount, ""); // Position from taker to maker
-        }
+        require(ctx.maker != address(0), "Maker can not be zero address");
+        LibEscrowLogic.settleTrade(ctx);
     }
 
     function _calculateFreeMargin(
         uint256 orderId,
         LibDoefinStorage.FillContext memory ctx
-    ) internal returns (uint256 actualFillAmount, uint256 cost, uint256 orderAvailable, address maker) {
+    )
+        internal
+        returns (
+            uint256 actualFillAmount,
+            uint256 cost,
+            uint256 orderAvailable,
+            address maker,
+            LibDoefinStorage.OrderDirection direction,
+            uint256 makerFeeBps,
+            uint256 takerFeeBps
+        )
+    {
         LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
         LibDoefinStorage.Order storage order = ds.orderbookStorage.orders[orderId];
 
@@ -228,9 +247,14 @@ contract OrderbookFacet is IOrderbookFacet {
             actualFillAmount = (fillableAmountFromOrder > remainingToFill ? remainingToFill : fillableAmountFromOrder);
         }
         order.filledAmount += actualFillAmount;
-        cost = actualFillAmount * order.pricePerToken;
+
         orderAvailable = order.amount - order.filledAmount;
+        cost = actualFillAmount * order.pricePerToken;
+
         maker = order.maker;
+        direction = order.direction;
+        makerFeeBps = order.orderFeeConfig.makerFeeBps;
+        takerFeeBps = order.orderFeeConfig.takerFeeBps;
     }
 
     function _min3(uint256 a, uint256 b, uint256 c) internal pure returns (uint256) {
@@ -402,6 +426,14 @@ contract OrderbookFacet is IOrderbookFacet {
         return ds.orderbookStorage.orders[0].orderId + 1;
     }
 
+    function getCollateralBalance(address user, address token) external view returns (uint256) {
+        return LibDoefinStorage.diamondStorage().escrowStorage.collateralBalances[user][token];
+    }
+
+    function getLockedERC1155(address user, uint256 positionId) external view returns (uint256) {
+        return LibDoefinStorage.diamondStorage().escrowStorage.lockedERC1155Balances[user][positionId];
+    }
+
     function _releaseEscrowWithEvent(
         address to,
         uint256 amount,
@@ -410,7 +442,11 @@ contract OrderbookFacet is IOrderbookFacet {
         address collateralToken,
         LibDoefinStorage.OrderDirection direction
     ) internal {
-        LibEscrow.releaseEscrow(to, amount, pricePerToken, positionId, collateralToken, direction);
+        if (direction == LibDoefinStorage.OrderDirection.Buy) {
+            LibEscrowLogic.releaseCollateral(to, collateralToken, amount, pricePerToken);
+        } else {
+            LibEscrowLogic.releaseERC1155(to, positionId, amount);
+        }
         emit EscrowReleased(to, collateralToken, positionId, amount, pricePerToken, direction);
     }
 
@@ -422,7 +458,11 @@ contract OrderbookFacet is IOrderbookFacet {
         address collateralToken,
         LibDoefinStorage.OrderDirection direction
     ) internal {
-        LibEscrow.lockEscrow(from, amount, pricePerToken, positionId, collateralToken, direction);
+        if (direction == LibDoefinStorage.OrderDirection.Buy) {
+            LibEscrowLogic.lockCollateral(from, collateralToken, amount, pricePerToken);
+        } else {
+            LibEscrowLogic.lockERC1155(from, positionId, amount);
+        }
         emit EscrowLocked(from, collateralToken, positionId, amount, pricePerToken, direction);
     }
 
