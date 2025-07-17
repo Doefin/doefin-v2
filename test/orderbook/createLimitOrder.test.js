@@ -4,7 +4,8 @@ const { ethers } = require("hardhat");
 const { deployMockERC20 } = require("../mock/deployMocks");
 const {
     getConditionId,
-    parseTransferBatch
+    parseTransferBatch,
+    computeTradeBreakdown
 } = require("../utils.js")
 
 describe("OrderbookFacet", function () {
@@ -12,6 +13,7 @@ describe("OrderbookFacet", function () {
     let questionId, outcomeSlotCount, conditionId, unit, collateralToken, parentCollectionId;
     let orderbook, erc20;
     let buyDir, sellDir;
+    let feeReceiver, makerFeeBps, takerFeeBps;
     let yesId, noId, yesIndexSet, noIndexSet, yesAmount, noAmount, positionParams;
 
     beforeEach(async function () {
@@ -33,6 +35,14 @@ describe("OrderbookFacet", function () {
         accessControlFacet = await ethers.getContractAt('AccessControlFacet', diamondAddress);
         const adminConfig = await ethers.getContractAt("AdminConfigFacet", diamondAddress);
         await adminConfig.connect(owner).addCollateralToken(collateralToken, ethers.utils.parseEther("1"));
+
+        feeReceiver = owner.address;
+
+        // Set fees: 2% maker, 1% taker
+        makerFeeBps = 200;
+        takerFeeBps = 100;
+        await adminConfig.setTradingFeesBps(makerFeeBps, takerFeeBps);
+        await adminConfig.setFeeReceiver(feeReceiver);
 
         // Add `maker` as market maker
         await accessControlFacet.addMarketMaker(owner.address);
@@ -176,15 +186,16 @@ describe("OrderbookFacet", function () {
     });
 
     it("should emit EscrowReleased when cancelling a BUY order", async () => {
-        const price = ethers.utils.parseEther("1.0");
-        const amount = 5;
-        const totalCost = price.mul(amount);
+        const orderDir = 0; // Buy
+        const orderAmount = 5;
+        const orderPrice = ethers.utils.parseEther("1.0");
+        const firstBreakdown = computeTradeBreakdown(orderAmount, orderPrice, orderDir, makerFeeBps, takerFeeBps);
 
-        await erc20.mint(owner.address, totalCost);
-        await erc20.connect(owner).approve(diamondAddress, totalCost);
+        await erc20.mint(owner.address, firstBreakdown.totalMakerLocks);
+        await erc20.connect(owner).approve(diamondAddress, firstBreakdown.totalMakerLocks);
 
         const tx = await orderbook.connect(owner).createLimitOrder(
-            positionParams, amount, price, 0, 0, 0 // direction = Buy
+            positionParams, orderAmount, orderPrice, 0, 0, orderDir // direction = Buy
         );
 
         const receipt = await tx.wait();
@@ -195,9 +206,9 @@ describe("OrderbookFacet", function () {
             owner.address,
             positionParams.collateralToken,
             positionParams.positionId,
-            amount,
-            price,
-            0 // Buy
+            orderAmount,
+            orderPrice,
+            orderDir
         );
     });
 
