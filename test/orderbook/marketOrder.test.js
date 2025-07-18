@@ -244,6 +244,7 @@ describe("OrderbookFacet - Extended Tests", function () {
         const sim = await orderbook.simulateMarketOrder(positionParams, limitOrderAmount, matchOrderDir);
         await orderbook.fillMarketOrderWithRoute(positionParams, limitOrderAmount, false, matchOrderDir, sim, 0);
         const updatedSim = await orderbook.simulateMarketOrder(positionParams, 1, matchOrderDir).catch(() => true);
+        console.log("Updated Sim:", updatedSim)
         expect(updatedSim).to.equal(true); // means reverted because no orders left
     });
 

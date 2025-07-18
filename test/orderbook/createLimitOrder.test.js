@@ -36,6 +36,8 @@ describe("OrderbookFacet", function () {
         const adminConfig = await ethers.getContractAt("AdminConfigFacet", diamondAddress);
         await adminConfig.connect(owner).addCollateralToken(collateralToken, ethers.utils.parseEther("1"));
 
+        console.log("Prepared environments for tests.")
+
         feeReceiver = owner.address;
 
         // Set fees: 2% maker, 1% taker
@@ -141,7 +143,7 @@ describe("OrderbookFacet", function () {
             positionParams, 10, ethers.utils.parseEther("1"), 1, 0, 0
         );
         await orderbook.connect(owner).cancelOrder(1);
-        await expect(orderbook.connect(owner).cancelOrder(1)).to.be.revertedWith("Orderbook: Order is inactive or already canceled");
+        await expect(orderbook.connect(owner).cancelOrder(1)).to.be.revertedWith("Orderbook: Order is not available");
     });
 
     it("should revert if positionId is invalid (not derived from conditionId, indexSet, collateralToken, parentCollectionId)", async () => {

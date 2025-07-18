@@ -53,7 +53,7 @@ interface IOrderbookFacet {
 
     /// @notice Emitted when an expired order is being chosen to be matched,
     /// @param orderId The ID of the canceled order
-    event OrderExpired(uint256 indexed orderId);
+    event OrderDeleted(uint256 indexed orderId);
 
     /// @notice Emitted when an existing order is modified
     /// @param orderId The ID of the updated order
@@ -99,19 +99,6 @@ interface IOrderbookFacet {
         uint256 pricePerToken,
         LibDoefinStorage.OrderDirection direction
     );
-
-    /// @notice Emitted when expired or inactive orders are removed from storage
-    /// @param orderIds Array of removed order IDs.
-    event OrdersBatchCleaned(uint256[] orderIds);
-
-    /// ----------------------------
-    /// Admin Functions
-    /// ----------------------------
-
-    /// @notice Admin-only function to batch clean up expired, filled, or inactive orders.
-    /// @dev The list of order IDs is computed off-chain; this function verifies and removes them on-chain.
-    /// @param orderIds Array of order IDs proposed for deletion.
-    function batchCleanupOrders(uint256[] calldata orderIds) external;
 
     /// ------------------------------
     /// Write Functions (Core Trading)
@@ -192,13 +179,6 @@ interface IOrderbookFacet {
         uint256 amount,
         LibDoefinStorage.OrderDirection direction
     ) external view returns (uint256[] memory matchedOrderIds, uint256[] memory matchedAmounts, uint256 totalCost, uint256 averagePrice);
-
-    /// @notice Returns the best available price for a given position and direction
-    /// @param positionId Position to check
-    /// @param direction Buy or Sell
-    /// @return price Best available price in collateral units
-    /// @return amount available for the best price
-    function getBestPrice(uint256 positionId, LibDoefinStorage.OrderDirection direction) external view returns (uint256 price, uint256 amount);
 
     /// @notice Returns the next order ID to be assigned
     /// @return The current next order ID (incremented per new order)
