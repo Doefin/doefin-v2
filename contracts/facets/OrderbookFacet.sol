@@ -8,11 +8,8 @@ import {LibDoefinStorage} from "../libraries/LibDoefinStorage.sol";
 import {LibCTHelpers} from "../libraries/LibCTHelpers.sol";
 import {LibERC1155} from "../libraries/LibERC1155.sol";
 import {LibEscrowLogic} from "../libraries/LibEscrowLogic.sol";
-import {SafeERC20, IERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 contract OrderbookFacet is IOrderbookFacet {
-    using SafeERC20 for IERC20;
-
     function createLimitOrder(
         LibDoefinStorage.Position calldata positionParams,
         uint256 amount,
@@ -34,10 +31,6 @@ contract OrderbookFacet is IOrderbookFacet {
 
         // Lock escrow from msg.sender to contract
         _lockEscrowWithEvent(msg.sender, amount, pricePerToken, positionId, collateralToken, direction);
-
-        if (direction == LibDoefinStorage.OrderDirection.Sell) {
-            // Split positioin to own the Token and then sell it.
-        }
 
         LibDoefinStorage.OrderFeeConfig memory orderFeeConfig = LibEscrowLogic.getMarketFees();
 
@@ -106,65 +99,111 @@ contract OrderbookFacet is IOrderbookFacet {
         uint256 maxAveragePrice
     ) external override {
         enforceValidPositionId(positionParams);
-        _validateMatchRouteInputs(matchOrderRoute);
-        // Define a new struct for amount, fillOrKill, direction, maxAveragePrice?
         _fillMarketRouteInternal(positionParams, amount, fillOrKill, direction, matchOrderRoute, maxAveragePrice);
     }
 
-    function _validateMatchRouteInputs(LibDoefinStorage.MatchOrderRoute calldata route) internal pure {
-        require(route.matchedOrderIds.length == route.matchedAmounts.length, "Orderbook: Length mismatch");
-    }
-
-    function _buildContexts(
-        LibDoefinStorage.Position calldata pos,
-        uint256 amount,
-        uint256 totalFilled,
-        uint256 totalCost,
-        uint256 maxAveragePrice,
-        LibDoefinStorage.OrderDirection direction
-    ) internal view returns (LibDoefinStorage.FillContext memory ctx, LibDoefinStorage.SettleContext memory settleCtx) {
-        ctx = LibDoefinStorage.FillContext({amount: amount, totalFilled: totalFilled, maxAveragePrice: maxAveragePrice, totalCost: totalCost});
+    function _buildSettleContext(LibDoefinStorage.Position calldata pos) internal view returns (LibDoefinStorage.SettleContext memory settleCtx) {
         LibDoefinStorage.OrderFeeConfig memory orderFeeConfig = LibDoefinStorage.OrderFeeConfig({makerFeeBps: 0, takerFeeBps: 0});
         settleCtx = LibDoefinStorage.SettleContext({
             taker: msg.sender,
-            maker: address(0), // ✅ leave unset for now
+            maker: address(0),
             collateralToken: pos.collateralToken,
             positionId: pos.positionId,
             amount: 0,
-            cost: 0,
-            orderAvailable: 0,
-            direction: direction,
+            pricePerToken: 0,
+            adjustedCost: 0,
+            direction: LibDoefinStorage.OrderDirection.Buy,
             orderFeeConfig: orderFeeConfig
         });
     }
 
+    function _buildFillContexts(
+        uint256 amount,
+        uint256 totalFilled,
+        uint256 totalCost,
+        uint256 maxAveragePrice
+    ) internal pure returns (LibDoefinStorage.FillContext memory fillCtx) {
+        fillCtx = LibDoefinStorage.FillContext({amount: amount, totalFilled: totalFilled, maxAveragePrice: maxAveragePrice, totalCost: totalCost});
+    }
+
+    /// @dev Calculates how much can be filled from this order, respecting user's maxAveragePrice constraint.
+    function _calculateAffordableFill(
+        LibDoefinStorage.Order storage order,
+        LibDoefinStorage.FillContext memory ctx
+    ) internal view returns (uint256 affordableAmount, uint256 adjustedCost) {
+        require(order.active, "Orderbook: Order inactive");
+        require(order.expiry == 0 || block.timestamp <= order.expiry, "Orderbook: Order expired");
+
+        // Determine how much the user still wants to fill
+        uint256 remainingToFill = ctx.amount - ctx.totalFilled;
+
+        // Determine how much the order still offers
+        uint256 available = order.amount - order.filledAmount;
+
+        uint256 feeAdjustedPricePerToken = order.pricePerToken + (order.pricePerToken * order.orderFeeConfig.takerFeeBps) / 10_000;
+
+        // Respecting user maxAveragePrice
+        if (ctx.maxAveragePrice > 0) {
+            // Calculate how much cost space remains under user's constraint
+            uint256 freeMargin = ctx.maxAveragePrice * ctx.amount - ctx.totalCost;
+
+            // Compute the number of tokens this order can fill under that remaining budget
+            uint256 maxAtThisPrice = freeMargin / feeAdjustedPricePerToken;
+
+            // Final fill amount is the min of the three limits
+            affordableAmount = _min3(available, remainingToFill, maxAtThisPrice);
+
+            // Calculate the adjusted cost with respect to taker fee.
+            adjustedCost = feeAdjustedPricePerToken * affordableAmount;
+        } else {
+            // If maxAverage is not important, then it's minimum of these two
+            affordableAmount = _min(available, remainingToFill);
+
+            // Still need to return proper adjusted cost for consistency
+            adjustedCost = feeAdjustedPricePerToken * affordableAmount;
+        }
+    }
+
+    /// @dev Settles one matched order: computes affordable fill amount, updates storage, transfers funds.
     function _processMatchedOrder(
         uint256 orderId,
         LibDoefinStorage.FillContext memory ctx,
         LibDoefinStorage.SettleContext memory settleCtx
-    ) internal returns (uint256 filled, uint256 cost) {
-        (
-            settleCtx.amount,
-            settleCtx.cost,
-            settleCtx.orderAvailable,
-            settleCtx.maker,
-            settleCtx.direction,
-            settleCtx.orderFeeConfig.makerFeeBps,
-            settleCtx.orderFeeConfig.takerFeeBps
-        ) = _calculateFreeMargin(orderId, ctx);
+    ) internal {
+        LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
+        LibDoefinStorage.Order storage order = ds.orderbookStorage.orders[orderId];
+        (uint256 affordableAmount, uint256 feeAdjustedCost) = _calculateAffordableFill(order, ctx);
+
+        // Populate settlement context
+        settleCtx.amount = affordableAmount;
+        settleCtx.adjustedCost = feeAdjustedCost;
+        settleCtx.pricePerToken = order.pricePerToken;
+        settleCtx.maker = order.maker;
+        settleCtx.direction = order.direction;
+        settleCtx.orderFeeConfig = order.orderFeeConfig;
+
+        // Update order fill amount
+        order.filledAmount += affordableAmount;
+
+        // Settle funds, emit event
         _settleTradeWithFees(settleCtx);
-        emit MarketOrderFilled(orderId, msg.sender, settleCtx.amount, settleCtx.cost, settleCtx.orderAvailable);
-        return (settleCtx.amount, settleCtx.cost);
+
+        uint256 remainingAmount = order.amount - order.filledAmount;
+
+        emit MarketOrderFilled(orderId, msg.sender, affordableAmount, affordableAmount, remainingAmount);
+
+        // Clean up if fully filled
+        if (remainingAmount == 0) _deleteOrderIfFullyFilled(orderId, order.positionParams.positionId, order.direction);
     }
 
-    function _cleanupMatchedOrder(uint256 orderId, uint256 positionId, LibDoefinStorage.OrderDirection direction) internal {
+    /// @dev Deletes a fully filled order from storage and removes it from index mapping.
+    function _deleteOrderIfFullyFilled(uint256 orderId, uint256 positionId, LibDoefinStorage.OrderDirection direction) internal {
         LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
-        removeOrderIdFromArray(
-            direction == LibDoefinStorage.OrderDirection.Buy
-                ? ds.orderbookStorage.sellOrdersByPosition[positionId]
-                : ds.orderbookStorage.buyOrdersByPosition[positionId],
-            orderId
-        );
+        uint256[] storage orderList = direction == LibDoefinStorage.OrderDirection.Buy
+            ? ds.orderbookStorage.sellOrdersByPosition[positionId]
+            : ds.orderbookStorage.buyOrdersByPosition[positionId];
+
+        removeOrderIdFromArray(orderList, orderId);
         delete ds.orderbookStorage.orders[orderId];
     }
 
@@ -176,85 +215,33 @@ contract OrderbookFacet is IOrderbookFacet {
         LibDoefinStorage.MatchOrderRoute calldata matchOrderRoute,
         uint256 maxAveragePrice
     ) internal {
-        uint256 totalFilled;
-        uint256 totalCost;
         uint256 len = matchOrderRoute.matchedOrderIds.length;
+        require(matchOrderRoute.matchedAmounts.length == len, "Orderbook: Length mismatch");
 
-        require(len == matchOrderRoute.matchedAmounts.length, "Orderbook: Length mismatch");
+        LibDoefinStorage.FillContext memory fillCtx = _buildFillContexts(amount, 0, 0, maxAveragePrice);
 
         for (uint256 i = 0; i < len; i++) {
             uint256 orderId = matchOrderRoute.matchedOrderIds[i];
 
-            LibDoefinStorage.FillContext memory ctx;
-            LibDoefinStorage.SettleContext memory settleCtx;
-            (ctx, settleCtx) = _buildContexts(positionParams, amount, totalFilled, totalCost, maxAveragePrice, direction);
+            LibDoefinStorage.SettleContext memory settleCtx = _buildSettleContext(positionParams);
 
-            (settleCtx.amount, settleCtx.cost) = _processMatchedOrder(orderId, ctx, settleCtx);
+            _processMatchedOrder(orderId, fillCtx, settleCtx);
 
-            totalFilled += settleCtx.amount;
-            totalCost += settleCtx.cost;
-
-            _cleanupMatchedOrder(orderId, positionParams.positionId, direction);
+            fillCtx.totalFilled += settleCtx.amount;
+            fillCtx.totalCost += settleCtx.adjustedCost;
 
             // Break early if we’ve filled requested amount
-            if (totalFilled == amount) break;
+            if (fillCtx.totalFilled >= amount) break;
         }
 
         if (fillOrKill) {
-            require(totalFilled == amount, "Orderbook: FillOrKill failed");
+            require(fillCtx.totalFilled >= amount, "Orderbook: FillOrKill failed");
         }
     }
 
     function _settleTradeWithFees(LibDoefinStorage.SettleContext memory ctx) internal {
         require(ctx.maker != address(0), "Maker can not be zero address");
         LibEscrowLogic.settleTrade(ctx);
-    }
-
-    function _calculateFreeMargin(
-        uint256 orderId,
-        LibDoefinStorage.FillContext memory ctx
-    )
-        internal
-        returns (
-            uint256 actualFillAmount,
-            uint256 cost,
-            uint256 orderAvailable,
-            address maker,
-            LibDoefinStorage.OrderDirection direction,
-            uint256 makerFeeBps,
-            uint256 takerFeeBps
-        )
-    {
-        LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
-        LibDoefinStorage.Order storage order = ds.orderbookStorage.orders[orderId];
-
-        require(order.active, "Orderbook: Order inactive");
-        require(order.expiry == 0 || block.timestamp <= order.expiry, "Orderbook: Order expired");
-
-        uint256 remainingToFill = ctx.amount - ctx.totalFilled;
-        uint256 fillableAmountFromOrder = order.amount - order.filledAmount;
-
-        if (ctx.maxAveragePrice > 0) {
-            // Step 1: How much value is left to spend under the average constraint
-            uint256 maxTotalCostAllowed = ctx.maxAveragePrice * ctx.amount;
-            uint256 freeMargin = maxTotalCostAllowed - ctx.totalCost;
-
-            // Step 2: Based on the price of this order, how much can I fill?
-            uint256 maxFillableAtThisPrice = freeMargin / order.pricePerToken;
-
-            actualFillAmount = _min3(maxFillableAtThisPrice, fillableAmountFromOrder, remainingToFill);
-        } else {
-            actualFillAmount = (fillableAmountFromOrder > remainingToFill ? remainingToFill : fillableAmountFromOrder);
-        }
-        order.filledAmount += actualFillAmount;
-
-        orderAvailable = order.amount - order.filledAmount;
-        cost = actualFillAmount * order.pricePerToken;
-
-        maker = order.maker;
-        direction = order.direction;
-        makerFeeBps = order.orderFeeConfig.makerFeeBps;
-        takerFeeBps = order.orderFeeConfig.takerFeeBps;
     }
 
     function _min3(uint256 a, uint256 b, uint256 c) internal pure returns (uint256) {
@@ -265,7 +252,46 @@ contract OrderbookFacet is IOrderbookFacet {
         return a < b ? a : b;
     }
 
-    function modifyLimitOrder(uint256 orderId, uint256 newAmount, uint256 newPrice, uint256 newMinFillAmount, uint256 newExpiry) external override {}
+    function modifyLimitOrder(uint256 orderId, uint256 newAmount, uint256 newPrice, uint256 newMinFillAmount, uint256 newExpiry) external override {
+        LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
+        LibDoefinStorage.Order storage order = ds.orderbookStorage.orders[orderId];
+
+        require(order.active, "Orderbook: Inactive");
+        require(order.filledAmount == 0, "Orderbook: Already partially filled");
+        require(order.maker == msg.sender, "Orderbook: Not owner");
+
+        uint256 oldAmount = order.amount;
+        uint256 oldPrice = order.pricePerToken;
+
+        // Adjust collateral first
+        LibDoefinStorage.ModifyCollateralContext memory modifyCtx = LibDoefinStorage.ModifyCollateralContext({
+            maker: order.maker,
+            collateralToken: order.positionParams.collateralToken,
+            positionId: order.positionParams.positionId,
+            makerFeeBps: order.orderFeeConfig.makerFeeBps,
+            oldAmount: oldAmount,
+            newAmount: newAmount,
+            oldPrice: oldPrice,
+            newPrice: newPrice,
+            direction: order.direction
+        });
+
+        LibEscrowLogic.adjustCollateralForModifiedOrder(modifyCtx);
+
+        // Then update order fields
+        order.amount = newAmount;
+        order.pricePerToken = newPrice;
+        order.minFillAmount = newMinFillAmount;
+        order.expiry = newExpiry;
+
+        emit OrderUpdated(orderId, newAmount, newPrice, newMinFillAmount, newExpiry);
+    }
+
+    function _calculateTotalBuyCost(uint256 amount, uint256 pricePerToken, uint256 feeBps) internal pure returns (uint256) {
+        uint256 rawCost = amount * pricePerToken;
+        uint256 fee = (rawCost * feeBps) / 10_000;
+        return rawCost + fee;
+    }
 
     function batchCleanupOrders(uint256[] calldata orderIds) external override {
         LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
@@ -299,6 +325,45 @@ contract OrderbookFacet is IOrderbookFacet {
         require(expectedPositionId == pos.positionId, "Orderbook: Invalid positionId");
     }
 
+    function _selectViableOrders(
+        uint256 positionId,
+        LibDoefinStorage.OrderDirection direction
+    ) internal view returns (LibDoefinStorage.SimulatedOrder[] memory) {
+        LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
+
+        uint256[] storage book = direction == LibDoefinStorage.OrderDirection.Buy
+            ? ds.orderbookStorage.sellOrdersByPosition[positionId]
+            : ds.orderbookStorage.buyOrdersByPosition[positionId];
+
+        LibDoefinStorage.SimulatedOrder[] memory raw = new LibDoefinStorage.SimulatedOrder[](book.length);
+        uint256 count = 0;
+
+        for (uint256 i = 0; i < book.length; i++) {
+            LibDoefinStorage.Order storage order = ds.orderbookStorage.orders[book[i]];
+
+            if (!order.active) continue;
+            if (order.expiry != 0 && order.expiry < block.timestamp) continue;
+
+            uint256 available = order.amount - order.filledAmount;
+            if (available == 0) continue;
+
+            raw[count++] = LibDoefinStorage.SimulatedOrder({
+                orderId: order.orderId,
+                pricePerToken: order.pricePerToken,
+                available: available,
+                takerFeeBps: order.orderFeeConfig.takerFeeBps
+            });
+        }
+
+        // Shrink array in memory
+        LibDoefinStorage.SimulatedOrder[] memory result = new LibDoefinStorage.SimulatedOrder[](count);
+        for (uint256 i = 0; i < count; i++) {
+            result[i] = raw[i];
+        }
+
+        return result;
+    }
+
     /// @notice Simulates a market order to preview matched orders and pricing
     /// @param positionParams includes all required data to compute positionId
     /// @param amount Amount to fill
@@ -313,59 +378,57 @@ contract OrderbookFacet is IOrderbookFacet {
         LibDoefinStorage.OrderDirection direction
     ) external view returns (uint256[] memory matchedOrderIds, uint256[] memory matchedAmounts, uint256 totalCost, uint256 averagePrice) {
         enforceValidPositionId(positionParams);
-        LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
 
-        uint256[] storage book = direction == LibDoefinStorage.OrderDirection.Buy
-            ? ds.orderbookStorage.sellOrdersByPosition[positionParams.positionId]
-            : ds.orderbookStorage.buyOrdersByPosition[positionParams.positionId];
+        LibDoefinStorage.SimulatedOrder[] memory orders = _selectViableOrders(positionParams.positionId, direction);
 
-        uint256[] memory tempIds = new uint256[](book.length);
-        uint256[] memory tempAmounts = new uint256[](book.length);
+        matchedOrderIds = new uint256[](orders.length);
+        matchedAmounts = new uint256[](orders.length);
 
         uint256 matched = 0;
-        totalCost = 0;
 
-        for (uint256 i = 0; i < book.length && matched < amount; i++) {
-            LibDoefinStorage.Order storage order = ds.orderbookStorage.orders[book[i]];
+        for (uint256 i = 0; i < orders.length && matched < amount; i++) {
+            LibDoefinStorage.SimulatedOrder memory order = orders[i];
 
-            if (!order.active) continue;
-            if (order.expiry != 0 && order.expiry < block.timestamp) continue;
+            uint256 toMatch = _min(order.available, amount - matched);
+            uint256 rawCost = toMatch * order.pricePerToken;
 
-            uint256 available = order.amount - order.filledAmount;
-            if (available == 0) continue;
+            uint256 feeAdjustedCost;
+            if (direction == LibDoefinStorage.OrderDirection.Buy) {
+                feeAdjustedCost = rawCost + ((rawCost * order.takerFeeBps) / 10_000);
+            } else {
+                feeAdjustedCost = rawCost - ((rawCost * order.takerFeeBps) / 10_000);
+            }
 
-            uint256 toMatch = (matched + available > amount) ? amount - matched : available;
-
+            totalCost += feeAdjustedCost;
+            matchedOrderIds[i] = order.orderId;
+            matchedAmounts[i] = toMatch;
             matched += toMatch;
-            totalCost += toMatch * order.pricePerToken;
-
-            tempIds[i] = order.orderId;
-            tempAmounts[i] = toMatch;
         }
 
-        if (matched < amount) {
-            revert("simulateMarketOrder: Couldn't satisify the ammount");
-        }
+        require(matched >= amount, "simulateMarketOrder: Couldn't satisify the ammount");
+
+        averagePrice = matched > 0 ? totalCost / matched : 0;
 
         // Compact matched arrays
         uint256 count = 0;
-        for (uint256 i = 0; i < tempIds.length; i++) {
-            if (tempAmounts[i] > 0) count++;
+        for (uint256 i = 0; i < matchedAmounts.length; i++) {
+            if (matchedAmounts[i] > 0) count++;
         }
 
-        matchedOrderIds = new uint256[](count);
-        matchedAmounts = new uint256[](count);
-
-        uint256 j = 0;
-        for (uint256 i = 0; i < tempIds.length; i++) {
-            if (tempAmounts[i] > 0) {
-                matchedOrderIds[j] = tempIds[i];
-                matchedAmounts[j] = tempAmounts[i];
-                j++;
+        if (count < matchedOrderIds.length) {
+            uint256[] memory finalIds = new uint256[](count);
+            uint256[] memory finalAmounts = new uint256[](count);
+            uint256 j = 0;
+            for (uint256 i = 0; i < matchedAmounts.length; i++) {
+                if (matchedAmounts[i] > 0) {
+                    finalIds[j] = matchedOrderIds[i];
+                    finalAmounts[j] = matchedAmounts[i];
+                    j++;
+                }
             }
+            matchedOrderIds = finalIds;
+            matchedAmounts = finalAmounts;
         }
-
-        averagePrice = matched > 0 ? totalCost / matched : 0;
     }
 
     /// @notice Retrieves the details of a specific order
