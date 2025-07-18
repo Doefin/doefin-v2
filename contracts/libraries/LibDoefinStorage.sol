@@ -55,6 +55,13 @@ library LibDoefinStorage {
         Sell
     }
 
+    struct SimulatedOrder {
+        uint256 orderId;
+        uint256 pricePerToken;
+        uint256 available;
+        uint256 takerFeeBps;
+    }
+
     struct FillContext {
         uint256 amount;
         uint256 totalFilled;
@@ -73,10 +80,22 @@ library LibDoefinStorage {
         address collateralToken;
         uint256 positionId;
         uint256 amount;
-        uint256 cost;
-        uint256 orderAvailable;
+        uint256 pricePerToken;
+        uint256 adjustedCost;
         OrderDirection direction;
         OrderFeeConfig orderFeeConfig;
+    }
+
+    struct ModifyCollateralContext {
+        address maker;
+        address collateralToken;
+        uint256 positionId;
+        uint256 makerFeeBps;
+        uint256 oldAmount;
+        uint256 newAmount;
+        uint256 oldPrice;
+        uint256 newPrice;
+        OrderDirection direction;
     }
 
     struct Position {
