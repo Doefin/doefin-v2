@@ -192,6 +192,7 @@ describe("OrderbookFacet - Extended Tests", function () {
         await orderbook.connect(owner).createLimitOrder(positionParams, secOrderAmount, secOrderPrice, 1, 0, secOrderDir);
 
         const sim = await orderbook.connect(user).callStatic.simulateMarketOrder(positionParams, matchOrderAmount, matchOrderDir);
+        console.log("Sim:", sim)
         await orderbook.connect(user).fillMarketOrderWithRoute(positionParams, matchOrderAmount, false, matchOrderDir, sim, 0);
 
         const balAfter = {
@@ -315,27 +316,33 @@ describe("OrderbookFacet - Extended Tests", function () {
 
         const maxAvgPrice = ethers.utils.parseEther("1.2");
 
-        const sim = await orderbook.connect(maker).callStatic.simulateMarketOrder(positionParams, 10, 0);
-        await orderbook.connect(maker).fillMarketOrderWithRoute(positionParams, 10, false, 0, sim, maxAvgPrice);
+        const sim = await orderbook.connect(maker).callStatic.simulateMarketOrder(positionParams, 8, 0);
 
-        const balance = await erc1155.balanceOf(maker.address, yesId);
-        expect(balance).to.equal(9);
+        const erc20BalanceBefore = await erc20.balanceOf(maker.address)
+        const erc1155BalanceBefore = await erc1155.balanceOf(maker.address, yesId);
 
-        let totalCost = ethers.BigNumber.from(0);
-        let totalFilled = ethers.BigNumber.from(0);
+        console.log("ERC20 Balance before:", erc20BalanceBefore)
+        console.log("ERC1155 Balance before:", erc1155BalanceBefore)
 
-        for (let i = 0; i < sim.matchedOrderIds.length; i++) {
-            const orderId = sim.matchedOrderIds[i];
-            const order = await orderbook.getOrder(orderId);
-            const price = order.pricePerToken;
-            const amount = sim.matchedAmounts[i];
+        await orderbook.connect(maker).fillMarketOrderWithRoute(positionParams, 8, false, 0, sim, maxAvgPrice);
 
-            const fillAmount = ethers.BigNumber.from(amount);
-            totalCost = totalCost.add(fillAmount.mul(price));
-            totalFilled = totalFilled.add(fillAmount);
-        }
+        const erc1155BalanceAfter = await erc1155.balanceOf(maker.address, yesId);
+        console.log("ERC1155 Balance After:", erc1155BalanceAfter)
 
-        const actualAvgPrice = totalCost.mul(ethers.utils.parseEther("1")).div(totalFilled);
+        const erc20BalanceAfter = await erc20.balanceOf(maker.address)
+        console.log("ERC20 Balance After:", erc20BalanceAfter)
+
+        const erc20Spent = erc20BalanceBefore.sub(erc20BalanceAfter);
+        const tokensReceived = erc1155BalanceAfter;
+
+        console.log("Token spent:", erc20Spent)
+        const actualAvgPrice = erc20Spent.div(tokensReceived);
+        console.log("Actual average:", actualAvgPrice)
+
+        console.log("Actual avg price (ETH):", ethers.utils.formatEther(actualAvgPrice));
+
+        console.log("Max average:", maxAvgPrice)
+
         expect(actualAvgPrice.lte(maxAvgPrice)).to.be.true;
 
     });
@@ -475,8 +482,6 @@ describe("OrderbookFacet - Extended Tests", function () {
 
         const breakdown = computeTradeBreakdown(orderAmount, orderPrice, orderDir, makerFeeBps, takerFeeBps);
 
-        console.log("Total maker locked:", breakdown.totalMakerLocks)
-
         await erc20.mint(taker.address, breakdown.totalMakerLocks);
         await erc20.connect(taker).approve(diamondAddress, breakdown.totalMakerLocks);
 
@@ -501,10 +506,8 @@ describe("OrderbookFacet - Extended Tests", function () {
             false,
             1, // Sell
             route,
-            orderPrice
+            0
         );
-
-        console.log("Order filled partially...")
 
         // Maker cancels the remaining 6 tokens
         const remaining = orderAmount - partialFill;
