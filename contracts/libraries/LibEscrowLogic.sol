@@ -57,6 +57,41 @@ library LibEscrowLogic {
         ds.escrowStorage.lockedERC1155Balances[user][positionId] -= amount;
     }
 
+    function adjustCollateralForModifiedOrder(LibDoefinStorage.ModifyCollateralContext memory modifyCtx) internal {
+        uint256 oldCost = modifyCtx.oldAmount * modifyCtx.oldPrice;
+        uint256 newCost = modifyCtx.newAmount * modifyCtx.newPrice;
+
+        LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
+
+        if (modifyCtx.direction == LibDoefinStorage.OrderDirection.Buy) {
+            uint256 oldFee = (oldCost * modifyCtx.makerFeeBps) / 10_000;
+            uint256 newFee = (newCost * modifyCtx.makerFeeBps) / 10_000;
+
+            uint256 totalOld = oldCost + oldFee;
+            uint256 totalNew = newCost + newFee;
+
+            if (totalNew > totalOld) {
+                uint256 additional = totalNew - totalOld;
+                IERC20(modifyCtx.collateralToken).safeTransferFrom(modifyCtx.maker, address(this), additional);
+                ds.escrowStorage.collateralBalances[modifyCtx.maker][modifyCtx.collateralToken] += additional;
+            } else if (totalNew < totalOld) {
+                uint256 refund = totalOld - totalNew;
+                _consumeERC20Collateral(modifyCtx.maker, modifyCtx.collateralToken, refund);
+                IERC20(modifyCtx.collateralToken).safeTransfer(modifyCtx.maker, refund);
+            }
+        } else {
+            // Sell order — collateral is ERC1155 tokens
+
+            if (modifyCtx.newAmount > modifyCtx.oldAmount) {
+                uint256 delta = modifyCtx.newAmount - modifyCtx.oldAmount;
+                lockERC1155(modifyCtx.maker, modifyCtx.positionId, delta);
+            } else if (modifyCtx.newAmount < modifyCtx.oldAmount) {
+                uint256 delta = modifyCtx.oldAmount - modifyCtx.newAmount;
+                releaseERC1155(modifyCtx.maker, modifyCtx.positionId, delta);
+            }
+        }
+    }
+
     // ----------------------------------------
     // Fee Logic
     // ----------------------------------------
@@ -74,9 +109,10 @@ library LibEscrowLogic {
         return (cost * bps) / 10_000;
     }
 
-    function computeFees(LibDoefinStorage.SettleContext memory ctx) internal pure returns (uint256 makerFee, uint256 takerFee) {
-        makerFee = (ctx.cost * ctx.orderFeeConfig.makerFeeBps) / 10_000;
-        takerFee = (ctx.cost * ctx.orderFeeConfig.takerFeeBps) / 10_000;
+    function computeFees(LibDoefinStorage.SettleContext memory ctx) internal pure returns (uint256 makerFee, uint256 takerFee, uint256 cost) {
+        cost = ctx.amount * ctx.pricePerToken;
+        makerFee = (cost * ctx.orderFeeConfig.makerFeeBps) / 10_000;
+        takerFee = (cost * ctx.orderFeeConfig.takerFeeBps) / 10_000;
     }
 
     function accrueFees(address token, uint256 makerFee, uint256 takerFee) internal {
@@ -103,19 +139,19 @@ library LibEscrowLogic {
         address feeReceiver = ds.adminConfigStorage.feeReceiver;
         require(feeReceiver != address(0), "Escrow: fee receiver not set");
 
-        (uint256 makerFee, uint256 takerFee) = computeFees(ctx);
+        (uint256 makerFee, uint256 takerFee, uint256 cost) = computeFees(ctx);
 
         accrueFees(ctx.collateralToken, makerFee, takerFee);
 
         if (ctx.direction == LibDoefinStorage.OrderDirection.Buy) {
-            uint256 totalReleasedForMaker = ctx.cost + makerFee;
+            uint256 totalReleasedForMaker = cost + makerFee;
             _consumeERC20Collateral(ctx.maker, ctx.collateralToken, totalReleasedForMaker);
-            IERC20(ctx.collateralToken).safeTransfer(ctx.taker, ctx.cost - takerFee);
+            IERC20(ctx.collateralToken).safeTransfer(ctx.taker, cost - takerFee);
 
             LibERC1155.safeTransferFrom(address(this), ctx.taker, ctx.maker, ctx.positionId, ctx.amount, "");
         } else {
-            IERC20(ctx.collateralToken).safeTransferFrom(ctx.taker, address(this), ctx.cost + takerFee);
-            IERC20(ctx.collateralToken).safeTransfer(ctx.maker, ctx.cost - makerFee);
+            IERC20(ctx.collateralToken).safeTransferFrom(ctx.taker, address(this), cost + takerFee);
+            IERC20(ctx.collateralToken).safeTransfer(ctx.maker, cost - makerFee);
 
             _consumeERC1155Collateral(ctx.maker, ctx.positionId, ctx.amount);
             LibERC1155.safeTransferFrom(address(this), address(this), ctx.taker, ctx.positionId, ctx.amount, "");
