@@ -4,31 +4,34 @@ pragma solidity ^0.8.6;
 import {LibDoefinStorage} from "./LibDoefinStorage.sol";
 import {SafeERC20, IERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {LibERC1155} from "./LibERC1155.sol";
+import {LibPositionRegistry} from "./LibPositionRegistry.sol";
+import {LibCTFCondition} from "./LibCTFCondition.sol";
 
 library LibEscrowLogic {
     using SafeERC20 for IERC20;
 
-    function lockCollateral(address user, address token, uint256 amount, uint256 pricePerToken) internal {
-        if (amount == 0) return;
+    function lockCollateral(LibDoefinStorage.Order memory order) internal {
+        if (order.amount == 0) return;
+
         LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
 
-        uint256 cost = amount * pricePerToken;
+        uint256 cost = order.amount * order.pricePerToken;
         uint256 makerFee = computeMakerFee(cost);
         uint256 total = cost + makerFee;
 
-        IERC20(token).safeTransferFrom(user, address(this), total);
-        ds.escrowStorage.collateralBalances[user][token] += total;
+        IERC20(order.collateralToken).safeTransferFrom(order.maker, address(this), total);
+        ds.escrowStorage.collateralBalances[order.maker][order.collateralToken] += total;
     }
 
-    function releaseCollateral(address user, address token, uint256 amount, uint256 pricePerToken) internal {
-        if (amount == 0) return;
+    function releaseCollateral(LibDoefinStorage.Order memory order) internal {
+        if (order.remainingAmount == 0) return;
 
-        uint256 cost = amount * pricePerToken;
-        uint256 makerFee = computeMakerFee(cost);
+        uint256 cost = order.remainingAmount * order.pricePerToken;
+        uint256 makerFee = (order.orderFeeConfig.makerFeeBps * cost) / 10_000;
         uint256 total = cost + makerFee;
 
-        _consumeERC20Collateral(user, token, total);
-        IERC20(token).safeTransfer(user, total);
+        _consumeERC20Collateral(order.maker, order.collateralToken, total);
+        IERC20(order.collateralToken).safeTransfer(order.maker, total);
     }
 
     function lockERC1155(address user, uint256 positionId, uint256 amount) internal {
@@ -109,10 +112,13 @@ library LibEscrowLogic {
         return (cost * bps) / 10_000;
     }
 
-    function computeFees(LibDoefinStorage.SettleContext memory ctx) internal pure returns (uint256 makerFee, uint256 takerFee, uint256 cost) {
-        cost = ctx.amount * ctx.pricePerToken;
-        makerFee = (cost * ctx.orderFeeConfig.makerFeeBps) / 10_000;
-        takerFee = (cost * ctx.orderFeeConfig.takerFeeBps) / 10_000;
+    function computeFees(
+        LibDoefinStorage.SettlemetExecutionContext memory settlementExecCtx
+    ) internal pure returns (uint256 makerFee, uint256 takerFee, uint256 cost) {
+        LibDoefinStorage.Order memory makerOrder = settlementExecCtx.makerOrder;
+        cost = makerOrder.pricePerToken * settlementExecCtx.fillableAmount;
+        makerFee = (cost * makerOrder.orderFeeConfig.makerFeeBps) / 10_000;
+        takerFee = (cost * makerOrder.orderFeeConfig.takerFeeBps) / 10_000;
     }
 
     function accrueFees(address token, uint256 makerFee, uint256 takerFee) internal {
@@ -121,56 +127,145 @@ library LibEscrowLogic {
         ds.escrowStorage.protocolFees[token] += makerFee + takerFee;
     }
 
-    function claimProtocolFees(address token, address recipient) internal {
-        LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
-        uint256 amount = ds.escrowStorage.protocolFees[token];
-        require(amount > 0, "Escrow: no fees to claim");
-
-        ds.escrowStorage.protocolFees[token] = 0;
-        IERC20(token).safeTransfer(recipient, amount);
-    }
-
     // ----------------------------------------
     // Trade Settlement
     // ----------------------------------------
 
-    function settleTrade(LibDoefinStorage.SettleContext memory ctx) internal {
-        LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
-        address feeReceiver = ds.adminConfigStorage.feeReceiver;
-        require(feeReceiver != address(0), "Escrow: fee receiver not set");
-
-        (uint256 makerFee, uint256 takerFee, uint256 cost) = computeFees(ctx);
-
-        accrueFees(ctx.collateralToken, makerFee, takerFee);
-
-        if (ctx.direction == LibDoefinStorage.OrderDirection.Buy) {
-            uint256 totalReleasedForMaker = cost + makerFee;
-            _consumeERC20Collateral(ctx.maker, ctx.collateralToken, totalReleasedForMaker);
-            IERC20(ctx.collateralToken).safeTransfer(ctx.taker, cost - takerFee);
-
-            LibERC1155.safeTransferFrom(address(this), ctx.taker, ctx.maker, ctx.positionId, ctx.amount, "");
+    function settlementDispatcher(LibDoefinStorage.SettlemetExecutionContext memory settlementExecCtx) internal {
+        if (settlementExecCtx.matchType == LibDoefinStorage.MatchType.Complementary) {
+            _handleComplementaryMatch(settlementExecCtx);
+        } else if (settlementExecCtx.matchType == LibDoefinStorage.MatchType.Mint) {
+            _handleMintMatch(settlementExecCtx);
         } else {
-            IERC20(ctx.collateralToken).safeTransferFrom(ctx.taker, address(this), cost + takerFee);
-            IERC20(ctx.collateralToken).safeTransfer(ctx.maker, cost - makerFee);
-
-            _consumeERC1155Collateral(ctx.maker, ctx.positionId, ctx.amount);
-            LibERC1155.safeTransferFrom(address(this), address(this), ctx.taker, ctx.positionId, ctx.amount, "");
+            _handleMergeMatch(settlementExecCtx);
         }
     }
 
-    // ----------------------------------------
-    // Optional View Helpers (if exposed later)
-    // ----------------------------------------
+    function _handleMintMatch(LibDoefinStorage.SettlemetExecutionContext memory settlementExecCtx) internal {
+        (uint256 makerFee, uint256 takerFee, uint256 cost) = computeFees(settlementExecCtx);
 
-    function getCollateralBalance(address user, address token) internal view returns (uint256) {
-        return LibDoefinStorage.diamondStorage().escrowStorage.collateralBalances[user][token];
+        address collateralToken = settlementExecCtx.makerOrder.collateralToken;
+
+        accrueFees(collateralToken, makerFee, takerFee);
+
+        if (settlementExecCtx.takerOrder.direction == LibDoefinStorage.OrderDirection.Buy) {
+            // Get Taker ERC20 collateral
+            IERC20(collateralToken).safeTransferFrom(settlementExecCtx.takerOrder.taker, address(this), cost + takerFee);
+
+            // Consume Maker ERC20 collateral
+            uint256 totalReleasedForMaker = cost + makerFee;
+            _consumeERC20Collateral(settlementExecCtx.makerOrder.maker, collateralToken, totalReleasedForMaker);
+
+            LibDoefinStorage.PositionMetadata memory positionMeta = LibPositionRegistry.getPositionMetadata(settlementExecCtx.makerOrder.positionId);
+            bytes32 conditionId = LibPositionRegistry.retrieveConditionId(
+                settlementExecCtx.makerOrder.positionId,
+                settlementExecCtx.takerOrder.positionId
+            );
+            // Call Split method of the CTF and give them their desired token.
+            LibCTFCondition._splitPosition(
+                positionMeta.collateralToken,
+                positionMeta.parentCollectionId,
+                conditionId,
+                settlementExecCtx.fillableAmount,
+                positionMeta.partitions
+            );
+
+            LibERC1155.safeTransferFrom(
+                address(this),
+                address(this),
+                settlementExecCtx.makerOrder.maker,
+                settlementExecCtx.makerOrder.positionId,
+                settlementExecCtx.fillableAmount,
+                ""
+            );
+
+            LibERC1155.safeTransferFrom(
+                address(this),
+                address(this),
+                settlementExecCtx.takerOrder.taker,
+                settlementExecCtx.takerOrder.positionId,
+                settlementExecCtx.fillableAmount,
+                ""
+            );
+        }
     }
 
-    function getLockedERC1155(address user, uint256 positionId) internal view returns (uint256) {
-        return LibDoefinStorage.diamondStorage().escrowStorage.lockedERC1155Balances[user][positionId];
+    function _handleMergeMatch(LibDoefinStorage.SettlemetExecutionContext memory settlementExecCtx) internal {
+        (uint256 makerFee, uint256 takerFee, uint256 cost) = computeFees(settlementExecCtx);
+
+        address collateralToken = settlementExecCtx.makerOrder.collateralToken;
+
+        accrueFees(collateralToken, makerFee, takerFee);
+
+        // Consume Maker ERC1155 tokens
+        _consumeERC1155Collateral(settlementExecCtx.makerOrder.maker, settlementExecCtx.makerOrder.positionId, settlementExecCtx.fillableAmount);
+
+        // Recieve Taker ERC1155 tokens to us
+        LibERC1155.safeTransferFrom(
+            address(this),
+            settlementExecCtx.takerOrder.taker,
+            address(this),
+            settlementExecCtx.takerOrder.positionId,
+            settlementExecCtx.fillableAmount,
+            ""
+        );
+
+        // Merge two positions and recieve collateral locked.
+        LibDoefinStorage.PositionMetadata memory positionMeta = LibPositionRegistry.getPositionMetadata(settlementExecCtx.makerOrder.positionId);
+        bytes32 conditionId = LibPositionRegistry.retrieveConditionId(
+            settlementExecCtx.makerOrder.positionId,
+            settlementExecCtx.takerOrder.positionId
+        );
+
+        LibCTFCondition._mergePositions(
+            positionMeta.collateralToken,
+            positionMeta.parentCollectionId,
+            conditionId,
+            positionMeta.partitions,
+            settlementExecCtx.fillableAmount
+        );
+
+        // Distribute ERC20 to maker and taker
+        uint256 makerAmount = cost - makerFee;
+        uint256 takerAmount = cost - takerFee;
+
+        IERC20(collateralToken).safeTransfer(settlementExecCtx.makerOrder.maker, makerAmount);
+        IERC20(collateralToken).safeTransfer(settlementExecCtx.takerOrder.taker, takerAmount);
     }
 
-    function getProtocolFees(address token) internal view returns (uint256) {
-        return LibDoefinStorage.diamondStorage().escrowStorage.protocolFees[token];
+    function _handleComplementaryMatch(LibDoefinStorage.SettlemetExecutionContext memory settlementExecCtx) internal {
+        (uint256 makerFee, uint256 takerFee, uint256 cost) = computeFees(settlementExecCtx);
+
+        address collateralToken = settlementExecCtx.makerOrder.collateralToken;
+
+        accrueFees(collateralToken, makerFee, takerFee);
+
+        if (settlementExecCtx.takerOrder.direction == LibDoefinStorage.OrderDirection.Buy) {
+            uint256 totalReleasedForMaker = cost + makerFee;
+            _consumeERC20Collateral(settlementExecCtx.makerOrder.maker, collateralToken, totalReleasedForMaker);
+            IERC20(collateralToken).safeTransfer(settlementExecCtx.takerOrder.taker, cost - takerFee);
+
+            LibERC1155.safeTransferFrom(
+                address(this),
+                settlementExecCtx.takerOrder.taker,
+                settlementExecCtx.makerOrder.maker,
+                settlementExecCtx.makerOrder.positionId,
+                settlementExecCtx.fillableAmount,
+                ""
+            );
+        } else {
+            IERC20(collateralToken).safeTransferFrom(settlementExecCtx.takerOrder.taker, address(this), cost + takerFee);
+            IERC20(collateralToken).safeTransfer(settlementExecCtx.makerOrder.maker, cost - makerFee);
+
+            _consumeERC1155Collateral(settlementExecCtx.makerOrder.maker, settlementExecCtx.makerOrder.positionId, settlementExecCtx.fillableAmount);
+            LibERC1155.safeTransferFrom(
+                address(this),
+                address(this),
+                settlementExecCtx.takerOrder.taker,
+                settlementExecCtx.makerOrder.positionId,
+                settlementExecCtx.fillableAmount,
+                ""
+            );
+        }
     }
 }
