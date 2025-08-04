@@ -39,7 +39,9 @@ async function deployDiamond() {
     'ConditionManagerFacet',
     'AccessControlFacet',
     'AdminConfigFacet',
-    'OrderbookFacet'
+    'ExchangeFacet',
+    'MarketExecutionFacet',
+    'RouteSimulationFacet'
   ]
   const cut = []
   for (const FacetName of FacetNames) {
