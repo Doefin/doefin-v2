@@ -11,23 +11,65 @@ library LibEscrowLogic {
     using SafeERC20 for IERC20;
 
     function lockCollateral(LibDoefinStorage.Order memory order) internal {
+        if (order.direction == LibDoefinStorage.OrderDirection.Buy) {
+            lockERC20(order);
+        } else {
+            lockERC1155(order.maker, order.positionId, order.amount);
+        }
+    }
+
+    function releaseCollateral(LibDoefinStorage.Order memory order) internal {
+        if (order.direction == LibDoefinStorage.OrderDirection.Buy) {
+            releaseERC20(order);
+        } else {
+            releaseERC1155(order.maker, order.positionId, order.amount);
+        }
+    }
+
+    function lockERC20(LibDoefinStorage.Order memory order) internal {
         if (order.amount == 0) return;
 
         LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
 
-        uint256 cost = order.amount * order.pricePerToken;
+        address collateralToken = order.collateralToken;
+        uint256 unitPerPair = ds.adminConfigStorage.unitPerPair[collateralToken];
+        require(unitPerPair > 0, "Collateral: unitPerPair not set");
+
+        // Ensure order.amount is divisible by unitPerPair for clean accounting
+        require(order.amount % unitPerPair == 0, "Collateral: amount not aligned with unit");
+
+        // Normalize price per token relative to unitPerPair
+        // pricePerToken is assumed to be in unitPerPair precision
+        // So we scale amount * price / unitPerPair to get cost in token's smallest units
+        uint256 cost = (order.amount * order.pricePerToken) / unitPerPair;
+
+        // Compute maker fee in token units (based on cost)
         uint256 makerFee = computeMakerFee(cost);
         uint256 total = cost + makerFee;
 
-        IERC20(order.collateralToken).safeTransferFrom(order.maker, address(this), total);
-        ds.escrowStorage.collateralBalances[order.maker][order.collateralToken] += total;
+        // Transfer total tokens from maker to contract
+        IERC20(collateralToken).safeTransferFrom(order.maker, address(this), total);
+
+        // Update internal collateral balance
+        ds.escrowStorage.collateralBalances[order.maker][collateralToken] += total;
     }
 
-    function releaseCollateral(LibDoefinStorage.Order memory order) internal {
+    function releaseERC20(LibDoefinStorage.Order memory order) internal {
         if (order.remainingAmount == 0) return;
 
-        uint256 cost = order.remainingAmount * order.pricePerToken;
-        uint256 makerFee = (order.orderFeeConfig.makerFeeBps * cost) / 10_000;
+        LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
+
+        address collateralToken = order.collateralToken;
+        uint256 unitPerPair = ds.adminConfigStorage.unitPerPair[collateralToken];
+        require(unitPerPair > 0, "Collateral: unitPerPair not set");
+
+        // Ensure remainingAmount is divisible by unitPerPair
+        require(order.remainingAmount % unitPerPair == 0, "Collateral: amount not aligned with unit");
+
+        // Normalize cost
+        uint256 cost = (order.remainingAmount * order.pricePerToken) / unitPerPair;
+
+        uint256 makerFee = computeMakerFee(cost);
         uint256 total = cost + makerFee;
 
         _consumeERC20Collateral(order.maker, order.collateralToken, total);
@@ -112,11 +154,34 @@ library LibEscrowLogic {
         return (cost * bps) / 10_000;
     }
 
+    function computeMintFees(
+        LibDoefinStorage.Order memory makerOrder,
+        uint256 fillableAmount
+    ) internal view returns (uint256 makerFee, uint256 takerFee, uint256 makerContribution, uint256 takerContribution) {
+        LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
+        address collateralToken = makerOrder.collateralToken;
+        uint256 unitPerPair = ds.adminConfigStorage.unitPerPair[collateralToken];
+        makerContribution = (fillableAmount * makerOrder.pricePerToken) / unitPerPair;
+        takerContribution = fillableAmount - makerContribution;
+
+        makerFee = (makerContribution * makerOrder.orderFeeConfig.makerFeeBps) / 10_000;
+        takerFee = (takerContribution * makerOrder.orderFeeConfig.takerFeeBps) / 10_000;
+    }
+
     function computeFees(
         LibDoefinStorage.SettlemetExecutionContext memory settlementExecCtx
-    ) internal pure returns (uint256 makerFee, uint256 takerFee, uint256 cost) {
+    ) internal view returns (uint256 makerFee, uint256 takerFee, uint256 cost) {
+        LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
+
         LibDoefinStorage.Order memory makerOrder = settlementExecCtx.makerOrder;
-        cost = makerOrder.pricePerToken * settlementExecCtx.fillableAmount;
+
+        address token = makerOrder.collateralToken;
+        uint256 unitPerPair = ds.adminConfigStorage.unitPerPair[token];
+        require(unitPerPair > 0, "Collateral: unitPerPair not set");
+
+        // Apply normalization as done in lockERC20
+        cost = (settlementExecCtx.fillableAmount * makerOrder.pricePerToken) / unitPerPair;
+
         makerFee = (cost * makerOrder.orderFeeConfig.makerFeeBps) / 10_000;
         takerFee = (cost * makerOrder.orderFeeConfig.takerFeeBps) / 10_000;
     }
@@ -142,32 +207,39 @@ library LibEscrowLogic {
     }
 
     function _handleMintMatch(LibDoefinStorage.SettlemetExecutionContext memory settlementExecCtx) internal {
-        (uint256 makerFee, uint256 takerFee, uint256 cost) = computeFees(settlementExecCtx);
+        (uint256 makerFee, uint256 takerFee, uint256 makerContribution, uint256 takerContribution) = computeMintFees(
+            settlementExecCtx.makerOrder,
+            settlementExecCtx.fillableAmount
+        );
 
         address collateralToken = settlementExecCtx.makerOrder.collateralToken;
 
         accrueFees(collateralToken, makerFee, takerFee);
 
         if (settlementExecCtx.takerOrder.direction == LibDoefinStorage.OrderDirection.Buy) {
+            uint256 takerToPay = takerContribution + takerFee;
+            uint256 allowance = IERC20(collateralToken).allowance(settlementExecCtx.takerOrder.taker, address(this));
+            require(allowance >= takerToPay, "Taker has not approved enough tokens");
+
             // Get Taker ERC20 collateral
-            IERC20(collateralToken).safeTransferFrom(settlementExecCtx.takerOrder.taker, address(this), cost + takerFee);
+            IERC20(collateralToken).safeTransferFrom(settlementExecCtx.takerOrder.taker, address(this), takerToPay);
 
             // Consume Maker ERC20 collateral
-            uint256 totalReleasedForMaker = cost + makerFee;
-            _consumeERC20Collateral(settlementExecCtx.makerOrder.maker, collateralToken, totalReleasedForMaker);
+            _consumeERC20Collateral(settlementExecCtx.makerOrder.maker, collateralToken, makerContribution + makerFee);
 
-            LibDoefinStorage.PositionMetadata memory positionMeta = LibPositionRegistry.getPositionMetadata(settlementExecCtx.makerOrder.positionId);
+            LibDoefinStorage.MarketMetadata memory marketMetadata = LibPositionRegistry.getMarketMetadata(settlementExecCtx.makerOrder.positionId);
             bytes32 conditionId = LibPositionRegistry.retrieveConditionId(
                 settlementExecCtx.makerOrder.positionId,
                 settlementExecCtx.takerOrder.positionId
             );
             // Call Split method of the CTF and give them their desired token.
             LibCTFCondition._splitPosition(
-                positionMeta.collateralToken,
-                positionMeta.parentCollectionId,
+                address(this),
+                marketMetadata.collateralToken,
+                marketMetadata.parentCollectionId,
                 conditionId,
                 settlementExecCtx.fillableAmount,
-                positionMeta.partitions
+                marketMetadata.partitions
             );
 
             LibERC1155.safeTransferFrom(
@@ -191,7 +263,10 @@ library LibEscrowLogic {
     }
 
     function _handleMergeMatch(LibDoefinStorage.SettlemetExecutionContext memory settlementExecCtx) internal {
-        (uint256 makerFee, uint256 takerFee, uint256 cost) = computeFees(settlementExecCtx);
+        (uint256 makerFee, uint256 takerFee, uint256 makerContribution, uint256 takerContribution) = computeMintFees(
+            settlementExecCtx.makerOrder,
+            settlementExecCtx.fillableAmount
+        );
 
         address collateralToken = settlementExecCtx.makerOrder.collateralToken;
 
@@ -211,23 +286,24 @@ library LibEscrowLogic {
         );
 
         // Merge two positions and recieve collateral locked.
-        LibDoefinStorage.PositionMetadata memory positionMeta = LibPositionRegistry.getPositionMetadata(settlementExecCtx.makerOrder.positionId);
+        LibDoefinStorage.MarketMetadata memory marketMetadata = LibPositionRegistry.getMarketMetadata(settlementExecCtx.makerOrder.positionId);
         bytes32 conditionId = LibPositionRegistry.retrieveConditionId(
             settlementExecCtx.makerOrder.positionId,
             settlementExecCtx.takerOrder.positionId
         );
 
         LibCTFCondition._mergePositions(
-            positionMeta.collateralToken,
-            positionMeta.parentCollectionId,
+            address(this),
+            marketMetadata.collateralToken,
+            marketMetadata.parentCollectionId,
             conditionId,
-            positionMeta.partitions,
+            marketMetadata.partitions,
             settlementExecCtx.fillableAmount
         );
 
         // Distribute ERC20 to maker and taker
-        uint256 makerAmount = cost - makerFee;
-        uint256 takerAmount = cost - takerFee;
+        uint256 makerAmount = makerContribution - makerFee;
+        uint256 takerAmount = takerContribution - takerFee;
 
         IERC20(collateralToken).safeTransfer(settlementExecCtx.makerOrder.maker, makerAmount);
         IERC20(collateralToken).safeTransfer(settlementExecCtx.takerOrder.taker, takerAmount);
@@ -240,7 +316,7 @@ library LibEscrowLogic {
 
         accrueFees(collateralToken, makerFee, takerFee);
 
-        if (settlementExecCtx.takerOrder.direction == LibDoefinStorage.OrderDirection.Buy) {
+        if (settlementExecCtx.takerOrder.direction == LibDoefinStorage.OrderDirection.Sell) {
             uint256 totalReleasedForMaker = cost + makerFee;
             _consumeERC20Collateral(settlementExecCtx.makerOrder.maker, collateralToken, totalReleasedForMaker);
             IERC20(collateralToken).safeTransfer(settlementExecCtx.takerOrder.taker, cost - takerFee);
