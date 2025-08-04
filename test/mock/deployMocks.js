@@ -1,8 +1,8 @@
 const { ethers } = require("hardhat");
 
-async function deployMockERC20(name = "MockToken", symbol = "MOCK") {
+async function deployMockERC20(name = "MockToken", symbol = "MOCK", decimals = 18) {
     const MockERC20 = await ethers.getContractFactory("MockERC20");
-    const mockERC20 = await MockERC20.deploy(name, symbol);
+    const mockERC20 = await MockERC20.deploy(name, symbol, decimals);
     await mockERC20.deployed();
     return mockERC20;
 }
