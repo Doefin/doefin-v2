@@ -55,30 +55,7 @@ contract ConditionalTokensFacet is IConditionalTokens {
         uint256 amount,
         uint256[] calldata partition
     ) external override {
-        _validateCollateral(collateralToken, amount);
-
-        (uint256 fullIndexSet, uint256 freeIndexSet, uint256[] memory positionIds, uint256[] memory amounts) = _validateAndBuildPartitionPositions(
-            collateralToken,
-            parentCollectionId,
-            conditionId,
-            partition,
-            amount
-        );
-
-        if (freeIndexSet == 0) {
-            if (parentCollectionId == bytes32(0)) {
-                IERC20(collateralToken).safeTransferFrom(msg.sender, address(this), amount);
-            } else {
-                uint256 parentPosId = LibCTHelpers.getPositionId(collateralToken, parentCollectionId);
-                LibERC1155._burn(msg.sender, parentPosId, amount);
-            }
-        } else {
-            uint256 mergedSet = fullIndexSet ^ freeIndexSet;
-            uint256 mergedPosId = _getPositionId(collateralToken, parentCollectionId, conditionId, mergedSet);
-            LibERC1155._burn(msg.sender, mergedPosId, amount);
-        }
-
-        LibERC1155._batchMint(msg.sender, positionIds, amounts, "");
+        LibCTFCondition._splitPosition(msg.sender, collateralToken, parentCollectionId, conditionId, amount, partition);
 
         emit PositionSplit(msg.sender, collateralToken, parentCollectionId, conditionId, partition, amount);
     }
@@ -90,28 +67,7 @@ contract ConditionalTokensFacet is IConditionalTokens {
         uint256[] calldata partition,
         uint256 amount
     ) external override {
-        (uint256 fullIndexSet, uint256 freeIndexSet, uint256[] memory positionIds, uint256[] memory amounts) = _validateAndBuildPartitionPositions(
-            collateralToken,
-            parentCollectionId,
-            conditionId,
-            partition,
-            amount
-        );
-
-        LibERC1155._batchBurn(msg.sender, positionIds, amounts);
-
-        if (freeIndexSet == 0) {
-            if (parentCollectionId == bytes32(0)) {
-                IERC20(collateralToken).safeTransfer(msg.sender, amount);
-            } else {
-                uint256 parentPosId = LibCTHelpers.getPositionId(collateralToken, parentCollectionId);
-                LibERC1155._mint(msg.sender, parentPosId, amount, "");
-            }
-        } else {
-            uint256 mergedSet = fullIndexSet ^ freeIndexSet;
-            uint256 mergedPosId = _getPositionId(collateralToken, parentCollectionId, conditionId, mergedSet);
-            LibERC1155._mint(msg.sender, mergedPosId, amount, "");
-        }
+        LibCTFCondition._mergePositions(msg.sender, collateralToken, parentCollectionId, conditionId, partition, amount);
 
         emit PositionsMerge(msg.sender, collateralToken, parentCollectionId, conditionId, partition, amount);
     }
@@ -169,15 +125,6 @@ contract ConditionalTokensFacet is IConditionalTokens {
         emit PayoutRedemption(msg.sender, collateralToken, parentCollectionId, conditionId, indexSets, totalPayout);
     }
 
-    function _validateCollateral(address collateralToken, uint256 amount) internal view {
-        LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
-
-        require(ds.adminConfigStorage.isAllowed[collateralToken], "ConditionalTokens: Collateral not allowed");
-
-        uint256 unit = ds.adminConfigStorage.unitPerPair[collateralToken];
-        require(amount % unit == 0, "ConditionalTokens: Collateral amount not aligned to unit");
-    }
-
     function _handlePayoutTransfer(address collateralToken, address recipient, uint256 amount) internal {
         LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
 
@@ -209,36 +156,6 @@ contract ConditionalTokensFacet is IConditionalTokens {
     ) internal view returns (uint256) {
         bytes32 collId = LibCTHelpers.getCollectionId(parentCollectionId, conditionId, indexSet);
         return LibCTHelpers.getPositionId(collateralToken, collId);
-    }
-
-    function _validateAndBuildPartitionPositions(
-        address collateralToken,
-        bytes32 parentCollectionId,
-        bytes32 conditionId,
-        uint256[] calldata partition,
-        uint256 amount
-    ) internal view returns (uint256 fullIndexSet, uint256 freeIndexSet, uint256[] memory positionIds, uint256[] memory amounts) {
-        require(partition.length > 1, "ConditionalTokens: trivial partition");
-        LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
-
-        uint8 outcomeSlotCount = uint8(ds.conditionalTokens.payoutNumerators[conditionId].length);
-        require(outcomeSlotCount > 0, "ConditionalTokens: condition not prepared");
-
-        fullIndexSet = (1 << outcomeSlotCount) - 1;
-        freeIndexSet = fullIndexSet;
-
-        positionIds = new uint256[](partition.length);
-        amounts = new uint256[](partition.length);
-
-        for (uint256 i = 0; i < partition.length; i++) {
-            uint256 indexSet = partition[i];
-            require(indexSet > 0 && indexSet < fullIndexSet, "ConditionalTokens: invalid index set");
-            require((indexSet & freeIndexSet) == indexSet, "ConditionalTokens: partition not disjoint");
-            freeIndexSet ^= indexSet;
-
-            positionIds[i] = _getPositionId(collateralToken, parentCollectionId, conditionId, indexSet);
-            amounts[i] = amount;
-        }
     }
 
     function getConditionId(address oracle, bytes32 questionId, uint8 outcomeSlotCount) external pure returns (bytes32) {
