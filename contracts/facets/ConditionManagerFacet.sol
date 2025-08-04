@@ -8,6 +8,7 @@ import {LibDoefinStorage} from "../libraries/LibDoefinStorage.sol";
 import {LibAccessControl} from "../libraries/LibAccessControl.sol";
 import {LibCTFCondition} from "../libraries/LibCTFCondition.sol";
 import {IConditionManager} from "../interfaces/IConditionManager.sol";
+import {Errors} from "../libraries/Errors.sol";
 
 contract ConditionManagerFacet is IConditionManager {
     using LibDoefinStorage for LibDoefinStorage.DiamondStorage;
@@ -45,10 +46,19 @@ contract ConditionManagerFacet is IConditionManager {
     function cancelCondition(bytes32 conditionId) external override {
         LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
         LibDoefinStorage.Condition storage cond = ds.conditionManager.conditions[conditionId];
-        require(cond.creator == msg.sender || LibAccessControl.isOwner(msg.sender), "ConditionalManager: Not authorized to cancel this condition");
+        if(cond.creator == address(0)) {
+            revert Errors.ConditionDoesNotExist();
+        }
 
-        require(cond.oracle != address(0), "ConditionalManager: Condition does not exist");
-        require(cond.active, "ConditionalManager: Condition already inactive");
+        if(cond.creator != msg.sender && !LibAccessControl.isOwner(msg.sender)) {
+            revert Errors.NotAuthorizedToCancel();
+        }
+
+        if (cond.oracle == address(0)) 
+            revert Errors.InvalidOracleAddress();
+        
+        if (!cond.active) 
+            revert Errors.ConditionAlreadyInactive();
 
         cond.active = false;
         emit ConditionCancelled(conditionId);

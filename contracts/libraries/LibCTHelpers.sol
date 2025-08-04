@@ -4,6 +4,8 @@
 
 pragma solidity ^0.8.6;
 
+import {Errors} from "./Errors.sol";
+
 library LibCTHelpers {
     uint256 constant P = 21888242871839275222246405745257275088696311157297823662689037894645226208583;
     uint256 constant B = 3;
@@ -52,11 +54,16 @@ library LibCTHelpers {
             if ((odd && y2 % 2 == 0) || (!odd && y2 % 2 == 1)) {
                 y2 = P - y2;
             }
-            require(mulmod(y2, y2, P) == yy, "Invalid parentCollectionId");
+            
+            if(mulmod(y2, y2, P) != yy) {
+                revert Errors.InvalidParentCollectionId();
+            }
 
             // ECADD precompile (0x06)
             (bool success, bytes memory ret) = address(6).staticcall(abi.encode(x1, y1, x2, y2));
-            require(success, "ECADD failed");
+            if(!success) {
+                revert Errors.ECAddFailed();
+            }
             (x1, y1) = abi.decode(ret, (uint256, uint256));
         }
 
@@ -72,7 +79,9 @@ library LibCTHelpers {
     }
 
     function expMod(uint256 base, uint256 exponent, uint256 modulus) internal pure returns (uint256 result) {
-        require(modulus != 0, "Modulus is zero");
+        if(modulus == 0) {
+            revert Errors.ZeroModulus();
+        }
         result = 1;
         base = base % modulus;
         while (exponent > 0) {

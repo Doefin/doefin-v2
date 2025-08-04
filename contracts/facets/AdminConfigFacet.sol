@@ -7,16 +7,18 @@ pragma solidity ^0.8.6;
 import {LibDoefinStorage} from "../libraries/LibDoefinStorage.sol";
 import {IAdminConfig} from "../interfaces/IAdminConfig.sol";
 import {LibDiamond} from "../libraries/LibDiamond.sol";
+import {Errors} from "../libraries/Errors.sol";
 
 contract AdminConfigFacet is IAdminConfig {
     function addCollateralToken(address token, uint256 unitPerPair) external override {
         LibDiamond.enforceIsContractOwner();
-        require(token != address(0), "AdminConfig: invalid token address");
-        require(unitPerPair > 0, "AdminConfig: unit must be > 0");
+        if(token == address(0)) revert Errors.InvalidTokenAddress();
+        if(unitPerPair == 0) revert Errors.InvalidUnitPerPair();
 
         LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
 
-        require(!ds.adminConfigStorage.isAllowed[token], "AdminConfig: token already allowed");
+        if(ds.adminConfigStorage.isAllowed[token]) 
+            revert Errors.TokenAlreadyAllowed();
 
         ds.adminConfigStorage.isAllowed[token] = true;
         ds.adminConfigStorage.unitPerPair[token] = unitPerPair;
@@ -28,7 +30,8 @@ contract AdminConfigFacet is IAdminConfig {
         LibDiamond.enforceIsContractOwner();
         LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
 
-        require(ds.adminConfigStorage.isAllowed[token], "AdminConfig: token not allowed");
+        if(!ds.adminConfigStorage.isAllowed[token])
+            revert Errors.TokenNotAllowed();
 
         ds.adminConfigStorage.isAllowed[token] = false;
         delete ds.adminConfigStorage.unitPerPair[token];
@@ -38,14 +41,16 @@ contract AdminConfigFacet is IAdminConfig {
 
     function setFeeReceiver(address feeReceiver) external override {
         LibDiamond.enforceIsContractOwner();
-        require(feeReceiver != address(0), "AdminConfig: invalid fee receiver");
+        if(feeReceiver == address(0))
+            revert Errors.InvalidFeeReceiver();
         LibDoefinStorage.diamondStorage().adminConfigStorage.feeReceiver = feeReceiver;
         emit FeeReceiverUpdated(feeReceiver);
     }
 
     function setResolutionFeeBps(uint256 bps) external override {
         LibDiamond.enforceIsContractOwner();
-        require(bps <= 10_000, "AdminConfig: fee too high");
+        if(bps > 10_000) 
+            revert Errors.FeeTooHigh();
 
         LibDoefinStorage.diamondStorage().adminConfigStorage.resolutionFeeBps = bps;
         emit ResolutionFeeUpdated(bps);
@@ -53,7 +58,8 @@ contract AdminConfigFacet is IAdminConfig {
 
     function setTradingFeesBps(uint256 makerBps, uint256 takerBps) external override {
         LibDiamond.enforceIsContractOwner();
-        require(makerBps <= 10_000 && takerBps <= 10_000, "AdminConfig: fee too high");
+        if(makerBps > 10_000 || takerBps > 10_000) 
+            revert Errors.FeeTooHigh();
 
         LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
         ds.adminConfigStorage.makerTradingFeeBps = makerBps;
@@ -67,8 +73,10 @@ contract AdminConfigFacet is IAdminConfig {
     }
 
     function getCollateralUnit(address token) external view override returns (uint256) {
-        require(LibDoefinStorage.diamondStorage().adminConfigStorage.isAllowed[token], "AdminConfig: token not allowed");
-        return LibDoefinStorage.diamondStorage().adminConfigStorage.unitPerPair[token];
+        LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
+        if(!ds.adminConfigStorage.isAllowed[token])
+            revert Errors.TokenNotAllowed();
+        return ds.adminConfigStorage.unitPerPair[token];
     }
 
     function getFees() external view returns (address feeReceiver, uint256 resolutionFeeBps, uint256 makerTradingFeeBps, uint256 takerTradingFeeBps) {

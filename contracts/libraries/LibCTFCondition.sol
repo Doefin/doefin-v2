@@ -7,6 +7,7 @@ pragma solidity ^0.8.6;
 import {LibDoefinStorage} from "./LibDoefinStorage.sol";
 import {LibCTHelpers} from "./LibCTHelpers.sol";
 import {LibERC1155} from "./LibERC1155.sol";
+import {Errors} from "./Errors.sol";
 import {LibPositionRegistry} from "./LibPositionRegistry.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
@@ -16,12 +17,16 @@ library LibCTFCondition {
     /// @dev Prepares a new condition by initializing payout numerators.
     /// Can be called from both low-level (CTF-compatible) and high-level (managed) flows.
     function prepareCondition(address oracle, bytes32 questionId, uint8 outcomeSlotCount) internal returns (bytes32 conditionId) {
-        require(oracle != address(0), "Invalid oracle address");
+        if(oracle == address(0)) {
+            revert Errors.InvalidOracleAddress();
+        }
 
         LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
         conditionId = LibCTHelpers.getConditionId(oracle, questionId, outcomeSlotCount);
 
-        require(ds.conditionalTokens.payoutNumerators[conditionId].length == 0, "ConditionalTokens: already prepared");
+        if(ds.conditionalTokens.payoutNumerators[conditionId].length > 0) {
+            revert Errors.ConditionAlreadyPrepared();
+        }
 
         ds.conditionalTokens.payoutNumerators[conditionId] = new uint256[](outcomeSlotCount);
     }
@@ -100,11 +105,15 @@ library LibCTFCondition {
 
     function _validateCollateral(address collateralToken, uint256 amount) internal view {
         LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
-
-        require(ds.adminConfigStorage.isAllowed[collateralToken], "ConditionalTokens: Collateral not allowed");
+        if(!ds.adminConfigStorage.isAllowed[collateralToken]) {
+            revert Errors.TokenNotAllowed();
+        }
 
         uint256 unit = ds.adminConfigStorage.unitPerPair[collateralToken];
-        require(amount % unit == 0, "ConditionalTokens: Collateral amount not aligned to unit");
+
+        if(amount % unit != 0) {
+            revert Errors.CollateralNotAligned();
+        }
     }
 
     function _validateAndBuildPartitionPositions(

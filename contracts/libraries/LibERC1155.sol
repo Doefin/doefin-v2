@@ -4,20 +4,27 @@
 
 pragma solidity ^0.8.6;
 
-import {LibDoefinStorage} from "../libraries/LibDoefinStorage.sol";
+import {LibDoefinStorage} from "./LibDoefinStorage.sol";
 import {IERC1155TokenReceiver} from "../interfaces/IERC1155TokenReceiver.sol";
+import {Errors} from "./Errors.sol";
 
 library LibERC1155 {
     function balanceOf(address owner, uint256 id) internal view returns (uint256) {
-        require(owner != address(0), "ERC1155: balance query for zero address");
+        if(owner == address(0)) 
+            revert Errors.ZeroAddressQuery();
         return LibDoefinStorage.diamondStorage().erc1155Storage.erc1155Balances[id][owner];
     }
 
     function balanceOfBatch(address[] memory owners, uint256[] memory ids) internal view returns (uint256[] memory batchBalances) {
-        require(owners.length == ids.length, "ERC1155: owners and IDs length mismatch");
+        if(owners.length == 0 || ids.length == 0) {
+            revert Errors.EmptyArray();
+        }
+        if(owners.length != ids.length)
+            revert Errors.ArrayLengthMismatch();
         batchBalances = new uint256[](owners.length);
         for (uint256 i = 0; i < owners.length; ++i) {
-            require(owners[i] != address(0), "ERC1155: zero address in batch query");
+            if(owners[i] == address(0)) 
+                revert Errors.ZeroAddressQuery();
             batchBalances[i] = LibDoefinStorage.diamondStorage().erc1155Storage.erc1155Balances[ids[i]][owners[i]];
         }
     }
@@ -31,7 +38,8 @@ library LibERC1155 {
     }
 
     function safeTransferFrom(address operator, address from, address to, uint256 id, uint256 value, bytes memory data) internal {
-        require(to != address(0), "ERC1155: transfer to zero address");
+        if(from == address(0) || to == address(0)) 
+            revert Errors.TransferToZeroAddress();
 
         LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
 
@@ -53,12 +61,16 @@ library LibERC1155 {
         uint256[] memory values,
         bytes memory data
     ) internal {
-        require(ids.length == values.length, "ERC1155: ids and values length mismatch");
-        require(to != address(0), "ERC1155: transfer to zero address");
+        if (from == address(0) || to == address(0)) 
+            revert Errors.TransferToZeroAddress();
+        if (ids.length == 0 || values.length == 0) revert Errors.EmptyArray();
+        if (ids.length != values.length) 
+            revert Errors.ArrayLengthMismatch();
 
         LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
 
-        require(from == operator || ds.erc1155Storage.erc1155OperatorApprovals[from][operator], "ERC1155: not owner nor approved");
+        if(from != operator && !ds.erc1155Storage.erc1155OperatorApprovals[from][operator]) 
+            revert Errors.NotOwnerNorApproved();
 
         for (uint256 i = 0; i < ids.length; ++i) {
             ds.erc1155Storage.erc1155Balances[ids[i]][from] -= values[i];
@@ -71,7 +83,8 @@ library LibERC1155 {
     }
 
     function _mint(address to, uint256 id, uint256 value, bytes memory data) internal {
-        require(to != address(0), "ERC1155: mint to zero address");
+        if(to == address(0)) 
+            revert Errors.MintToZeroAddress();
 
         LibDoefinStorage.diamondStorage().erc1155Storage.erc1155Balances[id][to] += value;
 
@@ -81,8 +94,10 @@ library LibERC1155 {
     }
 
     function _batchMint(address to, uint256[] memory ids, uint256[] memory values, bytes memory data) internal {
-        require(to != address(0), "ERC1155: batch mint to zero address");
-        require(ids.length == values.length, "ERC1155: ids and values length mismatch");
+        if (to == address(0)) 
+            revert Errors.MintToZeroAddress();
+        if (ids.length != values.length) 
+            revert Errors.ArrayLengthMismatch();
 
         LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
 
@@ -102,7 +117,8 @@ library LibERC1155 {
     }
 
     function _batchBurn(address from, uint256[] memory ids, uint256[] memory values) internal {
-        require(ids.length == values.length, "ERC1155: ids and values length mismatch");
+        if(ids.length != values.length) 
+            revert Errors.ArrayLengthMismatch();
 
         LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
 
@@ -115,10 +131,8 @@ library LibERC1155 {
 
     function _doSafeTransferAcceptanceCheck(address operator, address from, address to, uint256 id, uint256 value, bytes memory data) private {
         if (to.code.length > 0) {
-            require(
-                IERC1155TokenReceiver(to).onERC1155Received(operator, from, id, value, data) == IERC1155TokenReceiver.onERC1155Received.selector,
-                "ERC1155: receiver rejected tokens"
-            );
+            if(IERC1155TokenReceiver(to).onERC1155Received(operator, from, id, value, data) != 
+                IERC1155TokenReceiver.onERC1155Received.selector) revert Errors.ERC1155ReceiverRejectedTokens();
         }
     }
 
@@ -131,11 +145,8 @@ library LibERC1155 {
         bytes memory data
     ) private {
         if (to.code.length > 0) {
-            require(
-                IERC1155TokenReceiver(to).onERC1155BatchReceived(operator, from, ids, values, data) ==
-                    IERC1155TokenReceiver.onERC1155BatchReceived.selector,
-                "ERC1155: receiver rejected tokens"
-            );
+            if(IERC1155TokenReceiver(to).onERC1155BatchReceived(operator, from, ids, values, data) !=
+                IERC1155TokenReceiver.onERC1155BatchReceived.selector) revert Errors.ERC1155ReceiverRejectedTokens();
         }
     }
 

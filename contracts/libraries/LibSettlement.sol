@@ -7,6 +7,7 @@ import {LibDoefinStorage} from "./LibDoefinStorage.sol";
 import {LibEscrowLogic} from "./LibEscrowLogic.sol";
 import {LibPositionRegistry} from "./LibPositionRegistry.sol";
 import {LibMatchEngine} from "./LibMatchEngine.sol";
+import {Errors} from "./Errors.sol";
 
 library LibSettlement {
     function executeMatchedRoute(LibDoefinStorage.TakerOrderContext memory takerOrder, LibDoefinStorage.MatchExecution[] calldata matches) internal {
@@ -19,13 +20,13 @@ library LibSettlement {
             LibDoefinStorage.Order storage makerOrder = ds.orderbookStorage.orders[matchExec.matchedOrderId];
             uint256 collateralUnit = ds.adminConfigStorage.unitPerPair[makerOrder.collateralToken];
 
-            require(makerOrder.active, "Settlement: Order inactive");
+            if(!makerOrder.active) revert Errors.OrderNotActive();
 
             if (matchExec.matchType == LibDoefinStorage.MatchType.Complementary) {
-                require(makerOrder.positionId == takerOrder.positionId, "Settlement: Position ID mismatch");
-                require(makerOrder.direction != takerOrder.direction, "Settlement: Same direction");
+                if(makerOrder.positionId != takerOrder.positionId) revert Errors.PositionIdMismatch();
+                if(makerOrder.direction == takerOrder.direction) revert Errors.SameDirectionForComplementary();
             } else {
-                require(makerOrder.direction == takerOrder.direction, "Settlement: Different direction for mint merge!");
+                if(makerOrder.direction != takerOrder.direction) revert Errors.DifferentOrderDirectionForNonComplementary();
                 LibPositionRegistry.validateComplement(takerOrder.positionId, makerOrder.positionId);
             }
 
@@ -69,7 +70,7 @@ library LibSettlement {
         }
 
         if (takerOrder.fillOrKill && takerOrder.remainingAmount > 0) {
-            revert("Settlement: Fill-or-Kill failed");
+            revert Errors.FillOrKillFailed();
         }
     }
 

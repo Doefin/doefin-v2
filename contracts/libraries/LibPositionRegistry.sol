@@ -4,6 +4,7 @@
 pragma solidity ^0.8.6;
 
 import {LibDoefinStorage} from "./LibDoefinStorage.sol";
+import {Errors} from "./Errors.sol";
 
 library LibPositionRegistry {
     function getComplement(uint256 positionId) internal view returns (uint256) {
@@ -18,7 +19,7 @@ library LibPositionRegistry {
         } else if (positionIds[1] == positionId) {
             return positionIds[0];
         } else {
-            revert("PositionRegistry: positionId not found in condition");
+            revert Errors.PositionNotFound();
         }
     }
 
@@ -35,7 +36,8 @@ library LibPositionRegistry {
         LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
         bytes32 conditionId1 = ds.positionRegistry.conditionIdByPositionId[positionId1];
         bytes32 conditionId2 = ds.positionRegistry.conditionIdByPositionId[positionId2];
-        require(conditionId1 == conditionId2, "PositionRegistry: Invalid Match");
+        if(conditionId1 != conditionId2) 
+            revert Errors.InvalidMatch();
         return conditionId1;
     }
 
@@ -46,11 +48,11 @@ library LibPositionRegistry {
 
     function validatePositionId(uint256 positionId) internal view {
         LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
-        if (ds.positionRegistry.conditionIdByPositionId[positionId] == 0) revert("PositionRegistry: Invalid positionId");
+        if (ds.positionRegistry.conditionIdByPositionId[positionId] == 0) revert Errors.InvalidPositionId();
     }
 
     function validateComplement(uint256 positionId, uint256 complementPositionId) internal view {
-        if (getComplement(positionId) != complementPositionId) revert("PositionRegistry: Invalid complement");
+        if (getComplement(positionId) != complementPositionId) revert Errors.InvalidComplement();
     }
 
     function registerPositionPairs(
@@ -60,7 +62,8 @@ library LibPositionRegistry {
         bytes32 parentCollectionId,
         address collateralToken
     ) internal {
-        require(positionIds.length == partitions.length, "PositionRegistry: Mismatched input lengths");
+        if (positionIds.length != partitions.length) 
+            revert Errors.MismatchedInputLengths();
         LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
 
         LibDoefinStorage.MarketMetadata storage meta = ds.positionRegistry.marketsByCondition[conditionId];

@@ -5,6 +5,7 @@ pragma solidity ^0.8.6;
 
 import {LibDoefinStorage} from "./LibDoefinStorage.sol";
 import {LibPositionRegistry} from "./LibPositionRegistry.sol";
+import {Errors} from "./Errors.sol";
 
 /// @title LibMatchEngine - Simulates and ranks order matches from multiple sources (orderbook, mint, merge)
 library LibMatchEngine {
@@ -115,7 +116,7 @@ library LibMatchEngine {
         bool compExhausted = !compAvailable || compOrder.remainingAmount == 0;
         bool sibExhausted = !sibAvailable || sibOrder.remainingAmount == 0;
 
-        if (compExhausted && sibExhausted) revert("No matchable orders");
+        if (compExhausted && sibExhausted) revert Errors.NoMatchableOrders();
 
         if (compExhausted) {
             uint256 price = effectiveTakerPrice(sibOrder, ctx.direction, ctx.siblingMatchType);
@@ -201,7 +202,6 @@ library LibMatchEngine {
             // Price for taker = 1 - makerPrice
             LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
             uint256 unit = ds.adminConfigStorage.unitPerPair[makerOrder.collateralToken];
-            require(makerOrder.pricePerToken <= unit, "Invalid price: exceeds 1e18");
             basePrice = unit - makerOrder.pricePerToken;
         }
         if (takerDirection == LibDoefinStorage.OrderDirection.Buy) {

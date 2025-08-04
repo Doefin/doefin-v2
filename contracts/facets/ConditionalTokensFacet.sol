@@ -10,39 +10,51 @@ import {LibERC1155} from "../libraries/LibERC1155.sol";
 import {IConditionalTokens} from "../interfaces/IConditionalTokens.sol";
 import {LibCTFCondition} from "../libraries/LibCTFCondition.sol";
 import {LibAccessControl} from "../libraries/LibAccessControl.sol";
+import {Errors} from "../libraries/Errors.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 contract ConditionalTokensFacet is IConditionalTokens {
     using SafeERC20 for IERC20;
 
     function prepareCondition(address oracle, bytes32 questionId, uint8 outcomeSlotCount) external override {
-        require(LibAccessControl.isOwner(msg.sender), "AccessControl: must be owner");
+        if(!LibAccessControl.isOwner(msg.sender)) {
+            revert Errors.NotAuthorized();
+        }
         bytes32 conditionId = LibCTFCondition.prepareCondition(oracle, questionId, outcomeSlotCount);
 
         emit ConditionPreparation(conditionId, oracle, questionId, outcomeSlotCount);
     }
 
     function reportPayouts(bytes32 questionId, uint256[] calldata payouts) external override {
-        require(payouts.length <= type(uint8).max, "Too many outcome slots");
+        if(payouts.length == 0 || payouts.length > type(uint8).max) {
+            revert Errors.InvalidPayoutLength();
+        }
         uint8 outcomeSlotCount = uint8(payouts.length);
-        require(outcomeSlotCount > 1, "ConditionalTokens: invalid payout length");
 
         bytes32 conditionId = LibCTHelpers.getConditionId(msg.sender, questionId, outcomeSlotCount);
         LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
         uint256[] storage numerators = ds.conditionalTokens.payoutNumerators[conditionId];
 
-        require(numerators.length == outcomeSlotCount, "ConditionalTokens: condition not prepared");
-        require(ds.conditionalTokens.payoutDenominator[conditionId] == 0, "ConditionalTokens: already resolved");
+        if(numerators.length != outcomeSlotCount) {
+            revert Errors.ConditionNotPrepared();
+        }
+        if(ds.conditionalTokens.payoutDenominator[conditionId] != 0) {
+            revert Errors.ConditionAlreadyResolved();
+        }
 
         uint256 den = 0;
         for (uint256 i = 0; i < outcomeSlotCount; i++) {
             uint256 num = payouts[i];
-            require(numerators[i] == 0, "ConditionalTokens: payout already set");
+            if(numerators[i] != 0) {
+                revert Errors.PayoutAlreadySet();
+            }
             numerators[i] = num;
             den += num;
         }
 
-        require(den > 0, "ConditionalTokens: all zero payouts");
+        if(den == 0) {
+            revert Errors.AllZeroPayouts();
+        }
         ds.conditionalTokens.payoutDenominator[conditionId] = den;
 
         emit ConditionResolution(conditionId, msg.sender, questionId, outcomeSlotCount, numerators);
@@ -80,10 +92,12 @@ contract ConditionalTokensFacet is IConditionalTokens {
     ) external override {
         LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
         uint256 den = ds.conditionalTokens.payoutDenominator[conditionId];
-        require(den > 0, "ConditionalTokens: condition not resolved");
+        if(den == 0) 
+            revert Errors.ConditionNotResolved();
 
         uint8 outcomeSlotCount = uint8(ds.conditionalTokens.payoutNumerators[conditionId].length);
-        require(outcomeSlotCount > 0, "ConditionalTokens: condition not prepared");
+        if(outcomeSlotCount == 0) 
+            revert Errors.ConditionNotPrepared();
 
         uint256 totalPayout = 0;
 
@@ -91,7 +105,8 @@ contract ConditionalTokensFacet is IConditionalTokens {
 
         for (uint256 i = 0; i < indexSets.length; i++) {
             uint256 indexSet = indexSets[i];
-            require(indexSet > 0 && indexSet < fullIndexSet, "ConditionalTokens: invalid index set");
+            if(indexSet == 0 || indexSet >= fullIndexSet) 
+                revert Errors.InvalidIndexSet();
 
             uint256 posId = _getPositionId(collateralToken, parentCollectionId, conditionId, indexSet);
             uint256 stake = LibERC1155.balanceOf(msg.sender, posId);
@@ -131,7 +146,8 @@ contract ConditionalTokensFacet is IConditionalTokens {
         address feeReceiver = ds.adminConfigStorage.feeReceiver;
         uint256 feeBps = ds.adminConfigStorage.resolutionFeeBps;
 
-        require(feeReceiver != address(0), "ConditionalTokens: invalid feeReceiver");
+        if(feeReceiver == address(0)) 
+            revert Errors.InvalidFeeReceiver();
 
         if (feeBps == 0) {
             IERC20(collateralToken).safeTransfer(recipient, amount);

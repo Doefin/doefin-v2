@@ -6,6 +6,7 @@ import {SafeERC20, IERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeE
 import {LibERC1155} from "./LibERC1155.sol";
 import {LibPositionRegistry} from "./LibPositionRegistry.sol";
 import {LibCTFCondition} from "./LibCTFCondition.sol";
+import {Errors} from "./Errors.sol";
 
 library LibEscrowLogic {
     using SafeERC20 for IERC20;
@@ -33,10 +34,7 @@ library LibEscrowLogic {
 
         address collateralToken = order.collateralToken;
         uint256 unitPerPair = ds.adminConfigStorage.unitPerPair[collateralToken];
-        require(unitPerPair > 0, "Collateral: unitPerPair not set");
-
-        // Ensure order.amount is divisible by unitPerPair for clean accounting
-        require(order.amount % unitPerPair == 0, "Collateral: amount not aligned with unit");
+        if (unitPerPair == 0) revert Errors.TokenNotAllowed();
 
         // Normalize price per token relative to unitPerPair
         // pricePerToken is assumed to be in unitPerPair precision
@@ -61,10 +59,7 @@ library LibEscrowLogic {
 
         address collateralToken = order.collateralToken;
         uint256 unitPerPair = ds.adminConfigStorage.unitPerPair[collateralToken];
-        require(unitPerPair > 0, "Collateral: unitPerPair not set");
-
-        // Ensure remainingAmount is divisible by unitPerPair
-        require(order.remainingAmount % unitPerPair == 0, "Collateral: amount not aligned with unit");
+        if (unitPerPair == 0) revert Errors.TokenNotAllowed();
 
         // Normalize cost
         uint256 cost = (order.remainingAmount * order.pricePerToken) / unitPerPair;
@@ -92,13 +87,15 @@ library LibEscrowLogic {
 
     function _consumeERC20Collateral(address user, address token, uint256 amount) internal {
         LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
-        require(ds.escrowStorage.collateralBalances[user][token] >= amount, "Escrow: insufficient ERC20");
+        if(ds.escrowStorage.collateralBalances[user][token] < amount) 
+            revert Errors.InsufficientERC20Balance();
         ds.escrowStorage.collateralBalances[user][token] -= amount;
     }
 
     function _consumeERC1155Collateral(address user, uint256 positionId, uint256 amount) internal {
         LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
-        require(ds.escrowStorage.lockedERC1155Balances[user][positionId] >= amount, "Escrow: insufficient ERC1155");
+        if(ds.escrowStorage.lockedERC1155Balances[user][positionId] < amount) 
+            revert Errors.InsufficientERC1155Balance();
         ds.escrowStorage.lockedERC1155Balances[user][positionId] -= amount;
     }
 
@@ -177,7 +174,7 @@ library LibEscrowLogic {
 
         address token = makerOrder.collateralToken;
         uint256 unitPerPair = ds.adminConfigStorage.unitPerPair[token];
-        require(unitPerPair > 0, "Collateral: unitPerPair not set");
+        if (unitPerPair == 0) revert Errors.TokenNotAllowed();
 
         // Apply normalization as done in lockERC20
         cost = (settlementExecCtx.fillableAmount * makerOrder.pricePerToken) / unitPerPair;
@@ -219,7 +216,8 @@ library LibEscrowLogic {
         if (settlementExecCtx.takerOrder.direction == LibDoefinStorage.OrderDirection.Buy) {
             uint256 takerToPay = takerContribution + takerFee;
             uint256 allowance = IERC20(collateralToken).allowance(settlementExecCtx.takerOrder.taker, address(this));
-            require(allowance >= takerToPay, "Taker has not approved enough tokens");
+            if (allowance < takerToPay) 
+                revert Errors.InsufficientERC20Allowance();
 
             // Get Taker ERC20 collateral
             IERC20(collateralToken).safeTransferFrom(settlementExecCtx.takerOrder.taker, address(this), takerToPay);
