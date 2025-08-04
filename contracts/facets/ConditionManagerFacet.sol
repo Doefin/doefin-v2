@@ -9,6 +9,7 @@ import {LibAccessControl} from "../libraries/LibAccessControl.sol";
 import {LibCTFCondition} from "../libraries/LibCTFCondition.sol";
 import {IConditionManager} from "../interfaces/IConditionManager.sol";
 import {Errors} from "../libraries/Errors.sol";
+import {Events} from "../libraries/Events.sol";
 
 contract ConditionManagerFacet is IConditionManager {
     using LibDoefinStorage for LibDoefinStorage.DiamondStorage;
@@ -33,7 +34,7 @@ contract ConditionManagerFacet is IConditionManager {
             __gap: [uint256(0), 0, 0, 0, 0, 0, 0, 0, 0, 0]
         });
 
-        emit ConditionCreated(conditionId, oracle, questionId, outcomeSlotCount, metadataURI);
+        emit Events.ConditionCreated(conditionId, oracle, questionId, outcomeSlotCount, metadataURI, msg.sender);
     }
 
     function getCondition(
@@ -61,6 +62,6 @@ contract ConditionManagerFacet is IConditionManager {
             revert Errors.ConditionAlreadyInactive();
 
         cond.active = false;
-        emit ConditionCancelled(conditionId);
+        emit Events.ConditionCancelled(conditionId, msg.sender);
     }
 }

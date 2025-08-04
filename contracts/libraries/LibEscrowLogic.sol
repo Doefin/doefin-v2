@@ -7,6 +7,7 @@ import {LibERC1155} from "./LibERC1155.sol";
 import {LibPositionRegistry} from "./LibPositionRegistry.sol";
 import {LibCTFCondition} from "./LibCTFCondition.sol";
 import {Errors} from "./Errors.sol";
+import {Events} from "./Events.sol";
 
 library LibEscrowLogic {
     using SafeERC20 for IERC20;
@@ -50,6 +51,10 @@ library LibEscrowLogic {
 
         // Update internal collateral balance
         ds.escrowStorage.collateralBalances[order.maker][collateralToken] += total;
+
+        uint256 totalBalance = ds.escrowStorage.collateralBalances[order.maker][collateralToken];
+
+        emit Events.ERC20CollateralLocked(order.maker, collateralToken, order.amount, totalBalance);
     }
 
     function releaseERC20(LibDoefinStorage.Order memory order) internal {
@@ -69,6 +74,9 @@ library LibEscrowLogic {
 
         _consumeERC20Collateral(order.maker, order.collateralToken, total);
         IERC20(order.collateralToken).safeTransfer(order.maker, total);
+
+        uint256 totalBalance = ds.escrowStorage.collateralBalances[order.maker][collateralToken];
+        emit Events.ERC20CollateralReleased(order.maker, collateralToken, total, totalBalance);
     }
 
     function lockERC1155(address user, uint256 positionId, uint256 amount) internal {
@@ -77,12 +85,19 @@ library LibEscrowLogic {
 
         LibERC1155.safeTransferFrom(address(this), user, address(this), positionId, amount, "");
         ds.escrowStorage.lockedERC1155Balances[user][positionId] += amount;
+
+        uint256 totalBalance = ds.escrowStorage.lockedERC1155Balances[user][positionId];
+
+        emit Events.ERC1155CollateralLocked(user, positionId, amount, totalBalance);
     }
 
     function releaseERC1155(address user, uint256 positionId, uint256 amount) internal {
         if (amount == 0) return;
         _consumeERC1155Collateral(user, positionId, amount);
         LibERC1155.safeTransferFrom(address(this), address(this), user, positionId, amount, "");
+
+        uint256 totalBalance = LibDoefinStorage.diamondStorage().escrowStorage.lockedERC1155Balances[user][positionId];
+        emit Events.ERC1155CollateralReleased(user, positionId, amount, totalBalance);
     }
 
     function _consumeERC20Collateral(address user, address token, uint256 amount) internal {
@@ -186,7 +201,14 @@ library LibEscrowLogic {
     function accrueFees(address token, uint256 makerFee, uint256 takerFee) internal {
         if (makerFee + takerFee == 0) return;
         LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
-        ds.escrowStorage.protocolFees[token] += makerFee + takerFee;
+        uint256 totalFees = makerFee + takerFee;
+        ds.escrowStorage.protocolFees[token] += totalFees;
+
+        emit Events.ProtocolFeesAccrued(
+            token,
+            totalFees,
+            ds.escrowStorage.protocolFees[token]
+        );
     }
 
     // ----------------------------------------

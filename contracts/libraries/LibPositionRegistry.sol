@@ -5,6 +5,7 @@ pragma solidity ^0.8.6;
 
 import {LibDoefinStorage} from "./LibDoefinStorage.sol";
 import {Errors} from "./Errors.sol";
+import {Events} from "./Events.sol";
 
 library LibPositionRegistry {
     function getComplement(uint256 positionId) internal view returns (uint256) {
@@ -72,10 +73,19 @@ library LibPositionRegistry {
             meta.parentCollectionId = parentCollectionId;
             meta.positionIds = positionIds;
             meta.partitions = partitions;
+
+            emit Events.PositionPairsRegistered(
+                conditionId,
+                collateralToken,
+                parentCollectionId,
+                positionIds,
+                partitions
+            );
         }
 
         for (uint256 i = 0; i < positionIds.length; i++) {
             ds.positionRegistry.conditionIdByPositionId[positionIds[i]] = conditionId;
+            emit Events.MarketMetadataUpdated(conditionId, collateralToken, parentCollectionId);
         }
     }
 

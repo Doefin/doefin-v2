@@ -6,6 +6,7 @@ pragma solidity ^0.8.6;
 import {LibDoefinStorage} from "./LibDoefinStorage.sol";
 import {LibPositionRegistry} from "./LibPositionRegistry.sol";
 import {Errors} from "./Errors.sol";
+import {Events} from "./Events.sol";
 
 /// @title LibMatchEngine - Simulates and ranks order matches from multiple sources (orderbook, mint, merge)
 library LibMatchEngine {

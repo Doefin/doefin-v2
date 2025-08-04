@@ -104,6 +104,9 @@ library Errors {
     /// @notice Thrown when partition is not disjoint
     error PartitionNotDisjoint();
 
+    /// @notice Thrown when condition is not active
+    error ConditionNotActive();
+
     // ========================================
     // COLLATERAL ERRORS
     // ========================================

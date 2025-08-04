@@ -5,54 +5,6 @@
 pragma solidity ^0.8.6;
 
 interface IConditionalTokens {
-    event ConditionPreparation(bytes32 indexed conditionId, address indexed oracle, bytes32 indexed questionId, uint8 outcomeSlotCount);
-
-    event PositionSplit(
-        address indexed stakeholder,
-        address indexed collateralToken,
-        bytes32 indexed parentCollectionId,
-        bytes32 conditionId,
-        uint[] partition,
-        uint amount
-    );
-
-    event ConditionResolution(
-        bytes32 indexed conditionId,
-        address indexed oracle,
-        bytes32 indexed questionId,
-        uint8 outcomeSlotCount,
-        uint[] payoutNumerators
-    );
-
-    event PositionsMerge(
-        address indexed stakeholder,
-        address indexed collateralToken,
-        bytes32 indexed parentCollectionId,
-        bytes32 conditionId,
-        uint[] partition,
-        uint amount
-    );
-
-    event PayoutRedemption(
-        address indexed redeemer,
-        address indexed collateralToken,
-        bytes32 indexed parentCollectionId,
-        bytes32 conditionId,
-        uint[] indexSets,
-        uint payout
-    );
-
-    event PayoutRedemptionFeePaid(address indexed redeemer, address indexed feeReceiver, uint256 feeAmount, uint256 userPayout);
-
-    event PayoutRedeemedToParentPosition(
-        address indexed redeemer,
-        address collateralToken,
-        bytes32 parentCollectionId,
-        bytes32 conditionId,
-        uint256 parentPositionId,
-        uint256 payoutAmount
-    );
-
     function prepareCondition(address oracle, bytes32 questionId, uint8 outcomeSlotCount) external;
     function reportPayouts(bytes32 questionId, uint[] calldata payouts) external;
     function splitPosition(address collateralToken, bytes32 parentCollectionId, bytes32 conditionId, uint amount, uint[] calldata partition) external;

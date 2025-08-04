@@ -8,6 +8,7 @@ import {LibDoefinStorage} from "../libraries/LibDoefinStorage.sol";
 import {IAdminConfig} from "../interfaces/IAdminConfig.sol";
 import {LibDiamond} from "../libraries/LibDiamond.sol";
 import {Errors} from "../libraries/Errors.sol";
+import {Events} from "../libraries/Events.sol";
 
 contract AdminConfigFacet is IAdminConfig {
     function addCollateralToken(address token, uint256 unitPerPair) external override {
@@ -23,7 +24,7 @@ contract AdminConfigFacet is IAdminConfig {
         ds.adminConfigStorage.isAllowed[token] = true;
         ds.adminConfigStorage.unitPerPair[token] = unitPerPair;
 
-        emit CollateralTokenAdded(token, unitPerPair);
+        emit Events.CollateralTokenAdded(token, unitPerPair);
     }
 
     function removeCollateralToken(address token) external override {
@@ -36,15 +37,18 @@ contract AdminConfigFacet is IAdminConfig {
         ds.adminConfigStorage.isAllowed[token] = false;
         delete ds.adminConfigStorage.unitPerPair[token];
 
-        emit CollateralTokenRemoved(token);
+        emit Events.CollateralTokenRemoved(token);
     }
 
     function setFeeReceiver(address feeReceiver) external override {
         LibDiamond.enforceIsContractOwner();
         if(feeReceiver == address(0))
             revert Errors.InvalidFeeReceiver();
-        LibDoefinStorage.diamondStorage().adminConfigStorage.feeReceiver = feeReceiver;
-        emit FeeReceiverUpdated(feeReceiver);
+        LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
+        address oldReceiver = ds.adminConfigStorage.feeReceiver;
+        if(oldReceiver == feeReceiver) return; // No change, no event
+        ds.adminConfigStorage.feeReceiver = feeReceiver;
+        emit Events.FeeReceiverUpdated(oldReceiver, feeReceiver);
     }
 
     function setResolutionFeeBps(uint256 bps) external override {
@@ -52,8 +56,11 @@ contract AdminConfigFacet is IAdminConfig {
         if(bps > 10_000) 
             revert Errors.FeeTooHigh();
 
-        LibDoefinStorage.diamondStorage().adminConfigStorage.resolutionFeeBps = bps;
-        emit ResolutionFeeUpdated(bps);
+        LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
+        uint256 oldFeeBps = ds.adminConfigStorage.resolutionFeeBps;
+        if(oldFeeBps == bps) return; // No change, no event
+        ds.adminConfigStorage.resolutionFeeBps = bps;
+        emit Events.ResolutionFeeUpdated(oldFeeBps, bps);
     }
 
     function setTradingFeesBps(uint256 makerBps, uint256 takerBps) external override {
@@ -62,10 +69,11 @@ contract AdminConfigFacet is IAdminConfig {
             revert Errors.FeeTooHigh();
 
         LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
+        uint256 oldMakerBps = ds.adminConfigStorage.makerTradingFeeBps;
+        uint256 oldTakerBps = ds.adminConfigStorage.takerTradingFeeBps;
         ds.adminConfigStorage.makerTradingFeeBps = makerBps;
         ds.adminConfigStorage.takerTradingFeeBps = takerBps;
-
-        emit TradingFeesUpdated(makerBps, takerBps);
+        emit Events.TradingFeesUpdated(oldMakerBps, oldTakerBps, makerBps, takerBps);
     }
 
     function isAllowedCollateral(address token) external view override returns (bool) {

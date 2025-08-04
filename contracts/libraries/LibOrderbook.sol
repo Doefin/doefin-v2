@@ -5,6 +5,7 @@ pragma solidity ^0.8.6;
 import {LibDoefinStorage} from "./LibDoefinStorage.sol";
 import {LibEscrowLogic} from "./LibEscrowLogic.sol";
 import {Errors} from "./Errors.sol";
+import {Events} from "./Events.sol";
 
 /// @title LibOrderbook - Handles creation, modification, and cancellation of orders
 library LibOrderbook {
@@ -55,16 +56,17 @@ library LibOrderbook {
         ds.orderbookStorage.orders[orderId] = order;
         _insertSorted(order);
 
-        // emit LibDoefinStorage.OrderCreated(
-        //     orderId,
-        //     msg.sender,
-        //     positionId,
-        //     amount,
-        //     pricePerToken,
-        //     block.timestamp,
-        //     direction,
-        //     0x0 // conditionId optional for now
-        // );
+        emit Events.OrderCreated(
+            orderId,
+            msg.sender,
+            positionId,
+            collateralToken,
+            amount,
+            pricePerToken,
+            minFillAmount,
+            expiry,
+            direction
+        );
     }
 
     /// @notice Cancel an open order and release collateral
@@ -73,11 +75,13 @@ library LibOrderbook {
         LibDoefinStorage.Order storage order = ds.orderbookStorage.orders[orderId];
         if(order.maker != sender) revert Errors.NotAuthorizedToCancel();
 
+        uint256 remainingAmount = order.remainingAmount;
+
         LibEscrowLogic.releaseCollateral(order);
         _removeOrder(orderId, order.positionId, order.direction);
 
         delete ds.orderbookStorage.orders[orderId];
-        // emit LibDoefinStorage.OrderCanceled(orderId);
+        emit Events.OrderCancelled(orderId, sender, remainingAmount);
     }
 
     /// @notice Modify an open order
@@ -112,6 +116,9 @@ library LibOrderbook {
         // Adjust collateral if the total cost decreased or increased
         LibEscrowLogic.adjustCollateralForModifiedOrder(modifyCtx);
 
+        uint256 oldMinFill = order.minFillAmount;
+        uint256 oldExpiry = order.expiry;
+
         order.amount = newAmount;
         order.remainingAmount = newAmount;
         order.pricePerToken = newPricePerToken;
@@ -123,8 +130,18 @@ library LibOrderbook {
             _removeOrder(orderId, order.positionId, order.direction);
             _insertSorted(order);
         }
-
-        // emit LibDoefinStorage.OrderUpdated(orderId, newAmount, newPricePerToken, newMinFillAmount, newExpiry);
+        emit Events.OrderModified(
+            orderId,
+            maker,
+            modifyCtx.oldAmount,
+            newAmount,
+            modifyCtx.oldPrice,
+            newPricePerToken,
+            oldMinFill,
+            newMinFillAmount,
+            oldExpiry,
+            newExpiry
+        );
     }
 
     function _insertSorted(LibDoefinStorage.Order memory order) internal {

@@ -123,11 +123,14 @@ library LibCTFCondition {
         uint256[] memory partition,
         uint256 amount
     ) internal view returns (uint256 fullIndexSet, uint256 freeIndexSet, uint256[] memory positionIds, uint256[] memory amounts) {
-        require(partition.length > 1, "ConditionalTokens: trivial partition");
+        if(partition.length <= 1) {
+            revert Errors.TrivialPartition();
+        }
         LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
 
         uint8 outcomeSlotCount = uint8(ds.conditionalTokens.payoutNumerators[conditionId].length);
-        require(outcomeSlotCount > 0, "ConditionalTokens: condition not prepared");
+        if(outcomeSlotCount == 0) 
+            revert Errors.ConditionNotPrepared();
 
         fullIndexSet = (1 << outcomeSlotCount) - 1;
         freeIndexSet = fullIndexSet;
@@ -137,8 +140,9 @@ library LibCTFCondition {
 
         for (uint256 i = 0; i < partition.length; i++) {
             uint256 indexSet = partition[i];
-            require(indexSet > 0 && indexSet < fullIndexSet, "ConditionalTokens: invalid index set");
-            require((indexSet & freeIndexSet) == indexSet, "ConditionalTokens: partition not disjoint");
+            if(indexSet == 0 || indexSet >= fullIndexSet) 
+                revert Errors.InvalidIndexSet();
+            if ((indexSet & freeIndexSet) != indexSet) revert Errors.PartitionNotDisjoint();
             freeIndexSet ^= indexSet;
 
             positionIds[i] = _getPositionId(collateralToken, parentCollectionId, conditionId, indexSet);
@@ -158,6 +162,8 @@ library LibCTFCondition {
 
     function enforceConditionIsActive(bytes32 conditionId) internal view {
         LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
-        require(ds.conditionManager.conditions[conditionId].active, "ConditionalTokens: condition inactive");
+        if(!ds.conditionManager.conditions[conditionId].active) {
+            revert Errors.ConditionNotActive();
+        }
     }
 }

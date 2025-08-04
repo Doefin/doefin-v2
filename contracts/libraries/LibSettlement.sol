@@ -8,6 +8,7 @@ import {LibEscrowLogic} from "./LibEscrowLogic.sol";
 import {LibPositionRegistry} from "./LibPositionRegistry.sol";
 import {LibMatchEngine} from "./LibMatchEngine.sol";
 import {Errors} from "./Errors.sol";
+import {Events} from "./Events.sol";
 
 library LibSettlement {
     function executeMatchedRoute(LibDoefinStorage.TakerOrderContext memory takerOrder, LibDoefinStorage.MatchExecution[] calldata matches) internal {
@@ -67,11 +68,28 @@ library LibSettlement {
             });
 
             LibEscrowLogic.settlementDispatcher(settlementExecCtx);
+            emit Events.MarketOrderMatch(
+                takerOrder.taker,
+                makerOrder.orderId,
+                makerOrder.maker,
+                fillableAmount,
+                effectivePrice,
+                matchExec.matchType
+            );
         }
 
         if (takerOrder.fillOrKill && takerOrder.remainingAmount > 0) {
             revert Errors.FillOrKillFailed();
         }
+
+        emit Events.MarketOrderExecuted(
+            takerOrder.taker,
+            takerOrder.positionId,
+            takerOrder.direction,
+            takerOrder.amount,
+            takerOrder.remainingAmount,
+            totalValue
+        );
     }
 
     function computeMaxFillableAtPrice(

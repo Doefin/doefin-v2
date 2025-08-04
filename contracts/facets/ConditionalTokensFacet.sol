@@ -11,6 +11,7 @@ import {IConditionalTokens} from "../interfaces/IConditionalTokens.sol";
 import {LibCTFCondition} from "../libraries/LibCTFCondition.sol";
 import {LibAccessControl} from "../libraries/LibAccessControl.sol";
 import {Errors} from "../libraries/Errors.sol";
+import {Events} from "../libraries/Events.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 contract ConditionalTokensFacet is IConditionalTokens {
@@ -22,7 +23,7 @@ contract ConditionalTokensFacet is IConditionalTokens {
         }
         bytes32 conditionId = LibCTFCondition.prepareCondition(oracle, questionId, outcomeSlotCount);
 
-        emit ConditionPreparation(conditionId, oracle, questionId, outcomeSlotCount);
+        emit Events.ConditionPreparation(conditionId, oracle, questionId, outcomeSlotCount);
     }
 
     function reportPayouts(bytes32 questionId, uint256[] calldata payouts) external override {
@@ -57,7 +58,7 @@ contract ConditionalTokensFacet is IConditionalTokens {
         }
         ds.conditionalTokens.payoutDenominator[conditionId] = den;
 
-        emit ConditionResolution(conditionId, msg.sender, questionId, outcomeSlotCount, numerators);
+        emit Events.ConditionResolution(conditionId, msg.sender, questionId, outcomeSlotCount, numerators);
     }
 
     function splitPosition(
@@ -69,7 +70,7 @@ contract ConditionalTokensFacet is IConditionalTokens {
     ) external override {
         LibCTFCondition._splitPosition(msg.sender, collateralToken, parentCollectionId, conditionId, amount, partition);
 
-        emit PositionSplit(msg.sender, collateralToken, parentCollectionId, conditionId, partition, amount);
+        emit Events.PositionSplit(msg.sender, collateralToken, parentCollectionId, conditionId, partition, amount);
     }
 
     function mergePositions(
@@ -81,7 +82,7 @@ contract ConditionalTokensFacet is IConditionalTokens {
     ) external override {
         LibCTFCondition._mergePositions(msg.sender, collateralToken, parentCollectionId, conditionId, partition, amount);
 
-        emit PositionsMerge(msg.sender, collateralToken, parentCollectionId, conditionId, partition, amount);
+        emit Events.PositionsMerge(msg.sender, collateralToken, parentCollectionId, conditionId, partition, amount);
     }
 
     function redeemPositions(
@@ -133,11 +134,11 @@ contract ConditionalTokensFacet is IConditionalTokens {
             } else {
                 uint256 parentPosId = LibCTHelpers.getPositionId(collateralToken, parentCollectionId);
                 LibERC1155._mint(msg.sender, parentPosId, totalPayout, "");
-                emit PayoutRedeemedToParentPosition(msg.sender, collateralToken, parentCollectionId, conditionId, parentPosId, totalPayout);
+                emit Events.PayoutRedeemedToParentPosition(msg.sender, collateralToken, parentCollectionId, conditionId, parentPosId, totalPayout);
             }
         }
 
-        emit PayoutRedemption(msg.sender, collateralToken, parentCollectionId, conditionId, indexSets, totalPayout);
+        emit Events.PayoutRedemption(msg.sender, collateralToken, parentCollectionId, conditionId, indexSets, totalPayout);
     }
 
     function _handlePayoutTransfer(address collateralToken, address recipient, uint256 amount) internal {
@@ -161,7 +162,7 @@ contract ConditionalTokensFacet is IConditionalTokens {
         IERC20(collateralToken).safeTransfer(feeReceiver, feeAmount);
         IERC20(collateralToken).safeTransfer(recipient, userAmount);
 
-        emit PayoutRedemptionFeePaid(recipient, feeReceiver, feeAmount, userAmount);
+        emit Events.PayoutRedemptionFeePaid(recipient, feeReceiver, feeAmount, userAmount);
     }
 
     function _getPositionId(

@@ -7,6 +7,7 @@ pragma solidity ^0.8.6;
 import {LibDoefinStorage} from "./LibDoefinStorage.sol";
 import {IERC1155TokenReceiver} from "../interfaces/IERC1155TokenReceiver.sol";
 import {Errors} from "./Errors.sol";
+import {Events} from "./Events.sol";
 
 library LibERC1155 {
     function balanceOf(address owner, uint256 id) internal view returns (uint256) {
@@ -48,7 +49,7 @@ library LibERC1155 {
         ds.erc1155Storage.erc1155Balances[id][from] -= value;
         ds.erc1155Storage.erc1155Balances[id][to] += value;
 
-        emit TransferSingle(operator, from, to, id, value);
+        emit Events.TransferSingle(operator, from, to, id, value);
 
         _doSafeTransferAcceptanceCheck(operator, from, to, id, value, data);
     }
@@ -77,7 +78,7 @@ library LibERC1155 {
             ds.erc1155Storage.erc1155Balances[ids[i]][to] += values[i];
         }
 
-        emit TransferBatch(operator, from, to, ids, values);
+        emit Events.TransferBatch(operator, from, to, ids, values);
 
         _doSafeBatchTransferAcceptanceCheck(operator, from, to, ids, values, data);
     }
@@ -88,7 +89,7 @@ library LibERC1155 {
 
         LibDoefinStorage.diamondStorage().erc1155Storage.erc1155Balances[id][to] += value;
 
-        emit TransferSingle(msg.sender, address(0), to, id, value);
+        emit Events.TransferSingle(msg.sender, address(0), to, id, value);
 
         _doSafeTransferAcceptanceCheck(msg.sender, address(0), to, id, value, data);
     }
@@ -105,7 +106,7 @@ library LibERC1155 {
             ds.erc1155Storage.erc1155Balances[ids[i]][to] += values[i];
         }
 
-        emit TransferBatch(msg.sender, address(0), to, ids, values);
+        emit Events.TransferBatch(msg.sender, address(0), to, ids, values);
 
         _doSafeBatchTransferAcceptanceCheck(msg.sender, address(0), to, ids, values, data);
     }
@@ -113,7 +114,7 @@ library LibERC1155 {
     function _burn(address from, uint256 id, uint256 value) internal {
         LibDoefinStorage.diamondStorage().erc1155Storage.erc1155Balances[id][from] -= value;
 
-        emit TransferSingle(msg.sender, from, address(0), id, value);
+        emit Events.TransferSingle(msg.sender, from, address(0), id, value);
     }
 
     function _batchBurn(address from, uint256[] memory ids, uint256[] memory values) internal {
@@ -126,7 +127,7 @@ library LibERC1155 {
             ds.erc1155Storage.erc1155Balances[ids[i]][from] -= values[i];
         }
 
-        emit TransferBatch(msg.sender, from, address(0), ids, values);
+        emit Events.TransferBatch(msg.sender, from, address(0), ids, values);
     }
 
     function _doSafeTransferAcceptanceCheck(address operator, address from, address to, uint256 id, uint256 value, bytes memory data) private {
@@ -149,9 +150,4 @@ library LibERC1155 {
                 IERC1155TokenReceiver.onERC1155BatchReceived.selector) revert Errors.ERC1155ReceiverRejectedTokens();
         }
     }
-
-    // Emit events for compatibility
-    event TransferSingle(address indexed operator, address indexed from, address indexed to, uint256 id, uint256 value);
-    event TransferBatch(address indexed operator, address indexed from, address indexed to, uint256[] ids, uint256[] values);
-    event ApprovalForAll(address indexed owner, address indexed operator, bool approved);
 }

@@ -6,12 +6,6 @@
 pragma solidity ^0.8.6;
 
 interface IAdminConfig {
-    event CollateralTokenAdded(address token, uint256 unitPerPair);
-    event CollateralTokenRemoved(address token);
-    event FeeReceiverUpdated(address newReceiver);
-    event ResolutionFeeUpdated(uint256 newBps);
-    event TradingFeesUpdated(uint256 makerBps, uint256 takerBps);
-
     function addCollateralToken(address token, uint256 unitPerPair) external;
     function removeCollateralToken(address token) external;
     function isAllowedCollateral(address token) external view returns (bool);
