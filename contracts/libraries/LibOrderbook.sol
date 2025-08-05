@@ -26,8 +26,14 @@ library LibOrderbook {
         if (unitsPerPair == 0) {
             revert Errors.TokenNotAllowed();
         }
-        if (pricePerToken > unitsPerPair) {
+        if (pricePerToken >= unitsPerPair || pricePerToken == 0) {
             revert Errors.InvalidPrice();
+        }
+        if (amount < minFillAmount || amount == 0) {
+            revert Errors.InvalidAmounts();
+        }
+        if(expiry != 0 && expiry <= block.timestamp) {
+            revert Errors.OrderCreatedWithPastExpiry();
         }
 
         orderId = ds.orderbookStorage.nextOrderId++;

@@ -21,6 +21,9 @@ contract ConditionManagerFacet is IConditionManager {
         string calldata metadataURI
     ) external override returns (bytes32 conditionId) {
         LibAccessControl.enforceIsMarketMaker();
+        if(outcomeSlotCount <= 1) {
+            revert Errors.InvalidOutcomeSlotCount();
+        }
         LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
         conditionId = LibCTFCondition.prepareCondition(oracle, questionId, outcomeSlotCount);
 

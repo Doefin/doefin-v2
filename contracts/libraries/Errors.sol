@@ -26,6 +26,12 @@ library Errors {
     /// @notice Thrown when caller is not the order maker
     error NotOrderMaker();
 
+    /// 
+    error InvalidMakerAddress();
+
+    ///
+    error AlreadyMarketMaker();
+
     // ========================================
     // ADMIN CONFIG ERRORS
     // ========================================
@@ -94,6 +100,9 @@ library Errors {
     
     /// @notice Thrown when there are too many outcome slots
     error TooManyOutcomeSlots();
+
+    /// @notice Thrown when outcome slot count is invalid
+    error InvalidOutcomeSlotCount();
     
     /// @notice Thrown when partition is trivial
     error TrivialPartition();
@@ -164,6 +173,12 @@ library Errors {
 
     /// @notice Thrown when order price exceeds maximum
     error InvalidPrice();
+
+    /// @notice Thrown when order amounts are invalid
+    error InvalidAmounts();
+
+    /// @notice Thrown when order is created with past expiry
+    error OrderCreatedWithPastExpiry();
 
     // ========================================
     // SETTLEMENT ERRORS
