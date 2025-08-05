@@ -12,11 +12,14 @@ task('accounts', 'Prints the list of accounts', async () => {
 });
 
 module.exports = {
-  solidity: '0.8.20',
-  settings: {
-    optimizer: {
-      enabled: true,
-      runs: 200
+  solidity: {
+    version: '0.8.20',
+    settings: {
+      optimizer: {
+        enabled: true,
+        runs: 200
+      },
+      viaIR: true // Enable IR-based code generator to avoid "stack too deep" errors
     }
   },
   networks: {
