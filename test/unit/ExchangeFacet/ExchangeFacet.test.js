@@ -179,7 +179,7 @@ describe("Exchange Facet - Limit Orders", function () {
 
     it("should revert if user lacks enough ERC20 collateral", async () => {
         const amount = ethers.utils.parseEther("10000");
-        const price = ethers.utils.parseEther("1");
+        const price = ethers.utils.parseEther("0.9");
         const makerFee = amount.mul(200).div(10000);
         const requiredTotal = amount.add(makerFee);
 
@@ -221,7 +221,7 @@ describe("Exchange Facet - Limit Orders", function () {
                 expiry,
                 0 // BUY
             )
-        ).to.be.revertedWith("Price exceeds unit limit");
+        ).to.be.revertedWith("InvalidPrice()");
     });
 
     it("should deduct ERC20 balance correctly with maker fee on BUY order", async () => {
@@ -258,7 +258,7 @@ describe("Exchange Facet - Limit Orders", function () {
 
     it("should cancel a partially filled order", async () => {
         const amount = ethers.utils.parseEther("10");
-        const price = ethers.utils.parseEther("1");
+        const price = ethers.utils.parseEther("0.9");
 
         await erc20.mint(user.address, mintAmount);
         await erc20.connect(user).approve(diamondAddress, mintAmount);
@@ -296,9 +296,9 @@ describe("Exchange Facet - Limit Orders", function () {
 
     it("should cancel an expired order", async () => {
         const amount = ethers.utils.parseEther("10");
-        const price = ethers.utils.parseEther("1");
+        const price = ethers.utils.parseEther("0.8");
 
-        const expiry = Math.floor(Date.now() / 1000) + 5; // 5 seconds
+        const expiry = Math.floor(Date.now() / 1000) + 50; // 50 seconds
 
         await erc20.mint(maker.address, mintAmount);
         await erc20.connect(maker).approve(diamondAddress, mintAmount);
@@ -334,7 +334,7 @@ describe("Exchange Facet - Limit Orders", function () {
 
     it("should revert if non-maker tries to cancel the order", async () => {
         const amount = ethers.utils.parseEther("10");
-        const price = ethers.utils.parseEther("1");
+        const price = ethers.utils.parseEther("0.5");
 
         await erc20.mint(maker.address, mintAmount);
         await erc20.connect(maker).approve(diamondAddress, mintAmount);
@@ -353,7 +353,7 @@ describe("Exchange Facet - Limit Orders", function () {
 
         await expect(
             exchangeFacet.connect(taker).cancelOrder(orderId)
-        ).to.be.revertedWith("Only maker can cancel");
+        ).to.be.revertedWith("NotAuthorizedToCancel()");
     });
 
 

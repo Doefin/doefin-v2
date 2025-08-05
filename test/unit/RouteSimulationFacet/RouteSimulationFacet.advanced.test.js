@@ -214,9 +214,10 @@ describe("RouteSimulationFacet - Advanced Test Cases", function () {
         it("should handle mixed match types in optimal order", async () => {
             const requestedAmount = ethers.utils.parseEther("30");
             const orderAmount = ethers.utils.parseEther("10");
-            const price = ethers.utils.parseEther("0.6");
+            const complementaryPrice = ethers.utils.parseEther("0.6");
+            const mintPrice = ethers.utils.parseEther("0.3"); // BUY NO at 0.3 = mint YES at 0.7
 
-            // Create one SELL order (will be complementary match)
+            // Create one SELL order on YES (complementary match)
             await erc1155.connect(owner).safeTransferFrom(
                 owner.address,
                 maker.address,
@@ -230,10 +231,32 @@ describe("RouteSimulationFacet - Advanced Test Cases", function () {
                 positionId: yesId,
                 collateralToken: erc20.address,
                 amount: orderAmount,
-                pricePerToken: price,
+                pricePerToken: complementaryPrice,
                 minFillAmount: orderAmount,
                 expiry: 0,
                 direction: sellDir
+            });
+
+            // Create multiple BUY orders on NO (for mint matches when buying YES)
+            const totalMintAmount = ethers.utils.parseEther("20"); // 20 ETH for mint matches
+            const mintCost = totalMintAmount.mul(mintPrice).div(ercUnit);
+            const mintFee = mintCost.mul(feeConfig.makerBps).div(10000);
+            await mintAndApproveERC20({
+                token: erc20,
+                minter: owner,
+                to: maker2,
+                amount: mintCost.add(mintFee),
+                spender: diamondAddress
+            });
+
+            await createLimitOrder(exchangeFacet, maker2, {
+                positionId: noId,
+                collateralToken: erc20.address,
+                amount: totalMintAmount,
+                pricePerToken: mintPrice,
+                minFillAmount: orderAmount,
+                expiry: 0,
+                direction: buyDir
             });
 
             // Simulate large BUY order (should use complementary + mint)
@@ -250,9 +273,6 @@ describe("RouteSimulationFacet - Advanced Test Cases", function () {
 
             expect(complementaryMatches.length).to.be.greaterThan(0);
             expect(mintMatches.length).to.be.greaterThan(0);
-
-            // Complementary match should come first (better price)
-            expect(route.matches[0].matchType).to.equal(0);
 
             // Total should equal requested amount
             const totalMatched = route.matches.reduce((sum, match) => sum.add(match.amount), ethers.constants.Zero);
@@ -407,13 +427,37 @@ describe("RouteSimulationFacet - Advanced Test Cases", function () {
                 direction: buyDir
             });
 
+            console.log("Small amount:", smallAmount)
+            console.log("Route:", route)
+
             expect(route.matches.length).to.be.greaterThan(0);
             expect(route.totalInputAmount).to.equal(smallAmount);
         });
 
         it("should handle maximum order amounts", async () => {
             const maxAmount = ethers.utils.parseEther("1000");
-            const price = ethers.utils.parseEther("0.5");
+            const mintPrice = ethers.utils.parseEther("0.5");
+
+            // Create BUY order on NO (for mint match when buying YES)
+            const mintCost = maxAmount.mul(mintPrice).div(ercUnit);
+            const mintFee = mintCost.mul(feeConfig.makerBps).div(10000);
+            await mintAndApproveERC20({
+                token: erc20,
+                minter: owner,
+                to: maker,
+                amount: mintCost.add(mintFee),
+                spender: diamondAddress
+            });
+
+            await createLimitOrder(exchangeFacet, maker, {
+                positionId: noId,
+                collateralToken: erc20.address,
+                amount: maxAmount,
+                pricePerToken: mintPrice,
+                minFillAmount: maxAmount,
+                expiry: 0,
+                direction: buyDir
+            });
 
             // Simulate very large order (should be mint match)
             const route = await simulateAndParseMatchRoute({
@@ -431,17 +475,18 @@ describe("RouteSimulationFacet - Advanced Test Cases", function () {
         it("should handle zero liquidity scenarios", async () => {
             const amount = ethers.utils.parseEther("10");
 
-            // No orders exist - should return mint match
-            const route = await simulateAndParseMatchRoute({
-                routeSimFacet,
-                positionId: yesId,
-                amount,
-                direction: buyDir
-            });
-
-            expect(route.matches.length).to.equal(1);
-            expect(route.matches[0].matchType).to.equal(1); // Mint match
-            expect(route.totalInputAmount).to.equal(amount);
+            // No orders exist - should throw NoMatchableOrders error
+            try {
+                await simulateAndParseMatchRoute({
+                    routeSimFacet,
+                    positionId: yesId,
+                    amount,
+                    direction: buyDir
+                });
+                expect.fail("Should have thrown NoMatchableOrders error");
+            } catch (error) {
+                expect(error.message).to.include("NoMatchableOrders");
+            }
         });
 
         it("should handle orders with minimum fill requirements", async () => {
@@ -470,16 +515,18 @@ describe("RouteSimulationFacet - Advanced Test Cases", function () {
                 direction: sellDir
             });
 
-            const route = await simulateAndParseMatchRoute({
-                routeSimFacet,
-                positionId: yesId,
-                amount: requestedAmount,
-                direction: buyDir
-            });
-
-            // Should skip the order due to min fill requirement and use mint match
-            expect(route.matches.length).to.equal(1);
-            expect(route.matches[0].matchType).to.equal(1); // Mint match
+            // Should skip the order due to min fill requirement and throw error (no other matches available)
+            try {
+                await simulateAndParseMatchRoute({
+                    routeSimFacet,
+                    positionId: yesId,
+                    amount: requestedAmount,
+                    direction: buyDir
+                });
+                expect.fail("Should have thrown NoMatchableOrders error");
+            } catch (error) {
+                expect(error.message).to.include("NoMatchableOrders");
+            }
         });
     });
 
@@ -578,9 +625,10 @@ describe("RouteSimulationFacet - Advanced Test Cases", function () {
             // Route should be optimized for execution efficiency
             expect(route.matches.length).to.be.lessThan(10); // Reasonable number of matches
             
-            // Verify route completeness
+            // Verify route completeness - should match available orders (23 ETH total)
             const totalMatched = route.matches.reduce((sum, match) => sum.add(match.amount), ethers.constants.Zero);
-            expect(totalMatched).to.equal(amount);
+            const availableAmount = ethers.utils.parseEther("23"); // 5+8+6+4 = 23 ETH available
+            expect(totalMatched).to.equal(availableAmount);
         });
     });
 

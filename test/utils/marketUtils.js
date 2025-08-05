@@ -42,14 +42,19 @@ async function createCompleteMarket({
         ipfsHash
     );
 
-    // Mint and approve ERC20 for splitting
-    await mintAndApproveERC20({
-        token: erc20,
-        minter: owner,
-        to: owner,
-        amount: initialLiquidity,
-        spender: diamondAddress
-    });
+    // Check current balance and allowance
+    const currentBalance = await erc20.balanceOf(owner.address);
+    const currentAllowance = await erc20.allowance(owner.address, diamondAddress);
+    
+    // Mint additional tokens if needed
+    if (currentBalance.lt(initialLiquidity)) {
+        await erc20.mint(owner.address, initialLiquidity.sub(currentBalance));
+    }
+    
+    // Approve additional allowance if needed
+    if (currentAllowance.lt(initialLiquidity)) {
+        await erc20.connect(owner).approve(diamondAddress, currentAllowance.add(initialLiquidity));
+    }
 
     // Split condition to create position tokens
     const indexSets = Array.from({ length: outcomeSlotCount }, (_, i) => 1 << i);
@@ -95,6 +100,9 @@ async function createMultipleLimitOrders({
 }) {
     const orderIds = [];
 
+    // Set approval for all first
+    await erc1155.connect(maker).setApprovalForAll(diamondAddress, true);
+
     for (const config of orderConfigs) {
         const { amount, price, direction, minFill = amount } = config;
 
@@ -133,9 +141,6 @@ async function createMultipleLimitOrders({
         const orderId = await exchangeFacet.callStatic.getNextOrderId() - 1;
         orderIds.push(orderId);
     }
-
-    // Set approval for all if not already set
-    await erc1155.connect(maker).setApprovalForAll(diamondAddress, true);
 
     return orderIds;
 }
