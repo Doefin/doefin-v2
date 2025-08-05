@@ -347,6 +347,13 @@ library Events {
     /// @param totalFees New total fees for token
     event ProtocolFeesAccrued(address indexed token, uint256 amount, uint256 totalFees);
 
+    /// @notice Emitted when protocol fees are withdrawn by admin
+    /// @param token Address of the token
+    /// @param recipient Address receiving the fees
+    /// @param amount Amount withdrawn
+    /// @param remainingFees Remaining fees after withdrawal
+    event ProtocolFeesWithdrawn(address indexed token, address indexed recipient, uint256 amount, uint256 remainingFees);
+
     // ========================================
     // POSITION REGISTRY EVENTS
     // ========================================

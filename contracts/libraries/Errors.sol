@@ -137,6 +137,16 @@ library Errors {
     error InsufficientERC20Allowance();
 
     // ========================================
+    // FEE MANAGEMENT ERRORS
+    // ========================================
+    
+    /// @notice Thrown when no fees are available for withdrawal
+    error NoFeesToWithdraw();
+    
+    /// @notice Thrown when insufficient fee balance for withdrawal
+    error InsufficientFeeBalance();
+
+    // ========================================
     // ORDERBOOK ERRORS
     // ========================================
     

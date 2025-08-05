@@ -1,16 +1,24 @@
 // SPDX-License-Identifier: AGPL-3.0
-// Based on Diamond Standard by Nick Mudge: https://github.com/mudgen/diamond-3-hardhat
-// Uses shared logic from Gnosis Conditional Tokens Framework: https://github.com/gnosis/conditional-tokens-contracts
-
 pragma solidity ^0.8.6;
 
 import {LibDoefinStorage} from "../libraries/LibDoefinStorage.sol";
+import {LibFeeManager} from "../libraries/LibFeeManager.sol";
 import {IAdminConfig} from "../interfaces/IAdminConfig.sol";
 import {LibDiamond} from "../libraries/LibDiamond.sol";
 import {Errors} from "../libraries/Errors.sol";
 import {Events} from "../libraries/Events.sol";
 
+/**
+ * @title AdminConfigFacetV2
+ * @notice Enhanced admin configuration facet with fee withdrawal functionality
+ * @dev Extends the original AdminConfigFacet with new fee management capabilities
+ */
 contract AdminConfigFacet is IAdminConfig {
+
+    // ----------------------------------------
+    // Original Admin Config Functions
+    // ----------------------------------------
+
     function addCollateralToken(address token, uint256 unitPerPair) external override {
         LibDiamond.enforceIsContractOwner();
         if(token == address(0)) revert Errors.InvalidTokenAddress();
@@ -90,5 +98,211 @@ contract AdminConfigFacet is IAdminConfig {
     function getFees() external view returns (address feeReceiver, uint256 resolutionFeeBps, uint256 makerTradingFeeBps, uint256 takerTradingFeeBps) {
         LibDoefinStorage.AdminConfigStorage storage cfg = LibDoefinStorage.diamondStorage().adminConfigStorage;
         return (cfg.feeReceiver, cfg.resolutionFeeBps, cfg.makerTradingFeeBps, cfg.takerTradingFeeBps);
+    }
+
+    // ----------------------------------------
+    // NEW: Fee Withdrawal Functions
+    // ----------------------------------------
+
+    /**
+     * @notice Withdraw accumulated protocol fees for a specific token
+     * @param token The token to withdraw fees for
+     * @param amount The amount to withdraw (0 = withdraw all)
+     */
+    function withdrawProtocolFees(address token, uint256 amount) external {
+        LibFeeManager.withdrawProtocolFees(token, amount, address(0));
+    }
+
+    /**
+     * @notice Withdraw accumulated protocol fees to a specific recipient
+     * @param token The token to withdraw fees for
+     * @param amount The amount to withdraw (0 = withdraw all)
+     * @param recipient The address to send fees to
+     */
+    function withdrawProtocolFeesTo(address token, uint256 amount, address recipient) external {
+        LibFeeManager.withdrawProtocolFees(token, amount, recipient);
+    }
+
+    /**
+     * @notice Withdraw all accumulated fees for a specific token
+     * @param token The token to withdraw all fees for
+     */
+    function withdrawAllProtocolFees(address token) external {
+        LibFeeManager.withdrawAllProtocolFees(token, address(0));
+    }
+
+    /**
+     * @notice Withdraw all accumulated fees for a specific token to a specific recipient
+     * @param token The token to withdraw all fees for
+     * @param recipient The address to send fees to
+     */
+    function withdrawAllProtocolFeesTo(address token, address recipient) external {
+        LibFeeManager.withdrawAllProtocolFees(token, recipient);
+    }
+
+    /**
+     * @notice Batch withdraw fees for multiple tokens
+     * @param tokens Array of token addresses
+     * @param amounts Array of amounts to withdraw (0 = withdraw all for that token)
+     */
+    function batchWithdrawProtocolFees(address[] calldata tokens, uint256[] calldata amounts) external {
+        LibFeeManager.batchWithdrawProtocolFees(tokens, amounts, address(0));
+    }
+
+    /**
+     * @notice Batch withdraw fees for multiple tokens to a specific recipient
+     * @param tokens Array of token addresses
+     * @param amounts Array of amounts to withdraw (0 = withdraw all for that token)
+     * @param recipient The address to send fees to
+     */
+    function batchWithdrawProtocolFeesTo(
+        address[] calldata tokens, 
+        uint256[] calldata amounts, 
+        address recipient
+    ) external {
+        LibFeeManager.batchWithdrawProtocolFees(tokens, amounts, recipient);
+    }
+
+    // ----------------------------------------
+    // NEW: Fee Query Functions
+    // ----------------------------------------
+
+    /**
+     * @notice Get accumulated protocol fees for a token
+     * @param token The token address
+     * @return The accumulated fee amount
+     */
+    function getProtocolFeesBalance(address token) external view returns (uint256) {
+        return LibFeeManager.getAccumulatedFees(token);
+    }
+
+    /**
+     * @notice Get accumulated fees for multiple tokens
+     * @param tokens Array of token addresses
+     * @return fees Array of accumulated fee amounts
+     */
+    function getProtocolFeesBalances(address[] calldata tokens) external view returns (uint256[] memory fees) {
+        return LibFeeManager.getAccumulatedFeesForTokens(tokens);
+    }
+
+    /**
+     * @notice Check if there are any fees available for withdrawal
+     * @param token The token address
+     * @return True if fees are available
+     */
+    function hasFeesAvailable(address token) external view returns (bool) {
+        return LibFeeManager.hasFeesAvailable(token);
+    }
+
+    /**
+     * @notice Get comprehensive fee statistics for a token
+     * @param token The token address
+     * @return available The currently available fees
+     * @return receiver The configured fee receiver
+     */
+    function getFeeStatistics(address token) external view returns (uint256 available, address receiver) {
+        return LibFeeManager.getFeeStatistics(token);
+    }
+
+    /**
+     * @notice Get total value of accumulated fees across all tokens
+     * @param tokens Array of token addresses to sum
+     * @return totalValue The total value (implementation dependent on price feeds)
+     */
+    function getTotalAccumulatedFeesValue(address[] calldata tokens) external view returns (uint256 totalValue) {
+        return LibFeeManager.getTotalAccumulatedFeesValue(tokens);
+    }
+
+    // ----------------------------------------
+    // NEW: Enhanced Admin Functions
+    // ----------------------------------------
+
+    /**
+     * @notice Emergency function to validate system state
+     * @param tokens Array of tokens to validate
+     * @return isValid True if system state is valid
+     */
+    function validateSystemState(address[] calldata tokens) external view returns (bool isValid) {
+        LibDiamond.enforceIsContractOwner();
+        
+        isValid = true;
+        
+        // Check that all tokens are properly configured
+        for (uint256 i = 0; i < tokens.length; i++) {
+            if (!this.isAllowedCollateral(tokens[i])) {
+                isValid = false;
+                break;
+            }
+        }
+        
+        // Check fee receiver is set
+        if (isValid) {
+            LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
+            if (ds.adminConfigStorage.feeReceiver == address(0)) {
+                isValid = false;
+            }
+        }
+    }
+
+    /**
+     * @notice Get comprehensive system configuration
+     * @return feeReceiver The current fee receiver
+     * @return resolutionFeeBps The resolution fee in basis points
+     * @return makerTradingFeeBps The maker trading fee in basis points
+     * @return takerTradingFeeBps The taker trading fee in basis points
+     * @return allowedTokenCount The number of allowed tokens
+     */
+    function getSystemConfiguration() external view returns (
+        address feeReceiver,
+        uint256 resolutionFeeBps,
+        uint256 makerTradingFeeBps,
+        uint256 takerTradingFeeBps,
+        uint256 allowedTokenCount
+    ) {
+        LibDoefinStorage.AdminConfigStorage storage cfg = LibDoefinStorage.diamondStorage().adminConfigStorage;
+        
+        feeReceiver = cfg.feeReceiver;
+        resolutionFeeBps = cfg.resolutionFeeBps;
+        makerTradingFeeBps = cfg.makerTradingFeeBps;
+        takerTradingFeeBps = cfg.takerTradingFeeBps;
+        
+        // Note: allowedTokenCount would require additional tracking in storage
+        // For now, return 0 as placeholder
+        allowedTokenCount = 0;
+    }
+
+    /**
+     * @notice Update multiple fee parameters in a single transaction
+     * @param newFeeReceiver The new fee receiver (address(0) = no change)
+     * @param newResolutionFeeBps The new resolution fee (type(uint256).max = no change)
+     * @param newMakerTradingFeeBps The new maker trading fee (type(uint256).max = no change)
+     * @param newTakerTradingFeeBps The new taker trading fee (type(uint256).max = no change)
+     */
+    function updateFeeConfiguration(
+        address newFeeReceiver,
+        uint256 newResolutionFeeBps,
+        uint256 newMakerTradingFeeBps,
+        uint256 newTakerTradingFeeBps
+    ) external {
+        LibDiamond.enforceIsContractOwner();
+
+        if (newFeeReceiver != address(0)) {
+            this.setFeeReceiver(newFeeReceiver);
+        }
+
+        if (newResolutionFeeBps != type(uint256).max) {
+            this.setResolutionFeeBps(newResolutionFeeBps);
+        }
+
+        if (newMakerTradingFeeBps != type(uint256).max || newTakerTradingFeeBps != type(uint256).max) {
+            uint256 makerBps = newMakerTradingFeeBps == type(uint256).max
+                ? LibDoefinStorage.diamondStorage().adminConfigStorage.makerTradingFeeBps
+                : newMakerTradingFeeBps;
+            uint256 takerBps = newTakerTradingFeeBps == type(uint256).max
+                ? LibDoefinStorage.diamondStorage().adminConfigStorage.takerTradingFeeBps
+                : newTakerTradingFeeBps;
+            
+            this.setTradingFeesBps(makerBps, takerBps);
+        }
     }
 }
