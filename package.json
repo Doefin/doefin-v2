@@ -27,6 +27,7 @@
     "mocha": "^11.7.1",
     "prettier": "^2.3.2",
     "prettier-plugin-solidity": "^1.0.0-beta.13",
+    "solidity-coverage": "^0.8.16",
     "standard": "^16.0.3"
   },
   "dependencies": {
