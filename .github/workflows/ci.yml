@@ -1,0 +1,67 @@
+name: Smart Contract CI
+
+on:
+  push:
+    branches:
+      - main
+      - dev
+  pull_request:
+    branches:
+      - main
+      - dev
+
+jobs:
+  ci:
+    name: Lint, Test, Coverage, Security
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. Checkout repo
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 2. Setup Node.js
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      # 3. Install dependencies
+      - name: Install dependencies
+        run: npm ci
+
+      # 4. Solidity linting with Solhint
+      - name: Lint Solidity
+        run: npx solhint "contracts/**/*.sol"
+
+      # 5. Lint JS/TS (optional, if you have scripts/frontend)
+      - name: Lint JS/TS
+        run: npx prettier --check .
+
+      # 6. Run tests with Hardhat
+      - name: Run Tests
+        run: npx hardhat test
+
+      # 7. Run test coverage
+      - name: Generate Test Coverage
+        run: npx hardhat coverage
+
+      # 8. Upload coverage report
+      - name: Upload Coverage Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage/
+
+      # 9. Install Slither
+      - name: Install Slither
+        run: |
+          sudo apt-get update && sudo apt-get install -y software-properties-common
+          sudo add-apt-repository ppa:ethereum/ethereum -y
+          sudo apt-get update
+          sudo apt-get install -y slither-analyzer
+
+      # 10. Run static analysis
+      - name: Run Slither
+        run: slither .
