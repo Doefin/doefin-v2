@@ -14,16 +14,14 @@ import {Events} from "../libraries/Events.sol";
  * @dev Extends the original AdminConfigFacet with new fee management capabilities
  */
 contract AdminConfigFacet is IAdminConfig {
-
     function addCollateralToken(address token, uint256 unitPerPair) external override {
         LibDiamond.enforceIsContractOwner();
-        if(token == address(0)) revert Errors.InvalidTokenAddress();
-        if(unitPerPair == 0) revert Errors.InvalidUnitPerPair();
+        if (token == address(0)) revert Errors.InvalidTokenAddress();
+        if (unitPerPair == 0) revert Errors.InvalidUnitPerPair();
 
         LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
 
-        if(ds.adminConfigStorage.isAllowed[token]) 
-            revert Errors.TokenAlreadyAllowed();
+        if (ds.adminConfigStorage.isAllowed[token]) revert Errors.TokenAlreadyAllowed();
 
         ds.adminConfigStorage.isAllowed[token] = true;
         ds.adminConfigStorage.unitPerPair[token] = unitPerPair;
@@ -35,8 +33,7 @@ contract AdminConfigFacet is IAdminConfig {
         LibDiamond.enforceIsContractOwner();
         LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
 
-        if(!ds.adminConfigStorage.isAllowed[token])
-            revert Errors.TokenNotAllowed();
+        if (!ds.adminConfigStorage.isAllowed[token]) revert Errors.TokenNotAllowed();
 
         ds.adminConfigStorage.isAllowed[token] = false;
         delete ds.adminConfigStorage.unitPerPair[token];
@@ -46,31 +43,28 @@ contract AdminConfigFacet is IAdminConfig {
 
     function setFeeReceiver(address feeReceiver) external override {
         LibDiamond.enforceIsContractOwner();
-        if(feeReceiver == address(0))
-            revert Errors.InvalidFeeReceiver();
+        if (feeReceiver == address(0)) revert Errors.InvalidFeeReceiver();
         LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
         address oldReceiver = ds.adminConfigStorage.feeReceiver;
-        if(oldReceiver == feeReceiver) return; // No change, no event
+        if (oldReceiver == feeReceiver) return; // No change, no event
         ds.adminConfigStorage.feeReceiver = feeReceiver;
         emit Events.FeeReceiverUpdated(oldReceiver, feeReceiver);
     }
 
     function setResolutionFeeBps(uint256 bps) external override {
         LibDiamond.enforceIsContractOwner();
-        if(bps > 10_000) 
-            revert Errors.FeeTooHigh();
+        if (bps > 10_000) revert Errors.FeeTooHigh();
 
         LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
         uint256 oldFeeBps = ds.adminConfigStorage.resolutionFeeBps;
-        if(oldFeeBps == bps) return; // No change, no event
+        if (oldFeeBps == bps) return; // No change, no event
         ds.adminConfigStorage.resolutionFeeBps = bps;
         emit Events.ResolutionFeeUpdated(oldFeeBps, bps);
     }
 
     function setTradingFeesBps(uint256 makerBps, uint256 takerBps) external override {
         LibDiamond.enforceIsContractOwner();
-        if(makerBps > 10_000 || takerBps > 10_000) 
-            revert Errors.FeeTooHigh();
+        if (makerBps > 10_000 || takerBps > 10_000) revert Errors.FeeTooHigh();
 
         LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
         uint256 oldMakerBps = ds.adminConfigStorage.makerTradingFeeBps;
@@ -86,12 +80,21 @@ contract AdminConfigFacet is IAdminConfig {
 
     function getCollateralUnit(address token) external view override returns (uint256) {
         LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
-        if(!ds.adminConfigStorage.isAllowed[token])
-            revert Errors.TokenNotAllowed();
+        if (!ds.adminConfigStorage.isAllowed[token]) revert Errors.TokenNotAllowed();
         return ds.adminConfigStorage.unitPerPair[token];
     }
 
-    function getFees() external override view returns (address feeReceiver, uint256 resolutionFeeBps, uint256 makerTradingFeeBps, uint256 takerTradingFeeBps) {
+    function getFees()
+        external
+        view
+        override
+        returns (
+            address feeReceiver,
+            uint256 resolutionFeeBps,
+            uint256 makerTradingFeeBps,
+            uint256 takerTradingFeeBps
+        )
+    {
         LibDoefinStorage.AdminConfigStorage storage cfg = LibDoefinStorage.diamondStorage().adminConfigStorage;
         return (cfg.feeReceiver, cfg.resolutionFeeBps, cfg.makerTradingFeeBps, cfg.takerTradingFeeBps);
     }
@@ -115,7 +118,11 @@ contract AdminConfigFacet is IAdminConfig {
      * @param amount The amount to withdraw (0 = withdraw all)
      * @param recipient The address to send fees to
      */
-    function withdrawProtocolFeesTo(address token, uint256 amount, address recipient) external override {
+    function withdrawProtocolFeesTo(
+        address token,
+        uint256 amount,
+        address recipient
+    ) external override {
         LibFeeManager.withdrawProtocolFees(token, amount, recipient);
     }
 
@@ -152,8 +159,8 @@ contract AdminConfigFacet is IAdminConfig {
      * @param recipient The address to send fees to
      */
     function batchWithdrawProtocolFeesTo(
-        address[] calldata tokens, 
-        uint256[] calldata amounts, 
+        address[] calldata tokens,
+        uint256[] calldata amounts,
         address recipient
     ) external override {
         LibFeeManager.batchWithdrawProtocolFees(tokens, amounts, recipient);
@@ -168,7 +175,7 @@ contract AdminConfigFacet is IAdminConfig {
      * @param token The token address
      * @return The accumulated fee amount
      */
-    function getProtocolFeesBalance(address token) external override view returns (uint256) {
+    function getProtocolFeesBalance(address token) external view override returns (uint256) {
         return LibFeeManager.getAccumulatedFees(token);
     }
 
@@ -177,7 +184,7 @@ contract AdminConfigFacet is IAdminConfig {
      * @param tokens Array of token addresses
      * @return fees Array of accumulated fee amounts
      */
-    function getProtocolFeesBalances(address[] calldata tokens) external override view returns (uint256[] memory fees) {
+    function getProtocolFeesBalances(address[] calldata tokens) external view override returns (uint256[] memory fees) {
         return LibFeeManager.getAccumulatedFeesForTokens(tokens);
     }
 
@@ -186,7 +193,7 @@ contract AdminConfigFacet is IAdminConfig {
      * @param token The token address
      * @return True if fees are available
      */
-    function hasFeesAvailable(address token) external override view returns (bool) {
+    function hasFeesAvailable(address token) external view override returns (bool) {
         return LibFeeManager.hasFeesAvailable(token);
     }
 
@@ -196,7 +203,7 @@ contract AdminConfigFacet is IAdminConfig {
      * @return available The currently available fees
      * @return receiver The configured fee receiver
      */
-    function getFeeStatistics(address token) external override view returns (uint256 available, address receiver) {
+    function getFeeStatistics(address token) external view override returns (uint256 available, address receiver) {
         return LibFeeManager.getFeeStatistics(token);
     }
 
@@ -205,7 +212,7 @@ contract AdminConfigFacet is IAdminConfig {
      * @param tokens Array of token addresses to sum
      * @return totalValue The total value (implementation dependent on price feeds)
      */
-    function getTotalAccumulatedFeesValue(address[] calldata tokens) external override view returns (uint256 totalValue) {
+    function getTotalAccumulatedFeesValue(address[] calldata tokens) external view override returns (uint256 totalValue) {
         return LibFeeManager.getTotalAccumulatedFeesValue(tokens);
     }
 }

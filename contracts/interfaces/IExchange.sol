@@ -22,5 +22,11 @@ interface IExchange {
     function cancelOrder(uint256 orderId) external;
 
     /// @notice Modify an existing limit order
-    function modifyLimitOrder(uint256 orderId, uint256 newAmount, uint256 newPricePerToken, uint256 newMinFillAmount, uint256 newExpiry) external;
+    function modifyLimitOrder(
+        uint256 orderId,
+        uint256 newAmount,
+        uint256 newPricePerToken,
+        uint256 newMinFillAmount,
+        uint256 newExpiry
+    ) external;
 }

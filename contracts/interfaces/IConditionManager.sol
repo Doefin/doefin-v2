@@ -5,7 +5,22 @@
 pragma solidity ^0.8.6;
 
 interface IConditionManager {
-    function createCondition(address oracle, bytes32 questionId, uint8 outcomeSlotCount, string calldata metadataURI) external returns (bytes32 conditionId);
-    function getCondition(bytes32 conditionId) external view returns (address oracle, bytes32 questionId, uint8 outcomeSlotCount, string memory metadataURI);
+    function createCondition(
+        address oracle,
+        bytes32 questionId,
+        uint8 outcomeSlotCount,
+        string calldata metadataURI
+    ) external returns (bytes32 conditionId);
+
+    function getCondition(bytes32 conditionId)
+        external
+        view
+        returns (
+            address oracle,
+            bytes32 questionId,
+            uint8 outcomeSlotCount,
+            string memory metadataURI
+        );
+
     function cancelCondition(bytes32 conditionId) external;
 }

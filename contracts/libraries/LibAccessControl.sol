@@ -20,13 +20,13 @@ library LibAccessControl {
     }
 
     function enforceIsMarketMaker() internal view {
-        if(!isMarketMaker(msg.sender)) {
+        if (!isMarketMaker(msg.sender)) {
             revert Errors.NotMarketMaker();
         }
     }
 
     function setMarketMaker(address _account, bool _status) internal {
-        if(!isOwner(msg.sender)) {
+        if (!isOwner(msg.sender)) {
             revert Errors.NotContractOwner();
         }
         LibDoefinStorage.diamondStorage().accessControl.marketMakers[_account] = _status;

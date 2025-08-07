@@ -7,6 +7,7 @@ We are using the [diamond-3-hardhat](https://github.com/mudgen/diamond-3-hardhat
 ## 💎 Why Diamond?
 
 The Diamond pattern allows us to:
+
 - **Upgrade each module independently**
 - **Avoid contract size limits**
 - **Maintain a single proxy address for integrations**
@@ -15,11 +16,13 @@ The Diamond pattern allows us to:
 ## Installation
 
 1. Clone this repo:
+
 ```console
 git clone git@github.com:Doefin/doefin-v2.git
 ```
 
 2. Install NPM packages:
+
 ```console
 cd doefin-v2
 npm install
@@ -39,9 +42,10 @@ npx hardhat run scripts/deploy.js
 1. Facets are deployed.
 1. The diamond is upgraded. The `diamondCut` function is used to add functions from facets to the diamond. In addition the `diamondCut` function calls the `init` function from the `DiamondInit` contract using `delegatecall` to initialize state variables.
 
-How a diamond is deployed is not part of the EIP-2535 Diamonds standard. This implementation shows a usable example. 
+How a diamond is deployed is not part of the EIP-2535 Diamonds standard. This implementation shows a usable example.
 
 ## Run tests:
+
 ```console
 npx hardhat test
 ```
@@ -50,7 +54,7 @@ npx hardhat test
 
 Check the `scripts/deploy.js` and or the `test/diamondTest.js` file for examples of upgrades.
 
-Note that upgrade functionality is optional. It is possible to deploy a diamond that can't be upgraded, which is a 'Single Cut Diamond'.  It is also possible to deploy an upgradeable diamond and at a later date remove its `diamondCut` function so it can't be upgraded any more.
+Note that upgrade functionality is optional. It is possible to deploy a diamond that can't be upgraded, which is a 'Single Cut Diamond'. It is also possible to deploy an upgradeable diamond and at a later date remove its `diamondCut` function so it can't be upgraded any more.
 
 Note that any number of functions from any number of facets can be added/replaced/removed on a diamond in a single transaction. In addition an initialization function can be executed in the same transaction as an upgrade to initialize any state variables required for an upgrade. This 'everything done in a single transaction' capability ensures a diamond maintains a correct and consistent state during upgrades.
 

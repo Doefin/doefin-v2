@@ -27,9 +27,7 @@ library LibTradeSettlement {
      * @notice Main settlement dispatcher that routes to appropriate settlement handler
      * @param settlementExecCtx The settlement execution context
      */
-    function executeSettlement(
-        LibDoefinStorage.SettlemetExecutionContext memory settlementExecCtx
-    ) internal {
+    function executeSettlement(LibDoefinStorage.SettlemetExecutionContext memory settlementExecCtx) internal {
         if (settlementExecCtx.matchType == LibDoefinStorage.MatchType.Complementary) {
             _handleComplementaryMatch(settlementExecCtx);
         } else if (settlementExecCtx.matchType == LibDoefinStorage.MatchType.Mint) {
@@ -49,16 +47,9 @@ library LibTradeSettlement {
      * @notice Handle settlement for mint matches (split operations)
      * @param settlementExecCtx The settlement execution context
      */
-    function _handleMintMatch(
-        LibDoefinStorage.SettlemetExecutionContext memory settlementExecCtx
-    ) internal {
+    function _handleMintMatch(LibDoefinStorage.SettlemetExecutionContext memory settlementExecCtx) internal {
         // Calculate fees and contributions
-        (
-            uint256 makerFee,
-            uint256 takerFee,
-            uint256 makerContribution,
-            uint256 takerContribution
-        ) = LibFeeManager.computeMintFees(
+        (uint256 makerFee, uint256 takerFee, uint256 makerContribution, uint256 takerContribution) = LibFeeManager.computeMintFees(
             settlementExecCtx.makerOrder,
             settlementExecCtx.fillableAmount
         );
@@ -70,23 +61,9 @@ library LibTradeSettlement {
 
         // Handle different taker directions
         if (settlementExecCtx.takerOrder.direction == LibDoefinStorage.OrderDirection.Buy) {
-            _executeMintMatchForBuyTaker(
-                settlementExecCtx,
-                collateralToken,
-                makerContribution,
-                takerContribution,
-                makerFee,
-                takerFee
-            );
+            _executeMintMatchForBuyTaker(settlementExecCtx, collateralToken, makerContribution, takerContribution, makerFee, takerFee);
         } else {
-            _executeMintMatchForSellTaker(
-                settlementExecCtx,
-                collateralToken,
-                makerContribution,
-                takerContribution,
-                makerFee,
-                takerFee
-            );
+            _executeMintMatchForSellTaker(settlementExecCtx, collateralToken, makerContribution, takerContribution, makerFee, takerFee);
         }
     }
 
@@ -110,27 +87,16 @@ library LibTradeSettlement {
         uint256 takerTotalPayment = takerContribution + takerFee;
 
         // Validate taker has sufficient allowance
-        uint256 allowance = IERC20(collateralToken).allowance(
-            settlementExecCtx.takerOrder.taker,
-            address(this)
-        );
+        uint256 allowance = IERC20(collateralToken).allowance(settlementExecCtx.takerOrder.taker, address(this));
         if (allowance < takerTotalPayment) {
             revert Errors.InsufficientERC20Allowance();
         }
 
         // Collect taker's ERC20 contribution
-        IERC20(collateralToken).safeTransferFrom(
-            settlementExecCtx.takerOrder.taker,
-            address(this),
-            takerTotalPayment
-        );
+        IERC20(collateralToken).safeTransferFrom(settlementExecCtx.takerOrder.taker, address(this), takerTotalPayment);
 
         // Consume maker's ERC20 collateral
-        LibCollateralManager.consumeERC20Collateral(
-            settlementExecCtx.makerOrder.maker,
-            collateralToken,
-            makerContribution + makerFee
-        );
+        LibCollateralManager.consumeERC20Collateral(settlementExecCtx.makerOrder.maker, collateralToken, makerContribution + makerFee);
 
         // Execute the split operation
         _executeSplitOperation(settlementExecCtx);
@@ -158,7 +124,7 @@ library LibTradeSettlement {
     ) internal {
         // For sell taker in mint match, taker provides position tokens
         // This is a more complex scenario that might need additional validation
-        
+
         // Consume taker's position tokens
         LibERC1155.safeTransferFrom(
             address(this),
@@ -170,11 +136,7 @@ library LibTradeSettlement {
         );
 
         // Consume maker's ERC20 collateral
-        LibCollateralManager.consumeERC20Collateral(
-            settlementExecCtx.makerOrder.maker,
-            collateralToken,
-            makerContribution + makerFee
-        );
+        LibCollateralManager.consumeERC20Collateral(settlementExecCtx.makerOrder.maker, collateralToken, makerContribution + makerFee);
 
         // Execute the split operation
         _executeSplitOperation(settlementExecCtx);
@@ -191,16 +153,9 @@ library LibTradeSettlement {
      * @notice Handle settlement for merge matches (merge operations)
      * @param settlementExecCtx The settlement execution context
      */
-    function _handleMergeMatch(
-        LibDoefinStorage.SettlemetExecutionContext memory settlementExecCtx
-    ) internal {
+    function _handleMergeMatch(LibDoefinStorage.SettlemetExecutionContext memory settlementExecCtx) internal {
         // Calculate fees and contributions
-        (
-            uint256 makerFee,
-            uint256 takerFee,
-            uint256 makerContribution,
-            uint256 takerContribution
-        ) = LibFeeManager.computeMintFees(
+        (uint256 makerFee, uint256 takerFee, uint256 makerContribution, uint256 takerContribution) = LibFeeManager.computeMintFees(
             settlementExecCtx.makerOrder,
             settlementExecCtx.fillableAmount
         );
@@ -231,14 +186,7 @@ library LibTradeSettlement {
         _executeMergeOperation(settlementExecCtx);
 
         // Distribute the merged collateral
-        _distributeMergedCollateral(
-            settlementExecCtx,
-            collateralToken,
-            makerContribution,
-            takerContribution,
-            makerFee,
-            takerFee
-        );
+        _distributeMergedCollateral(settlementExecCtx, collateralToken, makerContribution, takerContribution, makerFee, takerFee);
     }
 
     // ----------------------------------------
@@ -249,13 +197,9 @@ library LibTradeSettlement {
      * @notice Handle settlement for complementary matches (direct position trading)
      * @param settlementExecCtx The settlement execution context
      */
-    function _handleComplementaryMatch(
-        LibDoefinStorage.SettlemetExecutionContext memory settlementExecCtx
-    ) internal {
+    function _handleComplementaryMatch(LibDoefinStorage.SettlemetExecutionContext memory settlementExecCtx) internal {
         // Calculate fees
-        (uint256 makerFee, uint256 takerFee, uint256 cost) = LibFeeManager.computeTradeExecutionFees(
-            settlementExecCtx
-        );
+        (uint256 makerFee, uint256 takerFee, uint256 cost) = LibFeeManager.computeTradeExecutionFees(settlementExecCtx);
 
         address collateralToken = settlementExecCtx.makerOrder.collateralToken;
 
@@ -287,18 +231,11 @@ library LibTradeSettlement {
 
         // Maker pays: consume ERC20 collateral
         uint256 totalMakerPayment = cost + makerFee;
-        LibCollateralManager.consumeERC20Collateral(
-            settlementExecCtx.makerOrder.maker,
-            collateralToken,
-            totalMakerPayment
-        );
+        LibCollateralManager.consumeERC20Collateral(settlementExecCtx.makerOrder.maker, collateralToken, totalMakerPayment);
 
         // Taker receives: cost minus taker fee
         uint256 takerReceives = cost - takerFee;
-        IERC20(collateralToken).safeTransfer(
-            settlementExecCtx.takerOrder.taker,
-            takerReceives
-        );
+        IERC20(collateralToken).safeTransfer(settlementExecCtx.takerOrder.taker, takerReceives);
 
         // Transfer position tokens from taker to maker
         LibERC1155.safeTransferFrom(
@@ -328,18 +265,11 @@ library LibTradeSettlement {
 
         // Taker pays: collect ERC20 from taker
         uint256 totalTakerPayment = cost + takerFee;
-        IERC20(collateralToken).safeTransferFrom(
-            settlementExecCtx.takerOrder.taker,
-            address(this),
-            totalTakerPayment
-        );
+        IERC20(collateralToken).safeTransferFrom(settlementExecCtx.takerOrder.taker, address(this), totalTakerPayment);
 
         // Maker receives: cost minus maker fee
         uint256 makerReceives = cost - makerFee;
-        IERC20(collateralToken).safeTransfer(
-            settlementExecCtx.makerOrder.maker,
-            makerReceives
-        );
+        IERC20(collateralToken).safeTransfer(settlementExecCtx.makerOrder.maker, makerReceives);
 
         // Transfer position tokens directly from maker to taker (not from escrow)
         // In complementary matches, maker's ERC1155 tokens are not locked in escrow
@@ -361,12 +291,8 @@ library LibTradeSettlement {
      * @notice Execute split operation for mint matches
      * @param settlementExecCtx The settlement execution context
      */
-    function _executeSplitOperation(
-        LibDoefinStorage.SettlemetExecutionContext memory settlementExecCtx
-    ) internal {
-        LibDoefinStorage.MarketMetadata memory marketMetadata = LibPositionRegistry.getMarketMetadata(
-            settlementExecCtx.makerOrder.positionId
-        );
+    function _executeSplitOperation(LibDoefinStorage.SettlemetExecutionContext memory settlementExecCtx) internal {
+        LibDoefinStorage.MarketMetadata memory marketMetadata = LibPositionRegistry.getMarketMetadata(settlementExecCtx.makerOrder.positionId);
 
         bytes32 conditionId = LibPositionRegistry.retrieveConditionId(
             settlementExecCtx.makerOrder.positionId,
@@ -387,12 +313,8 @@ library LibTradeSettlement {
      * @notice Execute merge operation for merge matches
      * @param settlementExecCtx The settlement execution context
      */
-    function _executeMergeOperation(
-        LibDoefinStorage.SettlemetExecutionContext memory settlementExecCtx
-    ) internal {
-        LibDoefinStorage.MarketMetadata memory marketMetadata = LibPositionRegistry.getMarketMetadata(
-            settlementExecCtx.makerOrder.positionId
-        );
+    function _executeMergeOperation(LibDoefinStorage.SettlemetExecutionContext memory settlementExecCtx) internal {
+        LibDoefinStorage.MarketMetadata memory marketMetadata = LibPositionRegistry.getMarketMetadata(settlementExecCtx.makerOrder.positionId);
 
         bytes32 conditionId = LibPositionRegistry.retrieveConditionId(
             settlementExecCtx.makerOrder.positionId,
@@ -417,9 +339,7 @@ library LibTradeSettlement {
      * @notice Distribute position tokens after split operation
      * @param settlementExecCtx The settlement execution context
      */
-    function _distributePositionTokens(
-        LibDoefinStorage.SettlemetExecutionContext memory settlementExecCtx
-    ) internal {
+    function _distributePositionTokens(LibDoefinStorage.SettlemetExecutionContext memory settlementExecCtx) internal {
         // Transfer maker's desired position tokens
         LibERC1155.safeTransferFrom(
             address(this),
@@ -464,17 +384,11 @@ library LibTradeSettlement {
 
         // Distribute ERC20 collateral to both parties
         if (makerReceives > 0) {
-            IERC20(collateralToken).safeTransfer(
-                settlementExecCtx.makerOrder.maker,
-                makerReceives
-            );
+            IERC20(collateralToken).safeTransfer(settlementExecCtx.makerOrder.maker, makerReceives);
         }
 
         if (takerReceives > 0) {
-            IERC20(collateralToken).safeTransfer(
-                settlementExecCtx.takerOrder.taker,
-                takerReceives
-            );
+            IERC20(collateralToken).safeTransfer(settlementExecCtx.takerOrder.taker, takerReceives);
         }
     }
 
@@ -486,9 +400,7 @@ library LibTradeSettlement {
      * @notice Validate settlement context before execution
      * @param settlementExecCtx The settlement execution context
      */
-    function validateSettlementContext(
-        LibDoefinStorage.SettlemetExecutionContext memory settlementExecCtx
-    ) internal view {
+    function validateSettlementContext(LibDoefinStorage.SettlemetExecutionContext memory settlementExecCtx) internal view {
         // Validate fillable amount
         if (settlementExecCtx.fillableAmount == 0) {
             revert Errors.ZeroAmount();
@@ -510,9 +422,7 @@ library LibTradeSettlement {
      * @notice Validate complementary match requirements
      * @param settlementExecCtx The settlement execution context
      */
-    function _validateComplementaryMatch(
-        LibDoefinStorage.SettlemetExecutionContext memory settlementExecCtx
-    ) internal pure {
+    function _validateComplementaryMatch(LibDoefinStorage.SettlemetExecutionContext memory settlementExecCtx) internal pure {
         // For complementary matches, positions must be the same
         if (settlementExecCtx.makerOrder.positionId != settlementExecCtx.takerOrder.positionId) {
             revert Errors.PositionIdMismatch();
@@ -528,18 +438,13 @@ library LibTradeSettlement {
      * @notice Validate mint/merge match requirements
      * @param settlementExecCtx The settlement execution context
      */
-    function _validateMintMergeMatch(
-        LibDoefinStorage.SettlemetExecutionContext memory settlementExecCtx
-    ) internal view {
+    function _validateMintMergeMatch(LibDoefinStorage.SettlemetExecutionContext memory settlementExecCtx) internal view {
         // For mint/merge matches, directions must be the same
         if (settlementExecCtx.makerOrder.direction != settlementExecCtx.takerOrder.direction) {
             revert Errors.DifferentOrderDirectionForNonComplementary();
         }
 
         // Positions must be complements
-        LibPositionRegistry.validateComplement(
-            settlementExecCtx.takerOrder.positionId,
-            settlementExecCtx.makerOrder.positionId
-        );
+        LibPositionRegistry.validateComplement(settlementExecCtx.takerOrder.positionId, settlementExecCtx.makerOrder.positionId);
     }
 }

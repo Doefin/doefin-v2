@@ -37,13 +37,13 @@ library LibCollateralManager {
         if (amount == 0) return;
 
         LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
-        
+
         uint256 unitPerPair = ds.adminConfigStorage.unitPerPair[collateralToken];
         if (unitPerPair == 0) revert Errors.TokenNotAllowed();
 
         // Calculate cost in token's smallest units
         uint256 cost = (amount * pricePerToken) / unitPerPair;
-        
+
         // Calculate maker fee
         uint256 makerFee = (cost * makerFeeBps) / 10_000;
         uint256 totalRequired = cost + makerFee;
@@ -76,7 +76,7 @@ library LibCollateralManager {
         if (amount == 0) return;
 
         LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
-        
+
         uint256 unitPerPair = ds.adminConfigStorage.unitPerPair[collateralToken];
         if (unitPerPair == 0) revert Errors.TokenNotAllowed();
 
@@ -87,7 +87,7 @@ library LibCollateralManager {
 
         // Consume from internal balance
         _consumeERC20Collateral(user, collateralToken, totalToRelease);
-        
+
         // Transfer tokens back to user
         IERC20(collateralToken).safeTransfer(user, totalToRelease);
 
@@ -130,7 +130,7 @@ library LibCollateralManager {
 
         // Transfer tokens from user to contract
         LibERC1155.safeTransferFrom(address(this), user, address(this), positionId, amount, "");
-        
+
         // Update internal balance tracking
         ds.escrowStorage.lockedERC1155Balances[user][positionId] += amount;
 
@@ -153,7 +153,7 @@ library LibCollateralManager {
 
         // Consume from internal balance
         _consumeERC1155Collateral(user, positionId, amount);
-        
+
         // Transfer tokens back to user
         LibERC1155.safeTransferFrom(address(this), address(this), user, positionId, amount, "");
 
@@ -183,9 +183,7 @@ library LibCollateralManager {
      * @notice Adjust collateral when an order is modified
      * @param modifyCtx The modification context containing old and new order parameters
      */
-    function adjustCollateralForModifiedOrder(
-        LibDoefinStorage.ModifyCollateralContext memory modifyCtx
-    ) internal {
+    function adjustCollateralForModifiedOrder(LibDoefinStorage.ModifyCollateralContext memory modifyCtx) internal {
         uint256 oldCost = modifyCtx.oldAmount * modifyCtx.oldPrice;
         uint256 newCost = modifyCtx.newAmount * modifyCtx.newPrice;
 
@@ -206,10 +204,7 @@ library LibCollateralManager {
      * @param token The ERC20 token address
      * @return The collateral balance
      */
-    function getERC20CollateralBalance(
-        address user,
-        address token
-    ) internal view returns (uint256) {
+    function getERC20CollateralBalance(address user, address token) internal view returns (uint256) {
         return LibDoefinStorage.diamondStorage().escrowStorage.collateralBalances[user][token];
     }
 
@@ -219,10 +214,7 @@ library LibCollateralManager {
      * @param positionId The position token ID
      * @return The collateral balance
      */
-    function getERC1155CollateralBalance(
-        address user,
-        uint256 positionId
-    ) internal view returns (uint256) {
+    function getERC1155CollateralBalance(address user, uint256 positionId) internal view returns (uint256) {
         return LibDoefinStorage.diamondStorage().escrowStorage.lockedERC1155Balances[user][positionId];
     }
 
@@ -242,11 +234,11 @@ library LibCollateralManager {
         uint256 amount
     ) internal {
         LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
-        
+
         if (ds.escrowStorage.collateralBalances[user][token] < amount) {
             revert Errors.InsufficientERC20Balance();
         }
-        
+
         ds.escrowStorage.collateralBalances[user][token] -= amount;
     }
 
@@ -262,11 +254,11 @@ library LibCollateralManager {
         uint256 amount
     ) internal {
         LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
-        
+
         if (ds.escrowStorage.lockedERC1155Balances[user][positionId] < amount) {
             revert Errors.InsufficientERC1155Balance();
         }
-        
+
         ds.escrowStorage.lockedERC1155Balances[user][positionId] -= amount;
     }
 
@@ -292,11 +284,7 @@ library LibCollateralManager {
         if (totalNew > totalOld) {
             // Need to lock additional collateral
             uint256 additional = totalNew - totalOld;
-            IERC20(modifyCtx.collateralToken).safeTransferFrom(
-                modifyCtx.maker,
-                address(this),
-                additional
-            );
+            IERC20(modifyCtx.collateralToken).safeTransferFrom(modifyCtx.maker, address(this), additional);
             ds.escrowStorage.collateralBalances[modifyCtx.maker][modifyCtx.collateralToken] += additional;
         } else if (totalNew < totalOld) {
             // Can release some collateral
@@ -311,9 +299,7 @@ library LibCollateralManager {
      * @notice Adjust ERC1155 collateral for order modification
      * @param modifyCtx The modification context
      */
-    function _adjustERC1155CollateralForModification(
-        LibDoefinStorage.ModifyCollateralContext memory modifyCtx
-    ) internal {
+    function _adjustERC1155CollateralForModification(LibDoefinStorage.ModifyCollateralContext memory modifyCtx) internal {
         if (modifyCtx.newAmount > modifyCtx.oldAmount) {
             // Need to lock additional tokens
             uint256 delta = modifyCtx.newAmount - modifyCtx.oldAmount;

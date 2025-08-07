@@ -18,10 +18,7 @@ library LibCTHelpers {
         return keccak256(abi.encodePacked(oracle, questionId, outcomeSlotCount));
     }
 
-    function getPositionId(
-        address collateralToken,
-        bytes32 collectionId
-    ) internal pure returns (uint256) {
+    function getPositionId(address collateralToken, bytes32 collectionId) internal pure returns (uint256) {
         return uint256(keccak256(abi.encodePacked(collateralToken, collectionId)));
     }
 
@@ -54,14 +51,14 @@ library LibCTHelpers {
             if ((odd && y2 % 2 == 0) || (!odd && y2 % 2 == 1)) {
                 y2 = P - y2;
             }
-            
-            if(mulmod(y2, y2, P) != yy) {
+
+            if (mulmod(y2, y2, P) != yy) {
                 revert Errors.InvalidParentCollectionId();
             }
 
             // ECADD precompile (0x06)
             (bool success, bytes memory ret) = address(6).staticcall(abi.encode(x1, y1, x2, y2));
-            if(!success) {
+            if (!success) {
                 revert Errors.ECAddFailed();
             }
             (x1, y1) = abi.decode(ret, (uint256, uint256));
@@ -78,8 +75,12 @@ library LibCTHelpers {
         return expMod(a, (P + 1) / 4, P);
     }
 
-    function expMod(uint256 base, uint256 exponent, uint256 modulus) internal pure returns (uint256 result) {
-        if(modulus == 0) {
+    function expMod(
+        uint256 base,
+        uint256 exponent,
+        uint256 modulus
+    ) internal pure returns (uint256 result) {
+        if (modulus == 0) {
             revert Errors.ZeroModulus();
         }
         result = 1;

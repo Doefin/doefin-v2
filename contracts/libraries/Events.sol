@@ -90,12 +90,7 @@ library Events {
     /// @param oracle Address of the oracle
     /// @param questionId Question identifier
     /// @param outcomeSlotCount Number of possible outcomes
-    event ConditionPreparation(
-        bytes32 indexed conditionId,
-        address indexed oracle,
-        bytes32 indexed questionId,
-        uint8 outcomeSlotCount
-    );
+    event ConditionPreparation(bytes32 indexed conditionId, address indexed oracle, bytes32 indexed questionId, uint8 outcomeSlotCount);
 
     /// @notice Emitted when a condition is resolved with payout information
     /// @param conditionId Unique identifier for the condition
@@ -164,12 +159,7 @@ library Events {
     /// @param feeReceiver Address receiving the fee
     /// @param feeAmount Amount of fee paid
     /// @param userPayout Amount received by user after fee
-    event PayoutRedemptionFeePaid(
-        address indexed redeemer,
-        address indexed feeReceiver,
-        uint256 feeAmount,
-        uint256 userPayout
-    );
+    event PayoutRedemptionFeePaid(address indexed redeemer, address indexed feeReceiver, uint256 feeAmount, uint256 userPayout);
 
     /// @notice Emitted when positions are redeemed to parent position
     /// @param redeemer Address redeeming the positions
@@ -265,13 +255,7 @@ library Events {
     /// @param taker Address that completed the fill
     /// @param totalAmount Total amount that was filled
     /// @param pricePerToken Price used for the fill
-    event OrderCompletelyFilled(
-        uint256 indexed orderId,
-        address indexed maker,
-        address indexed taker,
-        uint256 totalAmount,
-        uint256 pricePerToken
-    );
+    event OrderCompletelyFilled(uint256 indexed orderId, address indexed maker, address indexed taker, uint256 totalAmount, uint256 pricePerToken);
 
     // ========================================
     // MARKET EXECUTION EVENTS
@@ -376,11 +360,7 @@ library Events {
     /// @param conditionId Condition identifier
     /// @param collateralToken Address of the collateral token
     /// @param parentCollectionId Parent collection identifier
-    event MarketMetadataUpdated(
-        bytes32 indexed conditionId,
-        address indexed collateralToken,
-        bytes32 parentCollectionId
-    );
+    event MarketMetadataUpdated(bytes32 indexed conditionId, address indexed collateralToken, bytes32 parentCollectionId);
 
     // ========================================
     // ERC1155 EVENTS

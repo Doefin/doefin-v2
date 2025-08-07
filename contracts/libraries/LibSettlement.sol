@@ -16,19 +16,19 @@ library LibSettlement {
         LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
 
         uint256 totalValue = 0;
-        
+
         for (uint256 i = 0; i < matches.length && takerOrder.remainingAmount > 0; ++i) {
             LibDoefinStorage.MatchExecution calldata matchExec = matches[i];
             LibDoefinStorage.Order storage makerOrder = ds.orderbookStorage.orders[matchExec.matchedOrderId];
             uint256 collateralUnit = ds.adminConfigStorage.unitPerPair[makerOrder.collateralToken];
 
-            if(!makerOrder.active) revert Errors.OrderNotActive();
+            if (!makerOrder.active) revert Errors.OrderNotActive();
 
             if (matchExec.matchType == LibDoefinStorage.MatchType.Complementary) {
-                if(makerOrder.positionId != takerOrder.positionId) revert Errors.PositionIdMismatch();
-                if(makerOrder.direction == takerOrder.direction) revert Errors.SameDirectionForComplementary();
+                if (makerOrder.positionId != takerOrder.positionId) revert Errors.PositionIdMismatch();
+                if (makerOrder.direction == takerOrder.direction) revert Errors.SameDirectionForComplementary();
             } else {
-                if(makerOrder.direction != takerOrder.direction) revert Errors.DifferentOrderDirectionForNonComplementary();
+                if (makerOrder.direction != takerOrder.direction) revert Errors.DifferentOrderDirectionForNonComplementary();
                 LibPositionRegistry.validateComplement(takerOrder.positionId, makerOrder.positionId);
             }
 
@@ -69,14 +69,7 @@ library LibSettlement {
             });
 
             LibEscrowLogic.settlementDispatcher(settlementExecCtx);
-            emit Events.MarketOrderMatch(
-                takerOrder.taker,
-                makerOrder.orderId,
-                makerOrder.maker,
-                fillableAmount,
-                effectivePrice,
-                matchExec.matchType
-            );
+            emit Events.MarketOrderMatch(takerOrder.taker, makerOrder.orderId, makerOrder.maker, fillableAmount, effectivePrice, matchExec.matchType);
         }
 
         if (takerOrder.fillOrKill && takerOrder.remainingAmount > 0) {
@@ -143,13 +136,10 @@ library LibSettlement {
             if (!makerOrder.active) revert Errors.OrderNotActive();
             if (makerOrder.expiry != 0 && block.timestamp >= makerOrder.expiry) revert Errors.OrderExpired();
 
-            (bool crossing, LibDoefinStorage.MatchType matchType, uint256 price) =
-                _isCrossing(takerOrder, makerOrder);
+            (bool crossing, LibDoefinStorage.MatchType matchType, uint256 price) = _isCrossing(takerOrder, makerOrder);
             if (!crossing) revert Errors.InvalidMatch();
 
-            uint256 fillAmount = takerOrder.remainingAmount < makerOrder.remainingAmount
-                ? takerOrder.remainingAmount
-                : makerOrder.remainingAmount;
+            uint256 fillAmount = takerOrder.remainingAmount < makerOrder.remainingAmount ? takerOrder.remainingAmount : makerOrder.remainingAmount;
 
             if (fillAmount < takerOrder.minFillAmount || fillAmount < makerOrder.minFillAmount) {
                 revert Errors.InvalidAmounts();
@@ -168,26 +158,19 @@ library LibSettlement {
                 direction: takerOrder.direction
             });
 
-            LibDoefinStorage.SettlemetExecutionContext memory settlementExecCtx =
-                LibDoefinStorage.SettlemetExecutionContext({
-                    fillableAmount: fillAmount,
-                    takerOrder: takerCtx,
-                    makerOrder: makerOrder,
-                    matchType: matchType
-                });
+            LibDoefinStorage.SettlemetExecutionContext memory settlementExecCtx = LibDoefinStorage.SettlemetExecutionContext({
+                fillableAmount: fillAmount,
+                takerOrder: takerCtx,
+                makerOrder: makerOrder,
+                matchType: matchType
+            });
 
             LibEscrowLogic.settlementDispatcher(settlementExecCtx);
 
             if (takerOrder.remainingAmount == 0) {
                 takerOrder.active = false;
                 LibOrderbook.removeOrderFromOrderbook(takerOrder);
-                emit Events.OrderCompletelyFilled(
-                    takerOrder.orderId,
-                    takerOrder.maker,
-                    makerOrder.maker,
-                    takerOrder.amount,
-                    price
-                );
+                emit Events.OrderCompletelyFilled(takerOrder.orderId, takerOrder.maker, makerOrder.maker, takerOrder.amount, price);
             } else {
                 emit Events.OrderPartiallyFilled(
                     takerOrder.orderId,
@@ -202,13 +185,7 @@ library LibSettlement {
             if (makerOrder.remainingAmount == 0) {
                 makerOrder.active = false;
                 LibOrderbook.removeOrderFromOrderbook(makerOrder);
-                emit Events.OrderCompletelyFilled(
-                    makerOrder.orderId,
-                    makerOrder.maker,
-                    takerOrder.maker,
-                    makerOrder.amount,
-                    price
-                );
+                emit Events.OrderCompletelyFilled(makerOrder.orderId, makerOrder.maker, takerOrder.maker, makerOrder.amount, price);
             } else {
                 emit Events.OrderPartiallyFilled(
                     makerOrder.orderId,
@@ -226,10 +203,15 @@ library LibSettlement {
         }
     }
 
-    function _isCrossing(
-        LibDoefinStorage.Order storage takerOrder,
-        LibDoefinStorage.Order storage makerOrder
-    ) internal view returns (bool crossing, LibDoefinStorage.MatchType matchType, uint256 price) {
+    function _isCrossing(LibDoefinStorage.Order storage takerOrder, LibDoefinStorage.Order storage makerOrder)
+        internal
+        view
+        returns (
+            bool crossing,
+            LibDoefinStorage.MatchType matchType,
+            uint256 price
+        )
+    {
         if (takerOrder.direction != makerOrder.direction) {
             if (takerOrder.positionId != makerOrder.positionId) {
                 return (false, LibDoefinStorage.MatchType.Complementary, 0);

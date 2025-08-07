@@ -11,10 +11,10 @@ import {Errors} from "../libraries/Errors.sol";
 
 contract AccessControlFacet is IAccessControl {
     function addMarketMaker(address account) external {
-        if(account == address(0)) {
+        if (account == address(0)) {
             revert Errors.InvalidMakerAddress();
         }
-        if(LibAccessControl.isMarketMaker(account)) {
+        if (LibAccessControl.isMarketMaker(account)) {
             revert Errors.AlreadyMarketMaker();
         }
         LibAccessControl.setMarketMaker(account, true);
@@ -22,7 +22,7 @@ contract AccessControlFacet is IAccessControl {
     }
 
     function removeMarketMaker(address account) external {
-        if(account == address(0)) {
+        if (account == address(0)) {
             revert Errors.InvalidMakerAddress();
         }
         LibAccessControl.setMarketMaker(account, false);

@@ -14,65 +14,76 @@ const { getConditionId, parseTransferBatch } = require("./ctfUtils.js");
  * @returns {Promise<[string[], BigNumber[]]>}
  */
 async function splitConditionAndGetPositionIds({
-    user,
-    conditionalFacet,
-    erc20,
-    amount,
-    conditionId,
-    indexSets
+  user,
+  conditionalFacet,
+  erc20,
+  amount,
+  conditionId,
+  indexSets,
 }) {
-    const tx = await conditionalFacet.connect(user).splitPosition(
-        erc20.address,
-        ethers.constants.HashZero, // Parent collectionId
-        conditionId,
-        amount,
-        indexSets
-    );
+  const tx = await conditionalFacet.connect(user).splitPosition(
+    erc20.address,
+    ethers.constants.HashZero, // Parent collectionId
+    conditionId,
+    amount,
+    indexSets
+  );
 
-    const receipt = await tx.wait();
+  const receipt = await tx.wait();
 
-    const { positionIds, amounts } = parseTransferBatch(
-        receipt,
-        ethers.constants.AddressZero, // from zero address (minting)
-        await user.getAddress()
-    );
+  const { positionIds, amounts } = parseTransferBatch(
+    receipt,
+    ethers.constants.AddressZero, // from zero address (minting)
+    await user.getAddress()
+  );
 
-    return [positionIds, amounts];
+  return [positionIds, amounts];
 }
 
-
 async function createAndSplitCondition({
-    conditionManagerFacet,
-    conditionalFacet,
-    oracle,
-    owner,
-    erc20,
-    questionId,
-    outcomeSlotCount = 2,
-    splitAmount = ethers.utils.parseEther("2"),
+  conditionManagerFacet,
+  conditionalFacet,
+  oracle,
+  owner,
+  erc20,
+  questionId,
+  outcomeSlotCount = 2,
+  splitAmount = ethers.utils.parseEther("2"),
 }) {
-    const conditionId = getConditionId(oracle.address, questionId, outcomeSlotCount);
+  const conditionId = getConditionId(
+    oracle.address,
+    questionId,
+    outcomeSlotCount
+  );
 
-    await conditionManagerFacet.connect(owner).createCondition(
-        oracle.address,
-        questionId,
-        outcomeSlotCount,
-        "ipfs://dummy"
+  await conditionManagerFacet
+    .connect(owner)
+    .createCondition(
+      oracle.address,
+      questionId,
+      outcomeSlotCount,
+      "ipfs://dummy"
     );
 
-    const splitTx = await conditionalFacet.connect(owner).splitPosition(
-        erc20.address,
-        ethers.constants.HashZero,
-        conditionId,
-        splitAmount,
-        [1, 2]
+  const splitTx = await conditionalFacet
+    .connect(owner)
+    .splitPosition(
+      erc20.address,
+      ethers.constants.HashZero,
+      conditionId,
+      splitAmount,
+      [1, 2]
     );
 
-    const receipt = await splitTx.wait();
-    return parseTransferBatch(receipt, ethers.constants.AddressZero, owner.address);
+  const receipt = await splitTx.wait();
+  return parseTransferBatch(
+    receipt,
+    ethers.constants.AddressZero,
+    owner.address
+  );
 }
 
 module.exports = {
-    splitConditionAndGetPositionIds,
-    createAndSplitCondition,
+  splitConditionAndGetPositionIds,
+  createAndSplitCondition,
 };

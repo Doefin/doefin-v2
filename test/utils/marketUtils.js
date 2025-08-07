@@ -20,59 +20,62 @@ const { createLimitOrder } = require("./orderUtils.js");
  * @returns {Promise<{conditionId: string, positionIds: string[], yesId: string, noId: string}>}
  */
 async function createCompleteMarket({
-    conditionManagerFacet,
-    conditionalFacet,
-    exchangeFacet,
-    erc20,
-    oracle,
-    owner,
-    questionId,
-    outcomeSlotCount = 2,
-    initialLiquidity = ethers.utils.parseEther("100"),
-    ipfsHash = "ipfs://default",
-    diamondAddress
+  conditionManagerFacet,
+  conditionalFacet,
+  exchangeFacet,
+  erc20,
+  oracle,
+  owner,
+  questionId,
+  outcomeSlotCount = 2,
+  initialLiquidity = ethers.utils.parseEther("100"),
+  ipfsHash = "ipfs://default",
+  diamondAddress,
 }) {
-    // Create condition
-    const conditionId = getConditionId(oracle.address, questionId, outcomeSlotCount);
-    
-    await conditionManagerFacet.connect(owner).createCondition(
-        oracle.address,
-        questionId,
-        outcomeSlotCount,
-        ipfsHash
-    );
+  // Create condition
+  const conditionId = getConditionId(
+    oracle.address,
+    questionId,
+    outcomeSlotCount
+  );
 
-    // Check current balance and allowance
-    const currentBalance = await erc20.balanceOf(owner.address);
-    const currentAllowance = await erc20.allowance(owner.address, diamondAddress);
-    
-    // Mint additional tokens if needed
-    if (currentBalance.lt(initialLiquidity)) {
-        await erc20.mint(owner.address, initialLiquidity.sub(currentBalance));
-    }
-    
-    // Approve additional allowance if needed
-    if (currentAllowance.lt(initialLiquidity)) {
-        await erc20.connect(owner).approve(diamondAddress, currentAllowance.add(initialLiquidity));
-    }
+  await conditionManagerFacet
+    .connect(owner)
+    .createCondition(oracle.address, questionId, outcomeSlotCount, ipfsHash);
 
-    // Split condition to create position tokens
-    const indexSets = Array.from({ length: outcomeSlotCount }, (_, i) => 1 << i);
-    const [positionIds, _amounts] = await splitConditionAndGetPositionIds({
-        user: owner,
-        amount: initialLiquidity,
-        conditionId,
-        indexSets,
-        erc20,
-        conditionalFacet
-    });
+  // Check current balance and allowance
+  const currentBalance = await erc20.balanceOf(owner.address);
+  const currentAllowance = await erc20.allowance(owner.address, diamondAddress);
 
-    return {
-        conditionId,
-        positionIds,
-        yesId: positionIds[0],
-        noId: positionIds[1]
-    };
+  // Mint additional tokens if needed
+  if (currentBalance.lt(initialLiquidity)) {
+    await erc20.mint(owner.address, initialLiquidity.sub(currentBalance));
+  }
+
+  // Approve additional allowance if needed
+  if (currentAllowance.lt(initialLiquidity)) {
+    await erc20
+      .connect(owner)
+      .approve(diamondAddress, currentAllowance.add(initialLiquidity));
+  }
+
+  // Split condition to create position tokens
+  const indexSets = Array.from({ length: outcomeSlotCount }, (_, i) => 1 << i);
+  const [positionIds, _amounts] = await splitConditionAndGetPositionIds({
+    user: owner,
+    amount: initialLiquidity,
+    conditionId,
+    indexSets,
+    erc20,
+    conditionalFacet,
+  });
+
+  return {
+    conditionId,
+    positionIds,
+    yesId: positionIds[0],
+    noId: positionIds[1],
+  };
 }
 
 /**
@@ -89,60 +92,64 @@ async function createCompleteMarket({
  * @returns {Promise<Array<BigNumber>>} Array of order IDs
  */
 async function createMultipleLimitOrders({
-    exchangeFacet,
-    erc1155,
-    erc20,
-    maker,
-    owner,
-    positionId,
-    orderConfigs,
-    diamondAddress
+  exchangeFacet,
+  erc1155,
+  erc20,
+  maker,
+  owner,
+  positionId,
+  orderConfigs,
+  diamondAddress,
 }) {
-    const orderIds = [];
+  const orderIds = [];
 
-    // Set approval for all first
-    await erc1155.connect(maker).setApprovalForAll(diamondAddress, true);
+  // Set approval for all first
+  await erc1155.connect(maker).setApprovalForAll(diamondAddress, true);
 
-    for (const config of orderConfigs) {
-        const { amount, price, direction, minFill = amount } = config;
+  for (const config of orderConfigs) {
+    const { amount, price, direction, minFill = amount } = config;
 
-        if (direction === 1) { // SELL - need ERC1155 tokens
-            await erc1155.connect(owner).safeTransferFrom(
-                owner.address,
-                maker.address,
-                positionId,
-                amount,
-                "0x"
-            );
-        } else { // BUY - need ERC20 tokens
-            const cost = amount.mul(price).div(ethers.utils.parseEther("1"));
-            const fee = cost.mul(200).div(10000); // Assume 2% maker fee
-            const totalCost = cost.add(fee);
+    if (direction === 1) {
+      // SELL - need ERC1155 tokens
+      await erc1155
+        .connect(owner)
+        .safeTransferFrom(
+          owner.address,
+          maker.address,
+          positionId,
+          amount,
+          "0x"
+        );
+    } else {
+      // BUY - need ERC20 tokens
+      const cost = amount.mul(price).div(ethers.utils.parseEther("1"));
+      const fee = cost.mul(200).div(10000); // Assume 2% maker fee
+      const totalCost = cost.add(fee);
 
-            await mintAndApproveERC20({
-                token: erc20,
-                minter: owner,
-                to: maker,
-                amount: totalCost,
-                spender: diamondAddress
-            });
-        }
-
-        await createLimitOrder(exchangeFacet, maker, {
-            positionId,
-            collateralToken: erc20.address,
-            amount,
-            pricePerToken: price,
-            minFillAmount: minFill,
-            expiry: 0,
-            direction
-        });
-
-        const orderId = await exchangeFacet.callStatic.getNextOrderId() - 1;
-        orderIds.push(orderId);
+      await mintAndApproveERC20({
+        token: erc20,
+        minter: owner,
+        to: maker,
+        amount: totalCost,
+        spender: diamondAddress,
+      });
     }
 
-    return orderIds;
+    await createLimitOrder(exchangeFacet, maker, {
+      positionId,
+      collateralToken: erc20.address,
+      amount,
+      pricePerToken: price,
+      minFillAmount: minFill,
+      expiry: 0,
+      direction,
+    });
+
+    const orderId = (await exchangeFacet.callStatic.getNextOrderId()) - 1;
+    orderIds.push(orderId);
+  }
+
+  return orderIds;
 }
 
 /**
@@ -159,59 +166,59 @@ async function createMultipleLimitOrders({
  * @returns {Promise<{sellOrderIds: Array, buyOrderIds: Array}>}
  */
 async function setupComplexOrderbook({
-    exchangeFacet,
-    erc1155,
-    erc20,
-    makers,
-    owner,
-    positionId,
-    config,
-    diamondAddress
+  exchangeFacet,
+  erc1155,
+  erc20,
+  makers,
+  owner,
+  positionId,
+  config,
+  diamondAddress,
 }) {
-    const { sellOrders = [], buyOrders = [] } = config;
-    
-    const sellOrderIds = [];
-    const buyOrderIds = [];
+  const { sellOrders = [], buyOrders = [] } = config;
 
-    // Create SELL orders
-    for (let i = 0; i < sellOrders.length; i++) {
-        const maker = makers[i % makers.length];
-        const orderConfig = { ...sellOrders[i], direction: 1 };
-        
-        const [orderId] = await createMultipleLimitOrders({
-            exchangeFacet,
-            erc1155,
-            erc20,
-            maker,
-            owner,
-            positionId,
-            orderConfigs: [orderConfig],
-            diamondAddress
-        });
-        
-        sellOrderIds.push(orderId);
-    }
+  const sellOrderIds = [];
+  const buyOrderIds = [];
 
-    // Create BUY orders
-    for (let i = 0; i < buyOrders.length; i++) {
-        const maker = makers[i % makers.length];
-        const orderConfig = { ...buyOrders[i], direction: 0 };
-        
-        const [orderId] = await createMultipleLimitOrders({
-            exchangeFacet,
-            erc1155,
-            erc20,
-            maker,
-            owner,
-            positionId,
-            orderConfigs: [orderConfig],
-            diamondAddress
-        });
-        
-        buyOrderIds.push(orderId);
-    }
+  // Create SELL orders
+  for (let i = 0; i < sellOrders.length; i++) {
+    const maker = makers[i % makers.length];
+    const orderConfig = { ...sellOrders[i], direction: 1 };
 
-    return { sellOrderIds, buyOrderIds };
+    const [orderId] = await createMultipleLimitOrders({
+      exchangeFacet,
+      erc1155,
+      erc20,
+      maker,
+      owner,
+      positionId,
+      orderConfigs: [orderConfig],
+      diamondAddress,
+    });
+
+    sellOrderIds.push(orderId);
+  }
+
+  // Create BUY orders
+  for (let i = 0; i < buyOrders.length; i++) {
+    const maker = makers[i % makers.length];
+    const orderConfig = { ...buyOrders[i], direction: 0 };
+
+    const [orderId] = await createMultipleLimitOrders({
+      exchangeFacet,
+      erc1155,
+      erc20,
+      maker,
+      owner,
+      positionId,
+      orderConfigs: [orderConfig],
+      diamondAddress,
+    });
+
+    buyOrderIds.push(orderId);
+  }
+
+  return { sellOrderIds, buyOrderIds };
 }
 
 /**
@@ -222,32 +229,34 @@ async function setupComplexOrderbook({
  * @returns {Promise<{orders: Array, isSorted: boolean, totalLiquidity: BigNumber}>}
  */
 async function validateOrderbook(exchangeFacet, positionId, direction) {
-    const orderIds = await exchangeFacet.getOrderbook(positionId, direction);
-    const orders = [];
-    let totalLiquidity = ethers.constants.Zero;
-    let isSorted = true;
+  const orderIds = await exchangeFacet.getOrderbook(positionId, direction);
+  const orders = [];
+  let totalLiquidity = ethers.constants.Zero;
+  let isSorted = true;
 
-    for (let i = 0; i < orderIds.length; i++) {
-        const order = await exchangeFacet.getOrder(orderIds[i]);
-        orders.push(order);
-        totalLiquidity = totalLiquidity.add(order.amount);
+  for (let i = 0; i < orderIds.length; i++) {
+    const order = await exchangeFacet.getOrder(orderIds[i]);
+    orders.push(order);
+    totalLiquidity = totalLiquidity.add(order.amount);
 
-        // Check sorting
-        if (i > 0) {
-            const prevOrder = orders[i - 1];
-            if (direction === 1) { // SELL orders should be ascending by price
-                if (order.pricePerToken.lt(prevOrder.pricePerToken)) {
-                    isSorted = false;
-                }
-            } else { // BUY orders should be descending by price
-                if (order.pricePerToken.gt(prevOrder.pricePerToken)) {
-                    isSorted = false;
-                }
-            }
+    // Check sorting
+    if (i > 0) {
+      const prevOrder = orders[i - 1];
+      if (direction === 1) {
+        // SELL orders should be ascending by price
+        if (order.pricePerToken.lt(prevOrder.pricePerToken)) {
+          isSorted = false;
         }
+      } else {
+        // BUY orders should be descending by price
+        if (order.pricePerToken.gt(prevOrder.pricePerToken)) {
+          isSorted = false;
+        }
+      }
     }
+  }
 
-    return { orders, isSorted, totalLiquidity };
+  return { orders, isSorted, totalLiquidity };
 }
 
 /**
@@ -260,30 +269,32 @@ async function validateOrderbook(exchangeFacet, positionId, direction) {
  * @returns {Object} - {baseCost, makerFee, takerFee, totalMakerCost, totalTakerCost, netReceived}
  */
 function calculateTradeCosts(amount, price, direction, feeConfig, unit) {
-    const baseCost = amount.mul(price).div(unit);
-    const makerFee = baseCost.mul(feeConfig.makerBps).div(10000);
-    const takerFee = baseCost.mul(feeConfig.takerBps).div(10000);
+  const baseCost = amount.mul(price).div(unit);
+  const makerFee = baseCost.mul(feeConfig.makerBps).div(10000);
+  const takerFee = baseCost.mul(feeConfig.takerBps).div(10000);
 
-    let totalMakerCost, totalTakerCost, netReceived;
+  let totalMakerCost, totalTakerCost, netReceived;
 
-    if (direction === 0) { // BUY
-        totalMakerCost = baseCost.add(makerFee);
-        totalTakerCost = baseCost.add(takerFee);
-        netReceived = ethers.constants.Zero; // Receives ERC1155 tokens
-    } else { // SELL
-        totalMakerCost = ethers.constants.Zero; // Locks ERC1155 tokens
-        totalTakerCost = ethers.constants.Zero; // Pays ERC1155 tokens
-        netReceived = baseCost.sub(takerFee);
-    }
+  if (direction === 0) {
+    // BUY
+    totalMakerCost = baseCost.add(makerFee);
+    totalTakerCost = baseCost.add(takerFee);
+    netReceived = ethers.constants.Zero; // Receives ERC1155 tokens
+  } else {
+    // SELL
+    totalMakerCost = ethers.constants.Zero; // Locks ERC1155 tokens
+    totalTakerCost = ethers.constants.Zero; // Pays ERC1155 tokens
+    netReceived = baseCost.sub(takerFee);
+  }
 
-    return {
-        baseCost,
-        makerFee,
-        takerFee,
-        totalMakerCost,
-        totalTakerCost,
-        netReceived
-    };
+  return {
+    baseCost,
+    makerFee,
+    takerFee,
+    totalMakerCost,
+    totalTakerCost,
+    netReceived,
+  };
 }
 
 /**
@@ -296,100 +307,145 @@ function calculateTradeCosts(amount, price, direction, feeConfig, unit) {
  * @returns {Promise<Object>} Market setup details
  */
 async function createMarketScenario({
-    scenario,
-    contracts,
-    signers,
-    diamondAddress
+  scenario,
+  contracts,
+  signers,
+  diamondAddress,
 }) {
-    const { conditionManagerFacet, conditionalFacet, exchangeFacet, erc20, erc1155 } = contracts;
-    const [owner, oracle, ...makers] = signers;
+  const {
+    conditionManagerFacet,
+    conditionalFacet,
+    exchangeFacet,
+    erc20,
+    erc1155,
+  } = contracts;
+  const [owner, oracle, ...makers] = signers;
 
-    const questionId = ethers.utils.id(`scenario-${scenario}-${Date.now()}`);
-    
-    // Create basic market
-    const market = await createCompleteMarket({
-        conditionManagerFacet,
-        conditionalFacet,
-        exchangeFacet,
-        erc20,
-        oracle,
-        owner,
-        questionId,
-        diamondAddress
-    });
+  const questionId = ethers.utils.id(`scenario-${scenario}-${Date.now()}`);
 
-    let orderConfig;
+  // Create basic market
+  const market = await createCompleteMarket({
+    conditionManagerFacet,
+    conditionalFacet,
+    exchangeFacet,
+    erc20,
+    oracle,
+    owner,
+    questionId,
+    diamondAddress,
+  });
 
-    switch (scenario) {
-        case "low_liquidity":
-            orderConfig = {
-                sellOrders: [
-                    { amount: ethers.utils.parseEther("1"), price: ethers.utils.parseEther("0.6") }
-                ],
-                buyOrders: [
-                    { amount: ethers.utils.parseEther("1"), price: ethers.utils.parseEther("0.4") }
-                ]
-            };
-            break;
+  let orderConfig;
 
-        case "high_spread":
-            orderConfig = {
-                sellOrders: [
-                    { amount: ethers.utils.parseEther("5"), price: ethers.utils.parseEther("0.8") }
-                ],
-                buyOrders: [
-                    { amount: ethers.utils.parseEther("5"), price: ethers.utils.parseEther("0.2") }
-                ]
-            };
-            break;
+  switch (scenario) {
+    case "low_liquidity":
+      orderConfig = {
+        sellOrders: [
+          {
+            amount: ethers.utils.parseEther("1"),
+            price: ethers.utils.parseEther("0.6"),
+          },
+        ],
+        buyOrders: [
+          {
+            amount: ethers.utils.parseEther("1"),
+            price: ethers.utils.parseEther("0.4"),
+          },
+        ],
+      };
+      break;
 
-        case "balanced":
-            orderConfig = {
-                sellOrders: [
-                    { amount: ethers.utils.parseEther("10"), price: ethers.utils.parseEther("0.52") },
-                    { amount: ethers.utils.parseEther("8"), price: ethers.utils.parseEther("0.55") },
-                    { amount: ethers.utils.parseEther("6"), price: ethers.utils.parseEther("0.58") }
-                ],
-                buyOrders: [
-                    { amount: ethers.utils.parseEther("10"), price: ethers.utils.parseEther("0.48") },
-                    { amount: ethers.utils.parseEther("8"), price: ethers.utils.parseEther("0.45") },
-                    { amount: ethers.utils.parseEther("6"), price: ethers.utils.parseEther("0.42") }
-                ]
-            };
-            break;
+    case "high_spread":
+      orderConfig = {
+        sellOrders: [
+          {
+            amount: ethers.utils.parseEther("5"),
+            price: ethers.utils.parseEther("0.8"),
+          },
+        ],
+        buyOrders: [
+          {
+            amount: ethers.utils.parseEther("5"),
+            price: ethers.utils.parseEther("0.2"),
+          },
+        ],
+      };
+      break;
 
-        case "one_sided":
-            orderConfig = {
-                sellOrders: [
-                    { amount: ethers.utils.parseEther("20"), price: ethers.utils.parseEther("0.3") },
-                    { amount: ethers.utils.parseEther("15"), price: ethers.utils.parseEther("0.4") },
-                    { amount: ethers.utils.parseEther("10"), price: ethers.utils.parseEther("0.5") }
-                ],
-                buyOrders: []
-            };
-            break;
+    case "balanced":
+      orderConfig = {
+        sellOrders: [
+          {
+            amount: ethers.utils.parseEther("10"),
+            price: ethers.utils.parseEther("0.52"),
+          },
+          {
+            amount: ethers.utils.parseEther("8"),
+            price: ethers.utils.parseEther("0.55"),
+          },
+          {
+            amount: ethers.utils.parseEther("6"),
+            price: ethers.utils.parseEther("0.58"),
+          },
+        ],
+        buyOrders: [
+          {
+            amount: ethers.utils.parseEther("10"),
+            price: ethers.utils.parseEther("0.48"),
+          },
+          {
+            amount: ethers.utils.parseEther("8"),
+            price: ethers.utils.parseEther("0.45"),
+          },
+          {
+            amount: ethers.utils.parseEther("6"),
+            price: ethers.utils.parseEther("0.42"),
+          },
+        ],
+      };
+      break;
 
-        default:
-            throw new Error(`Unknown scenario: ${scenario}`);
-    }
+    case "one_sided":
+      orderConfig = {
+        sellOrders: [
+          {
+            amount: ethers.utils.parseEther("20"),
+            price: ethers.utils.parseEther("0.3"),
+          },
+          {
+            amount: ethers.utils.parseEther("15"),
+            price: ethers.utils.parseEther("0.4"),
+          },
+          {
+            amount: ethers.utils.parseEther("10"),
+            price: ethers.utils.parseEther("0.5"),
+          },
+        ],
+        buyOrders: [],
+      };
+      break;
 
-    const orderbook = await setupComplexOrderbook({
-        exchangeFacet,
-        erc1155,
-        erc20,
-        makers,
-        owner,
-        positionId: market.yesId,
-        config: orderConfig,
-        diamondAddress
-    });
+    default:
+      throw new Error(`Unknown scenario: ${scenario}`);
+  }
 
-    return {
-        ...market,
-        ...orderbook,
-        scenario,
-        orderConfig
-    };
+  const orderbook = await setupComplexOrderbook({
+    exchangeFacet,
+    erc1155,
+    erc20,
+    makers,
+    owner,
+    positionId: market.yesId,
+    config: orderConfig,
+    diamondAddress,
+  });
+
+  return {
+    ...market,
+    ...orderbook,
+    scenario,
+    orderConfig,
+  };
 }
 
 /**
@@ -398,12 +454,12 @@ async function createMarketScenario({
  * @returns {Promise<{receipt: Object, gasUsed: BigNumber}>}
  */
 async function measureGas(txPromise) {
-    const tx = await txPromise;
-    const receipt = await tx.wait();
-    return {
-        receipt,
-        gasUsed: receipt.gasUsed
-    };
+  const tx = await txPromise;
+  const receipt = await tx.wait();
+  return {
+    receipt,
+    gasUsed: receipt.gasUsed,
+  };
 }
 
 /**
@@ -411,9 +467,9 @@ async function measureGas(txPromise) {
  * @param {number} blocks - Number of blocks to wait
  */
 async function waitBlocks(blocks) {
-    for (let i = 0; i < blocks; i++) {
-        await ethers.provider.send("evm_mine");
-    }
+  for (let i = 0; i < blocks; i++) {
+    await ethers.provider.send("evm_mine");
+  }
 }
 
 /**
@@ -421,7 +477,7 @@ async function waitBlocks(blocks) {
  * @param {number} timestamp - Unix timestamp
  */
 async function setNextBlockTimestamp(timestamp) {
-    await ethers.provider.send("evm_setNextBlockTimestamp", [timestamp]);
+  await ethers.provider.send("evm_setNextBlockTimestamp", [timestamp]);
 }
 
 /**
@@ -429,19 +485,19 @@ async function setNextBlockTimestamp(timestamp) {
  * @param {number} seconds - Seconds to increase
  */
 async function increaseTime(seconds) {
-    await ethers.provider.send("evm_increaseTime", [seconds]);
-    await ethers.provider.send("evm_mine");
+  await ethers.provider.send("evm_increaseTime", [seconds]);
+  await ethers.provider.send("evm_mine");
 }
 
 module.exports = {
-    createCompleteMarket,
-    createMultipleLimitOrders,
-    setupComplexOrderbook,
-    validateOrderbook,
-    calculateTradeCosts,
-    createMarketScenario,
-    measureGas,
-    waitBlocks,
-    setNextBlockTimestamp,
-    increaseTime
+  createCompleteMarket,
+  createMultipleLimitOrders,
+  setupComplexOrderbook,
+  validateOrderbook,
+  calculateTradeCosts,
+  createMarketScenario,
+  measureGas,
+  waitBlocks,
+  setNextBlockTimestamp,
+  increaseTime,
 };

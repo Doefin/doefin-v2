@@ -7,7 +7,13 @@ pragma solidity ^0.8.6;
 import {IERC1155TokenReceiver} from "../interfaces/IERC1155TokenReceiver.sol";
 
 contract ERC1155ReceiverFacet is IERC1155TokenReceiver {
-    function onERC1155Received(address, address, uint256, uint256, bytes calldata) external pure override returns (bytes4) {
+    function onERC1155Received(
+        address,
+        address,
+        uint256,
+        uint256,
+        bytes calldata
+    ) external pure override returns (bytes4) {
         return this.onERC1155Received.selector;
     }
 

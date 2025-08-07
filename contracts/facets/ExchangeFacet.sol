@@ -31,7 +31,13 @@ contract ExchangeFacet is IExchange {
     }
 
     /// @notice Modify an existing limit order
-    function modifyLimitOrder(uint256 orderId, uint256 newAmount, uint256 newPricePerToken, uint256 newMinFillAmount, uint256 newExpiry) external {
+    function modifyLimitOrder(
+        uint256 orderId,
+        uint256 newAmount,
+        uint256 newPricePerToken,
+        uint256 newMinFillAmount,
+        uint256 newExpiry
+    ) external {
         LibOrderbook.modifyOrder(msg.sender, orderId, newAmount, newPricePerToken, newMinFillAmount, newExpiry);
     }
 
@@ -62,7 +68,7 @@ contract ExchangeFacet is IExchange {
     function getOrders(uint256[] calldata orderIds) external view returns (LibDoefinStorage.Order[] memory orders) {
         LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
         orders = new LibDoefinStorage.Order[](orderIds.length);
-        
+
         for (uint256 i = 0; i < orderIds.length; i++) {
             orders[i] = ds.orderbookStorage.orders[orderIds[i]];
         }

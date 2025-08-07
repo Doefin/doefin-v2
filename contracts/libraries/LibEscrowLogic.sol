@@ -13,7 +13,6 @@ import {Errors} from "./Errors.sol";
  * @dev This is the new version that replaces LibEscrowLogic with proper separation of concerns
  */
 library LibEscrowLogic {
-
     // ----------------------------------------
     // Order Collateral Management
     // ----------------------------------------
@@ -32,11 +31,7 @@ library LibEscrowLogic {
                 order.orderFeeConfig.makerFeeBps
             );
         } else {
-            LibCollateralManager.lockERC1155Collateral(
-                order.maker,
-                order.positionId,
-                order.amount
-            );
+            LibCollateralManager.lockERC1155Collateral(order.maker, order.positionId, order.amount);
         }
     }
 
@@ -54,11 +49,7 @@ library LibEscrowLogic {
                 order.orderFeeConfig.makerFeeBps
             );
         } else {
-            LibCollateralManager.releaseERC1155Collateral(
-                order.maker,
-                order.positionId,
-                order.remainingAmount
-            );
+            LibCollateralManager.releaseERC1155Collateral(order.maker, order.positionId, order.remainingAmount);
         }
     }
 
@@ -66,9 +57,7 @@ library LibEscrowLogic {
      * @notice Adjust collateral when an order is modified (delegates to LibCollateralManager)
      * @param modifyCtx The modification context
      */
-    function adjustCollateralForModifiedOrder(
-        LibDoefinStorage.ModifyCollateralContext memory modifyCtx
-    ) internal {
+    function adjustCollateralForModifiedOrder(LibDoefinStorage.ModifyCollateralContext memory modifyCtx) internal {
         LibCollateralManager.adjustCollateralForModifiedOrder(modifyCtx);
     }
 
@@ -102,15 +91,16 @@ library LibEscrowLogic {
      * @return makerContribution The maker's contribution
      * @return takerContribution The taker's contribution
      */
-    function computeMintFees(
-        LibDoefinStorage.Order memory makerOrder,
-        uint256 fillableAmount
-    ) internal view returns (
-        uint256 makerFee,
-        uint256 takerFee,
-        uint256 makerContribution,
-        uint256 takerContribution
-    ) {
+    function computeMintFees(LibDoefinStorage.Order memory makerOrder, uint256 fillableAmount)
+        internal
+        view
+        returns (
+            uint256 makerFee,
+            uint256 takerFee,
+            uint256 makerContribution,
+            uint256 takerContribution
+        )
+    {
         return LibFeeManager.computeMintFees(makerOrder, fillableAmount);
     }
 
@@ -121,9 +111,15 @@ library LibEscrowLogic {
      * @return takerFee The taker fee
      * @return cost The base cost
      */
-    function computeFees(
-        LibDoefinStorage.SettlemetExecutionContext memory settlementExecCtx
-    ) internal view returns (uint256 makerFee, uint256 takerFee, uint256 cost) {
+    function computeFees(LibDoefinStorage.SettlemetExecutionContext memory settlementExecCtx)
+        internal
+        view
+        returns (
+            uint256 makerFee,
+            uint256 takerFee,
+            uint256 cost
+        )
+    {
         return LibFeeManager.computeTradeExecutionFees(settlementExecCtx);
     }
 
@@ -133,7 +129,11 @@ library LibEscrowLogic {
      * @param makerFee The maker fee amount
      * @param takerFee The taker fee amount
      */
-    function accrueFees(address token, uint256 makerFee, uint256 takerFee) internal {
+    function accrueFees(
+        address token,
+        uint256 makerFee,
+        uint256 takerFee
+    ) internal {
         LibFeeManager.accrueFees(token, makerFee, takerFee);
     }
 
@@ -145,12 +145,10 @@ library LibEscrowLogic {
      * @notice Execute settlement for a trade (delegates to LibTradeSettlement)
      * @param settlementExecCtx The settlement execution context
      */
-    function settlementDispatcher(
-        LibDoefinStorage.SettlemetExecutionContext memory settlementExecCtx
-    ) internal {
+    function settlementDispatcher(LibDoefinStorage.SettlemetExecutionContext memory settlementExecCtx) internal {
         // Validate settlement context first
         LibTradeSettlement.validateSettlementContext(settlementExecCtx);
-        
+
         // Execute the settlement
         LibTradeSettlement.executeSettlement(settlementExecCtx);
     }
@@ -193,7 +191,11 @@ library LibEscrowLogic {
      * @param positionId The position ID
      * @param amount The amount to lock
      */
-    function lockERC1155(address user, uint256 positionId, uint256 amount) internal {
+    function lockERC1155(
+        address user,
+        uint256 positionId,
+        uint256 amount
+    ) internal {
         LibCollateralManager.lockERC1155Collateral(user, positionId, amount);
     }
 
@@ -203,7 +205,11 @@ library LibEscrowLogic {
      * @param positionId The position ID
      * @param amount The amount to release
      */
-    function releaseERC1155(address user, uint256 positionId, uint256 amount) internal {
+    function releaseERC1155(
+        address user,
+        uint256 positionId,
+        uint256 amount
+    ) internal {
         LibCollateralManager.releaseERC1155Collateral(user, positionId, amount);
     }
 
@@ -223,10 +229,7 @@ library LibEscrowLogic {
         address user,
         address[] memory tokens,
         uint256[] memory positionIds
-    ) internal view returns (
-        uint256[] memory erc20Balances,
-        uint256[] memory erc1155Balances
-    ) {
+    ) internal view returns (uint256[] memory erc20Balances, uint256[] memory erc1155Balances) {
         erc20Balances = new uint256[](tokens.length);
         erc1155Balances = new uint256[](positionIds.length);
 
@@ -263,9 +266,7 @@ library LibEscrowLogic {
      * @notice Execute multiple settlements in a single transaction
      * @param settlementContexts Array of settlement contexts to execute
      */
-    function batchExecuteSettlements(
-        LibDoefinStorage.SettlemetExecutionContext[] memory settlementContexts
-    ) internal {
+    function batchExecuteSettlements(LibDoefinStorage.SettlemetExecutionContext[] memory settlementContexts) internal {
         for (uint256 i = 0; i < settlementContexts.length; i++) {
             settlementDispatcher(settlementContexts[i]);
         }
@@ -282,7 +283,7 @@ library LibEscrowLogic {
     function validateArchitecture() internal view returns (bool) {
         // Simple validation - check if we can access storage
         LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
-        
+
         // Validate that basic storage is accessible and fee configuration exists
         return ds.adminConfigStorage.makerTradingFeeBps > 0 || ds.adminConfigStorage.takerTradingFeeBps > 0;
     }

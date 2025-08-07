@@ -4,9 +4,9 @@
 
 pragma solidity ^0.8.6;
 
-import { LibERC1155 } from "../libraries/LibERC1155.sol";
-import { IERC1155Facet } from "../interfaces/IERC1155.sol";
-import { Events } from "../libraries/Events.sol";
+import {LibERC1155} from "../libraries/LibERC1155.sol";
+import {IERC1155Facet} from "../interfaces/IERC1155.sol";
+import {Events} from "../libraries/Events.sol";
 
 contract ERC1155Facet is IERC1155Facet {
     function balanceOf(address owner, uint256 id) external view override returns (uint256) {
@@ -26,11 +26,23 @@ contract ERC1155Facet is IERC1155Facet {
         return LibERC1155.isApprovedForAll(owner, operator);
     }
 
-    function safeTransferFrom(address from, address to, uint256 id, uint256 value, bytes calldata data) external override {
+    function safeTransferFrom(
+        address from,
+        address to,
+        uint256 id,
+        uint256 value,
+        bytes calldata data
+    ) external override {
         LibERC1155.safeTransferFrom(msg.sender, from, to, id, value, data);
     }
 
-    function safeBatchTransferFrom(address from, address to, uint256[] calldata ids, uint256[] calldata values, bytes calldata data) external override {
+    function safeBatchTransferFrom(
+        address from,
+        address to,
+        uint256[] calldata ids,
+        uint256[] calldata values,
+        bytes calldata data
+    ) external override {
         LibERC1155.safeBatchTransferFrom(msg.sender, from, to, ids, values, data);
     }
 }

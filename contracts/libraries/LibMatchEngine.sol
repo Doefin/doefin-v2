@@ -41,13 +41,14 @@ library LibMatchEngine {
         return ds.adminConfigStorage.unitPerPair[collateralToken];
     }
 
-    function retrieveTheBooksAndMatchType(
-        uint256 positionId,
-        LibDoefinStorage.OrderDirection direction
-    )
+    function retrieveTheBooksAndMatchType(uint256 positionId, LibDoefinStorage.OrderDirection direction)
         internal
         view
-        returns (uint256[] storage complementaryOrders, uint256[] storage mintOrMergeOrders, LibDoefinStorage.MatchType siblingMatchType)
+        returns (
+            uint256[] storage complementaryOrders,
+            uint256[] storage mintOrMergeOrders,
+            LibDoefinStorage.MatchType siblingMatchType
+        )
     {
         LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
         // Determine sibling (complementary) position
@@ -148,9 +149,11 @@ library LibMatchEngine {
         uint256 matchCount;
     }
 
-    function _simulateWithContext(
-        LibDoefinStorage.SimulationContext memory ctx
-    ) internal view returns (LibDoefinStorage.MatchOrderRoute memory route) {
+    function _simulateWithContext(LibDoefinStorage.SimulationContext memory ctx)
+        internal
+        view
+        returns (LibDoefinStorage.MatchOrderRoute memory route)
+    {
         LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
 
         LibDoefinStorage.MatchExecution[] memory tempMatches = new LibDoefinStorage.MatchExecution[](
@@ -164,7 +167,7 @@ library LibMatchEngine {
 
         while (lc.remaining > 0 && (lc.i < ctx.complementaryOrders.length || lc.j < ctx.mintOrMergeOrders.length)) {
             (LibDoefinStorage.MatchExecution memory execution, bool pickComp) = _selectBestMatch(ds, ctx, lc.i, lc.j, lc.remaining);
-    
+
             tempMatches[lc.matchCount] = execution;
             route.totalInputAmount += execution.amount;
             route.totalOutputAmount += (execution.amount * execution.effectivePrice) / ctx.collateralUnit;

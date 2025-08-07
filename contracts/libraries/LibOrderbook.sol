@@ -32,7 +32,7 @@ library LibOrderbook {
         if (amount < minFillAmount || amount == 0) {
             revert Errors.InvalidAmounts();
         }
-        if(expiry != 0 && expiry <= block.timestamp) {
+        if (expiry != 0 && expiry <= block.timestamp) {
             revert Errors.OrderCreatedWithPastExpiry();
         }
 
@@ -62,24 +62,14 @@ library LibOrderbook {
         ds.orderbookStorage.orders[orderId] = order;
         _insertSorted(order);
 
-        emit Events.OrderCreated(
-            orderId,
-            msg.sender,
-            positionId,
-            collateralToken,
-            amount,
-            pricePerToken,
-            minFillAmount,
-            expiry,
-            direction
-        );
+        emit Events.OrderCreated(orderId, msg.sender, positionId, collateralToken, amount, pricePerToken, minFillAmount, expiry, direction);
     }
 
     /// @notice Cancel an open order and release collateral
     function cancelOrder(uint256 orderId, address sender) internal {
         LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
         LibDoefinStorage.Order storage order = ds.orderbookStorage.orders[orderId];
-        if(order.maker != sender) revert Errors.NotAuthorizedToCancel();
+        if (order.maker != sender) revert Errors.NotAuthorizedToCancel();
 
         uint256 remainingAmount = order.remainingAmount;
 
@@ -102,11 +92,10 @@ library LibOrderbook {
         LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
         LibDoefinStorage.Order storage order = ds.orderbookStorage.orders[orderId];
 
-        if(order.maker != maker) revert Errors.NotAuthorizedToCancel();
-        if(!order.active) revert Errors.OrderNotActive();
-        if(order.expiry != 0 && block.timestamp >= order.expiry) revert Errors.OrderExpired();
-        if(order.remainingAmount != order.amount) 
-            revert Errors.PartiallyFilledOrdersNotModifiable();
+        if (order.maker != maker) revert Errors.NotAuthorizedToCancel();
+        if (!order.active) revert Errors.OrderNotActive();
+        if (order.expiry != 0 && block.timestamp >= order.expiry) revert Errors.OrderExpired();
+        if (order.remainingAmount != order.amount) revert Errors.PartiallyFilledOrdersNotModifiable();
 
         LibDoefinStorage.ModifyCollateralContext memory modifyCtx = LibDoefinStorage.ModifyCollateralContext({
             maker: maker,

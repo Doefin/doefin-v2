@@ -5,9 +5,22 @@
 pragma solidity ^0.8.6;
 
 interface IConditionalTokens {
-    function prepareCondition(address oracle, bytes32 questionId, uint8 outcomeSlotCount) external;
-    function reportPayouts(bytes32 questionId, uint[] calldata payouts) external;
-    function splitPosition(address collateralToken, bytes32 parentCollectionId, bytes32 conditionId, uint amount, uint[] calldata partition) external;
+    function prepareCondition(
+        address oracle,
+        bytes32 questionId,
+        uint8 outcomeSlotCount
+    ) external;
+
+    function reportPayouts(bytes32 questionId, uint256[] calldata payouts) external;
+
+    function splitPosition(
+        address collateralToken,
+        bytes32 parentCollectionId,
+        bytes32 conditionId,
+        uint256 amount,
+        uint256[] calldata partition
+    ) external;
+
     function mergePositions(
         address collateralToken,
         bytes32 parentCollectionId,
@@ -15,9 +28,27 @@ interface IConditionalTokens {
         uint256[] calldata partition,
         uint256 amount
     ) external;
-    function redeemPositions(address collateralToken, bytes32 parentCollectionId, bytes32 conditionId, uint[] calldata indexSets) external;
-    function getPositionId(address collateralToken, bytes32 collectionId) external view returns (uint);
-    function getPayoutNumerators(bytes32 conditionId) external view returns (uint[] memory);
-    function getConditionId(address oracle, bytes32 questionId, uint8 outcomeSlotCount) external pure returns (bytes32);
-    function getCollectionId(bytes32 parentCollectionId, bytes32 conditionId, uint indexSet) external view returns (bytes32);
+
+    function redeemPositions(
+        address collateralToken,
+        bytes32 parentCollectionId,
+        bytes32 conditionId,
+        uint256[] calldata indexSets
+    ) external;
+
+    function getPositionId(address collateralToken, bytes32 collectionId) external view returns (uint256);
+
+    function getPayoutNumerators(bytes32 conditionId) external view returns (uint256[] memory);
+
+    function getConditionId(
+        address oracle,
+        bytes32 questionId,
+        uint8 outcomeSlotCount
+    ) external pure returns (bytes32);
+
+    function getCollectionId(
+        bytes32 parentCollectionId,
+        bytes32 conditionId,
+        uint256 indexSet
+    ) external view returns (bytes32);
 }

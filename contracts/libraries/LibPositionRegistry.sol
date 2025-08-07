@@ -37,8 +37,7 @@ library LibPositionRegistry {
         LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
         bytes32 conditionId1 = ds.positionRegistry.conditionIdByPositionId[positionId1];
         bytes32 conditionId2 = ds.positionRegistry.conditionIdByPositionId[positionId2];
-        if(conditionId1 != conditionId2) 
-            revert Errors.InvalidMatch();
+        if (conditionId1 != conditionId2) revert Errors.InvalidMatch();
         return conditionId1;
     }
 
@@ -63,8 +62,7 @@ library LibPositionRegistry {
         bytes32 parentCollectionId,
         address collateralToken
     ) internal {
-        if (positionIds.length != partitions.length) 
-            revert Errors.MismatchedInputLengths();
+        if (positionIds.length != partitions.length) revert Errors.MismatchedInputLengths();
         LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
 
         LibDoefinStorage.MarketMetadata storage meta = ds.positionRegistry.marketsByCondition[conditionId];
@@ -74,13 +72,7 @@ library LibPositionRegistry {
             meta.positionIds = positionIds;
             meta.partitions = partitions;
 
-            emit Events.PositionPairsRegistered(
-                conditionId,
-                collateralToken,
-                parentCollectionId,
-                positionIds,
-                partitions
-            );
+            emit Events.PositionPairsRegistered(conditionId, collateralToken, parentCollectionId, positionIds, partitions);
         }
 
         for (uint256 i = 0; i < positionIds.length; i++) {

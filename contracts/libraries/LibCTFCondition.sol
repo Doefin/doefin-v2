@@ -16,15 +16,19 @@ library LibCTFCondition {
 
     /// @dev Prepares a new condition by initializing payout numerators.
     /// Can be called from both low-level (CTF-compatible) and high-level (managed) flows.
-    function prepareCondition(address oracle, bytes32 questionId, uint8 outcomeSlotCount) internal returns (bytes32 conditionId) {
-        if(oracle == address(0)) {
+    function prepareCondition(
+        address oracle,
+        bytes32 questionId,
+        uint8 outcomeSlotCount
+    ) internal returns (bytes32 conditionId) {
+        if (oracle == address(0)) {
             revert Errors.InvalidOracleAddress();
         }
 
         LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
         conditionId = LibCTHelpers.getConditionId(oracle, questionId, outcomeSlotCount);
 
-        if(ds.conditionalTokens.payoutNumerators[conditionId].length > 0) {
+        if (ds.conditionalTokens.payoutNumerators[conditionId].length > 0) {
             revert Errors.ConditionAlreadyPrepared();
         }
 
@@ -105,13 +109,13 @@ library LibCTFCondition {
 
     function _validateCollateral(address collateralToken, uint256 amount) internal view {
         LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
-        if(!ds.adminConfigStorage.isAllowed[collateralToken]) {
+        if (!ds.adminConfigStorage.isAllowed[collateralToken]) {
             revert Errors.TokenNotAllowed();
         }
 
         uint256 unit = ds.adminConfigStorage.unitPerPair[collateralToken];
 
-        if(amount % unit != 0) {
+        if (amount % unit != 0) {
             revert Errors.CollateralNotAligned();
         }
     }
@@ -122,15 +126,23 @@ library LibCTFCondition {
         bytes32 conditionId,
         uint256[] memory partition,
         uint256 amount
-    ) internal view returns (uint256 fullIndexSet, uint256 freeIndexSet, uint256[] memory positionIds, uint256[] memory amounts) {
-        if(partition.length <= 1) {
+    )
+        internal
+        view
+        returns (
+            uint256 fullIndexSet,
+            uint256 freeIndexSet,
+            uint256[] memory positionIds,
+            uint256[] memory amounts
+        )
+    {
+        if (partition.length <= 1) {
             revert Errors.TrivialPartition();
         }
         LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
 
         uint8 outcomeSlotCount = uint8(ds.conditionalTokens.payoutNumerators[conditionId].length);
-        if(outcomeSlotCount == 0) 
-            revert Errors.ConditionNotPrepared();
+        if (outcomeSlotCount == 0) revert Errors.ConditionNotPrepared();
 
         fullIndexSet = (1 << outcomeSlotCount) - 1;
         freeIndexSet = fullIndexSet;
@@ -140,8 +152,7 @@ library LibCTFCondition {
 
         for (uint256 i = 0; i < partition.length; i++) {
             uint256 indexSet = partition[i];
-            if(indexSet == 0 || indexSet >= fullIndexSet) 
-                revert Errors.InvalidIndexSet();
+            if (indexSet == 0 || indexSet >= fullIndexSet) revert Errors.InvalidIndexSet();
             if ((indexSet & freeIndexSet) != indexSet) revert Errors.PartitionNotDisjoint();
             freeIndexSet ^= indexSet;
 
@@ -162,7 +173,7 @@ library LibCTFCondition {
 
     function enforceConditionIsActive(bytes32 conditionId) internal view {
         LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
-        if(!ds.conditionManager.conditions[conditionId].active) {
+        if (!ds.conditionManager.conditions[conditionId].active) {
             revert Errors.ConditionNotActive();
         }
     }

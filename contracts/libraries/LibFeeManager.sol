@@ -62,9 +62,15 @@ library LibFeeManager {
      * @return takerFee The taker fee amount
      * @return cost The base cost amount
      */
-    function computeTradeExecutionFees(
-        LibDoefinStorage.SettlemetExecutionContext memory settlementExecCtx
-    ) internal view returns (uint256 makerFee, uint256 takerFee, uint256 cost) {
+    function computeTradeExecutionFees(LibDoefinStorage.SettlemetExecutionContext memory settlementExecCtx)
+        internal
+        view
+        returns (
+            uint256 makerFee,
+            uint256 takerFee,
+            uint256 cost
+        )
+    {
         LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
         LibDoefinStorage.Order memory makerOrder = settlementExecCtx.makerOrder;
 
@@ -89,15 +95,16 @@ library LibFeeManager {
      * @return makerContribution The maker's contribution to the mint
      * @return takerContribution The taker's contribution to the mint
      */
-    function computeMintFees(
-        LibDoefinStorage.Order memory makerOrder,
-        uint256 fillableAmount
-    ) internal view returns (
-        uint256 makerFee,
-        uint256 takerFee,
-        uint256 makerContribution,
-        uint256 takerContribution
-    ) {
+    function computeMintFees(LibDoefinStorage.Order memory makerOrder, uint256 fillableAmount)
+        internal
+        view
+        returns (
+            uint256 makerFee,
+            uint256 takerFee,
+            uint256 makerContribution,
+            uint256 takerContribution
+        )
+    {
         LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
         address collateralToken = makerOrder.collateralToken;
         uint256 unitPerPair = ds.adminConfigStorage.unitPerPair[collateralToken];
@@ -142,18 +149,18 @@ library LibFeeManager {
      * @param makerFee The maker fee amount
      * @param takerFee The taker fee amount
      */
-    function accrueFees(address token, uint256 makerFee, uint256 takerFee) internal {
+    function accrueFees(
+        address token,
+        uint256 makerFee,
+        uint256 takerFee
+    ) internal {
         uint256 totalFees = makerFee + takerFee;
         if (totalFees == 0) return;
 
         LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
         ds.escrowStorage.protocolFees[token] += totalFees;
 
-        emit Events.ProtocolFeesAccrued(
-            token,
-            totalFees,
-            ds.escrowStorage.protocolFees[token]
-        );
+        emit Events.ProtocolFeesAccrued(token, totalFees, ds.escrowStorage.protocolFees[token]);
     }
 
     /**
@@ -166,17 +173,13 @@ library LibFeeManager {
         for (uint256 i = 0; i < fees.length; i++) {
             totalFees += fees[i];
         }
-        
+
         if (totalFees == 0) return;
 
         LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
         ds.escrowStorage.protocolFees[token] += totalFees;
 
-        emit Events.ProtocolFeesAccrued(
-            token,
-            totalFees,
-            ds.escrowStorage.protocolFees[token]
-        );
+        emit Events.ProtocolFeesAccrued(token, totalFees, ds.escrowStorage.protocolFees[token]);
     }
 
     // ----------------------------------------
@@ -196,38 +199,31 @@ library LibFeeManager {
     ) internal {
         // Enforce admin access
         LibDiamond.enforceIsContractOwner();
-        
+
         LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
-        
+
         // Validate token
         if (token == address(0)) revert Errors.InvalidTokenAddress();
-        
+
         // Get current fee balance
         uint256 availableFees = ds.escrowStorage.protocolFees[token];
         if (availableFees == 0) revert Errors.NoFeesToWithdraw();
-        
+
         // Determine withdrawal amount
         uint256 withdrawAmount = amount == 0 ? availableFees : amount;
         if (withdrawAmount > availableFees) revert Errors.InsufficientFeeBalance();
-        
+
         // Determine recipient
-        address feeRecipient = recipient == address(0) 
-            ? ds.adminConfigStorage.feeReceiver 
-            : recipient;
+        address feeRecipient = recipient == address(0) ? ds.adminConfigStorage.feeReceiver : recipient;
         if (feeRecipient == address(0)) revert Errors.InvalidFeeReceiver();
-        
+
         // Update fee balance
         ds.escrowStorage.protocolFees[token] -= withdrawAmount;
-        
+
         // Transfer fees
         IERC20(token).safeTransfer(feeRecipient, withdrawAmount);
-        
-        emit Events.ProtocolFeesWithdrawn(
-            token,
-            feeRecipient,
-            withdrawAmount,
-            ds.escrowStorage.protocolFees[token]
-        );
+
+        emit Events.ProtocolFeesWithdrawn(token, feeRecipient, withdrawAmount, ds.escrowStorage.protocolFees[token]);
     }
 
     /**
@@ -251,7 +247,7 @@ library LibFeeManager {
         address recipient
     ) internal {
         if (tokens.length != amounts.length) revert Errors.ArrayLengthMismatch();
-        
+
         for (uint256 i = 0; i < tokens.length; i++) {
             // Skip if no fees available (don't revert the entire batch)
             if (getAccumulatedFees(tokens[i]) > 0) {
@@ -278,12 +274,10 @@ library LibFeeManager {
      * @param tokens Array of token addresses
      * @return fees Array of accumulated fee amounts
      */
-    function getAccumulatedFeesForTokens(
-        address[] memory tokens
-    ) internal view returns (uint256[] memory fees) {
+    function getAccumulatedFeesForTokens(address[] memory tokens) internal view returns (uint256[] memory fees) {
         fees = new uint256[](tokens.length);
         LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
-        
+
         for (uint256 i = 0; i < tokens.length; i++) {
             fees[i] = ds.escrowStorage.protocolFees[tokens[i]];
         }
@@ -295,13 +289,11 @@ library LibFeeManager {
      * @param tokens Array of token addresses to sum
      * @return totalValue The total value (implementation dependent on price feeds)
      */
-    function getTotalAccumulatedFeesValue(
-        address[] memory tokens
-    ) internal view returns (uint256 totalValue) {
+    function getTotalAccumulatedFeesValue(address[] memory tokens) internal view returns (uint256 totalValue) {
         // Placeholder for future oracle integration
         // For now, just return the count of tokens with fees
         LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
-        
+
         for (uint256 i = 0; i < tokens.length; i++) {
             if (ds.escrowStorage.protocolFees[tokens[i]] > 0) {
                 totalValue++;
@@ -328,9 +320,7 @@ library LibFeeManager {
      * @return available The currently available fees
      * @return receiver The configured fee receiver
      */
-    function getFeeStatistics(
-        address token
-    ) internal view returns (uint256 available, address receiver) {
+    function getFeeStatistics(address token) internal view returns (uint256 available, address receiver) {
         LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
         available = ds.escrowStorage.protocolFees[token];
         receiver = ds.adminConfigStorage.feeReceiver;

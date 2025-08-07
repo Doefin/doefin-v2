@@ -11,26 +11,27 @@ import {Events} from "./Events.sol";
 
 library LibERC1155 {
     function balanceOf(address owner, uint256 id) internal view returns (uint256) {
-        if(owner == address(0)) 
-            revert Errors.ZeroAddressQuery();
+        if (owner == address(0)) revert Errors.ZeroAddressQuery();
         return LibDoefinStorage.diamondStorage().erc1155Storage.erc1155Balances[id][owner];
     }
 
     function balanceOfBatch(address[] memory owners, uint256[] memory ids) internal view returns (uint256[] memory batchBalances) {
-        if(owners.length == 0 || ids.length == 0) {
+        if (owners.length == 0 || ids.length == 0) {
             revert Errors.EmptyArray();
         }
-        if(owners.length != ids.length)
-            revert Errors.ArrayLengthMismatch();
+        if (owners.length != ids.length) revert Errors.ArrayLengthMismatch();
         batchBalances = new uint256[](owners.length);
         for (uint256 i = 0; i < owners.length; ++i) {
-            if(owners[i] == address(0)) 
-                revert Errors.ZeroAddressQuery();
+            if (owners[i] == address(0)) revert Errors.ZeroAddressQuery();
             batchBalances[i] = LibDoefinStorage.diamondStorage().erc1155Storage.erc1155Balances[ids[i]][owners[i]];
         }
     }
 
-    function setApprovalForAll(address owner, address operator, bool approved) internal {
+    function setApprovalForAll(
+        address owner,
+        address operator,
+        bool approved
+    ) internal {
         LibDoefinStorage.diamondStorage().erc1155Storage.erc1155OperatorApprovals[owner][operator] = approved;
     }
 
@@ -38,9 +39,15 @@ library LibERC1155 {
         return LibDoefinStorage.diamondStorage().erc1155Storage.erc1155OperatorApprovals[owner][operator];
     }
 
-    function safeTransferFrom(address operator, address from, address to, uint256 id, uint256 value, bytes memory data) internal {
-        if(from == address(0) || to == address(0)) 
-            revert Errors.TransferToZeroAddress();
+    function safeTransferFrom(
+        address operator,
+        address from,
+        address to,
+        uint256 id,
+        uint256 value,
+        bytes memory data
+    ) internal {
+        if (from == address(0) || to == address(0)) revert Errors.TransferToZeroAddress();
 
         LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
 
@@ -62,16 +69,13 @@ library LibERC1155 {
         uint256[] memory values,
         bytes memory data
     ) internal {
-        if (from == address(0) || to == address(0)) 
-            revert Errors.TransferToZeroAddress();
+        if (from == address(0) || to == address(0)) revert Errors.TransferToZeroAddress();
         if (ids.length == 0 || values.length == 0) revert Errors.EmptyArray();
-        if (ids.length != values.length) 
-            revert Errors.ArrayLengthMismatch();
+        if (ids.length != values.length) revert Errors.ArrayLengthMismatch();
 
         LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
 
-        if(from != operator && !ds.erc1155Storage.erc1155OperatorApprovals[from][operator]) 
-            revert Errors.NotOwnerNorApproved();
+        if (from != operator && !ds.erc1155Storage.erc1155OperatorApprovals[from][operator]) revert Errors.NotOwnerNorApproved();
 
         for (uint256 i = 0; i < ids.length; ++i) {
             ds.erc1155Storage.erc1155Balances[ids[i]][from] -= values[i];
@@ -83,9 +87,13 @@ library LibERC1155 {
         _doSafeBatchTransferAcceptanceCheck(operator, from, to, ids, values, data);
     }
 
-    function _mint(address to, uint256 id, uint256 value, bytes memory data) internal {
-        if(to == address(0)) 
-            revert Errors.MintToZeroAddress();
+    function _mint(
+        address to,
+        uint256 id,
+        uint256 value,
+        bytes memory data
+    ) internal {
+        if (to == address(0)) revert Errors.MintToZeroAddress();
 
         LibDoefinStorage.diamondStorage().erc1155Storage.erc1155Balances[id][to] += value;
 
@@ -94,11 +102,14 @@ library LibERC1155 {
         _doSafeTransferAcceptanceCheck(msg.sender, address(0), to, id, value, data);
     }
 
-    function _batchMint(address to, uint256[] memory ids, uint256[] memory values, bytes memory data) internal {
-        if (to == address(0)) 
-            revert Errors.MintToZeroAddress();
-        if (ids.length != values.length) 
-            revert Errors.ArrayLengthMismatch();
+    function _batchMint(
+        address to,
+        uint256[] memory ids,
+        uint256[] memory values,
+        bytes memory data
+    ) internal {
+        if (to == address(0)) revert Errors.MintToZeroAddress();
+        if (ids.length != values.length) revert Errors.ArrayLengthMismatch();
 
         LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
 
@@ -111,15 +122,22 @@ library LibERC1155 {
         _doSafeBatchTransferAcceptanceCheck(msg.sender, address(0), to, ids, values, data);
     }
 
-    function _burn(address from, uint256 id, uint256 value) internal {
+    function _burn(
+        address from,
+        uint256 id,
+        uint256 value
+    ) internal {
         LibDoefinStorage.diamondStorage().erc1155Storage.erc1155Balances[id][from] -= value;
 
         emit Events.TransferSingle(msg.sender, from, address(0), id, value);
     }
 
-    function _batchBurn(address from, uint256[] memory ids, uint256[] memory values) internal {
-        if(ids.length != values.length) 
-            revert Errors.ArrayLengthMismatch();
+    function _batchBurn(
+        address from,
+        uint256[] memory ids,
+        uint256[] memory values
+    ) internal {
+        if (ids.length != values.length) revert Errors.ArrayLengthMismatch();
 
         LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
 
@@ -130,10 +148,17 @@ library LibERC1155 {
         emit Events.TransferBatch(msg.sender, from, address(0), ids, values);
     }
 
-    function _doSafeTransferAcceptanceCheck(address operator, address from, address to, uint256 id, uint256 value, bytes memory data) private {
+    function _doSafeTransferAcceptanceCheck(
+        address operator,
+        address from,
+        address to,
+        uint256 id,
+        uint256 value,
+        bytes memory data
+    ) private {
         if (to.code.length > 0) {
-            if(IERC1155TokenReceiver(to).onERC1155Received(operator, from, id, value, data) != 
-                IERC1155TokenReceiver.onERC1155Received.selector) revert Errors.ERC1155ReceiverRejectedTokens();
+            if (IERC1155TokenReceiver(to).onERC1155Received(operator, from, id, value, data) != IERC1155TokenReceiver.onERC1155Received.selector)
+                revert Errors.ERC1155ReceiverRejectedTokens();
         }
     }
 
@@ -146,8 +171,10 @@ library LibERC1155 {
         bytes memory data
     ) private {
         if (to.code.length > 0) {
-            if(IERC1155TokenReceiver(to).onERC1155BatchReceived(operator, from, ids, values, data) !=
-                IERC1155TokenReceiver.onERC1155BatchReceived.selector) revert Errors.ERC1155ReceiverRejectedTokens();
+            if (
+                IERC1155TokenReceiver(to).onERC1155BatchReceived(operator, from, ids, values, data) !=
+                IERC1155TokenReceiver.onERC1155BatchReceived.selector
+            ) revert Errors.ERC1155ReceiverRejectedTokens();
         }
     }
 }

@@ -2,7 +2,6 @@
 // Based on Diamond Standard by Nick Mudge: https://github.com/mudgen/diamond-3-hardhat
 // Uses shared logic from Gnosis Conditional Tokens Framework: https://github.com/gnosis/conditional-tokens-contracts
 
-
 pragma solidity ^0.8.6;
 
 interface IAdminConfig {
@@ -20,7 +19,15 @@ interface IAdminConfig {
 
     function getCollateralUnit(address token) external view returns (uint256);
 
-    function getFees() external view returns (address feeReceiver, uint256 resolutionFeeBps, uint256 makerTradingFeeBps, uint256 takerTradingFeeBps);
+    function getFees()
+        external
+        view
+        returns (
+            address feeReceiver,
+            uint256 resolutionFeeBps,
+            uint256 makerTradingFeeBps,
+            uint256 takerTradingFeeBps
+        );
 
     /**
      * @notice Withdraw accumulated protocol fees for a specific token
@@ -35,7 +42,11 @@ interface IAdminConfig {
      * @param amount The amount to withdraw (0 = withdraw all)
      * @param recipient The address to send fees to
      */
-    function withdrawProtocolFeesTo(address token, uint256 amount, address recipient) external;
+    function withdrawProtocolFeesTo(
+        address token,
+        uint256 amount,
+        address recipient
+    ) external;
 
     /**
      * @notice Withdraw all accumulated fees for a specific token
@@ -64,8 +75,8 @@ interface IAdminConfig {
      * @param recipient The address to send fees to
      */
     function batchWithdrawProtocolFeesTo(
-        address[] calldata tokens, 
-        uint256[] calldata amounts, 
+        address[] calldata tokens,
+        uint256[] calldata amounts,
         address recipient
     ) external;
 

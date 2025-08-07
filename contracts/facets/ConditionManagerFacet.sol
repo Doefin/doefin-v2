@@ -21,7 +21,7 @@ contract ConditionManagerFacet is IConditionManager {
         string calldata metadataURI
     ) external override returns (bytes32 conditionId) {
         LibAccessControl.enforceIsMarketMaker();
-        if(outcomeSlotCount <= 1) {
+        if (outcomeSlotCount <= 1) {
             revert Errors.InvalidOutcomeSlotCount();
         }
         LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
@@ -40,9 +40,17 @@ contract ConditionManagerFacet is IConditionManager {
         emit Events.ConditionCreated(conditionId, oracle, questionId, outcomeSlotCount, metadataURI, msg.sender);
     }
 
-    function getCondition(
-        bytes32 conditionId
-    ) external view override returns (address oracle, bytes32 questionId, uint8 outcomeSlotCount, string memory metadataURI) {
+    function getCondition(bytes32 conditionId)
+        external
+        view
+        override
+        returns (
+            address oracle,
+            bytes32 questionId,
+            uint8 outcomeSlotCount,
+            string memory metadataURI
+        )
+    {
         LibDoefinStorage.Condition storage cond = LibDoefinStorage.diamondStorage().conditionManager.conditions[conditionId];
         return (cond.oracle, cond.questionId, cond.outcomeSlotCount, cond.metadataURI);
     }
@@ -50,19 +58,17 @@ contract ConditionManagerFacet is IConditionManager {
     function cancelCondition(bytes32 conditionId) external override {
         LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
         LibDoefinStorage.Condition storage cond = ds.conditionManager.conditions[conditionId];
-        if(cond.creator == address(0)) {
+        if (cond.creator == address(0)) {
             revert Errors.ConditionDoesNotExist();
         }
 
-        if(cond.creator != msg.sender && !LibAccessControl.isOwner(msg.sender)) {
+        if (cond.creator != msg.sender && !LibAccessControl.isOwner(msg.sender)) {
             revert Errors.NotAuthorizedToCancel();
         }
 
-        if (cond.oracle == address(0)) 
-            revert Errors.InvalidOracleAddress();
-        
-        if (!cond.active) 
-            revert Errors.ConditionAlreadyInactive();
+        if (cond.oracle == address(0)) revert Errors.InvalidOracleAddress();
+
+        if (!cond.active) revert Errors.ConditionAlreadyInactive();
 
         cond.active = false;
         emit Events.ConditionCancelled(conditionId, msg.sender);
