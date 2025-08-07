@@ -84,7 +84,7 @@ library LibOrderbook {
         uint256 remainingAmount = order.remainingAmount;
 
         LibEscrowLogic.releaseCollateral(order);
-        _removeOrder(orderId, order.positionId, order.direction);
+        removeOrderFromOrderbook(order);
 
         delete ds.orderbookStorage.orders[orderId];
         emit Events.OrderCancelled(orderId, sender, remainingAmount);
@@ -133,7 +133,7 @@ library LibOrderbook {
 
         // Reorder the book if the price has changed.
         if (newPricePerToken != order.pricePerToken) {
-            _removeOrder(orderId, order.positionId, order.direction);
+            removeOrderFromOrderbook(order);
             _insertSorted(order);
         }
         emit Events.OrderModified(
@@ -182,16 +182,16 @@ library LibOrderbook {
     }
 
     /// @dev Remove an orderId from orderbook array
-    function _removeOrder(uint256 orderId, uint256 positionId, LibDoefinStorage.OrderDirection direction) private {
+    function removeOrderFromOrderbook(LibDoefinStorage.Order memory order) internal {
         LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
-        uint256[] storage book = direction == LibDoefinStorage.OrderDirection.Buy
-            ? ds.orderbookStorage.buyOrdersByPosition[positionId]
-            : ds.orderbookStorage.sellOrdersByPosition[positionId];
+        uint256[] storage book = order.direction == LibDoefinStorage.OrderDirection.Buy
+            ? ds.orderbookStorage.buyOrdersByPosition[order.positionId]
+            : ds.orderbookStorage.sellOrdersByPosition[order.positionId];
 
         uint256 len = book.length;
 
         for (uint256 i = 0; i < len; i++) {
-            if (book[i] == orderId) {
+            if (book[i] == order.orderId) {
                 for (uint256 j = i; j < len - 1; j++) {
                     book[j] = book[j + 1];
                 }

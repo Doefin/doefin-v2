@@ -18,8 +18,8 @@ library LibMatchEngine {
         LibDoefinStorage.OrderDirection direction
     ) internal view returns (LibDoefinStorage.MatchOrderRoute memory route) {
         uint256[] storage mintOrMergeOrders;
-        LibDoefinStorage.MatchType siblingMatchType;
         uint256[] storage complementaryOrders;
+        LibDoefinStorage.MatchType siblingMatchType;
         (complementaryOrders, mintOrMergeOrders, siblingMatchType) = retrieveTheBooksAndMatchType(positionId, direction);
         uint256 collateralUnit = retrieveCollateralUnit(positionId);
         LibDoefinStorage.SimulationContext memory simCtx = LibDoefinStorage.SimulationContext({

@@ -7,6 +7,7 @@ import {LibDoefinStorage} from "./LibDoefinStorage.sol";
 import {LibEscrowLogic} from "./LibEscrowLogic.sol";
 import {LibPositionRegistry} from "./LibPositionRegistry.sol";
 import {LibMatchEngine} from "./LibMatchEngine.sol";
+import {LibOrderbook} from "../libraries/LibOrderbook.sol";
 import {Errors} from "./Errors.sol";
 import {Events} from "./Events.sol";
 
@@ -127,5 +128,124 @@ library LibSettlement {
 
         // Since all values are scaled to collateralUnit, rescale numerator
         maxFillable = numerator / denominator;
+    }
+
+    function fillLimitOrders(uint256 takerId, uint256[] memory makerIds) internal {
+        LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
+        LibDoefinStorage.Order storage takerOrder = ds.orderbookStorage.orders[takerId];
+
+        if (!takerOrder.active) revert Errors.OrderNotActive();
+        if (takerOrder.expiry != 0 && block.timestamp >= takerOrder.expiry) revert Errors.OrderExpired();
+
+        for (uint256 i = 0; i < makerIds.length && takerOrder.remainingAmount > 0; i++) {
+            LibDoefinStorage.Order storage makerOrder = ds.orderbookStorage.orders[makerIds[i]];
+
+            if (!makerOrder.active) revert Errors.OrderNotActive();
+            if (makerOrder.expiry != 0 && block.timestamp >= makerOrder.expiry) revert Errors.OrderExpired();
+
+            (bool crossing, LibDoefinStorage.MatchType matchType, uint256 price) =
+                _isCrossing(takerOrder, makerOrder);
+            if (!crossing) revert Errors.InvalidMatch();
+
+            uint256 fillAmount = takerOrder.remainingAmount < makerOrder.remainingAmount
+                ? takerOrder.remainingAmount
+                : makerOrder.remainingAmount;
+
+            if (fillAmount < takerOrder.minFillAmount || fillAmount < makerOrder.minFillAmount) {
+                revert Errors.InvalidAmounts();
+            }
+
+            takerOrder.remainingAmount -= fillAmount;
+            makerOrder.remainingAmount -= fillAmount;
+
+            LibDoefinStorage.TakerOrderContext memory takerCtx = LibDoefinStorage.TakerOrderContext({
+                taker: takerOrder.maker,
+                positionId: takerOrder.positionId,
+                amount: takerOrder.amount,
+                remainingAmount: takerOrder.remainingAmount,
+                targetAvgPrice: takerOrder.pricePerToken,
+                fillOrKill: false,
+                direction: takerOrder.direction
+            });
+
+            LibDoefinStorage.SettlemetExecutionContext memory settlementExecCtx =
+                LibDoefinStorage.SettlemetExecutionContext({
+                    fillableAmount: fillAmount,
+                    takerOrder: takerCtx,
+                    makerOrder: makerOrder,
+                    matchType: matchType
+                });
+
+            LibEscrowLogic.settlementDispatcher(settlementExecCtx);
+
+            if (takerOrder.remainingAmount == 0) {
+                takerOrder.active = false;
+                LibOrderbook.removeOrderFromOrderbook(takerOrder);
+                emit Events.OrderCompletelyFilled(
+                    takerOrder.orderId,
+                    takerOrder.maker,
+                    makerOrder.maker,
+                    takerOrder.amount,
+                    price
+                );
+            } else {
+                emit Events.OrderPartiallyFilled(
+                    takerOrder.orderId,
+                    takerOrder.maker,
+                    makerOrder.maker,
+                    fillAmount,
+                    takerOrder.remainingAmount,
+                    price
+                );
+            }
+
+            if (makerOrder.remainingAmount == 0) {
+                makerOrder.active = false;
+                LibOrderbook.removeOrderFromOrderbook(makerOrder);
+                emit Events.OrderCompletelyFilled(
+                    makerOrder.orderId,
+                    makerOrder.maker,
+                    takerOrder.maker,
+                    makerOrder.amount,
+                    price
+                );
+            } else {
+                emit Events.OrderPartiallyFilled(
+                    makerOrder.orderId,
+                    makerOrder.maker,
+                    takerOrder.maker,
+                    fillAmount,
+                    makerOrder.remainingAmount,
+                    price
+                );
+            }
+
+            if (takerOrder.remainingAmount == 0) {
+                break;
+            }
+        }
+    }
+
+    function _isCrossing(
+        LibDoefinStorage.Order storage takerOrder,
+        LibDoefinStorage.Order storage makerOrder
+    ) internal view returns (bool crossing, LibDoefinStorage.MatchType matchType, uint256 price) {
+        if (takerOrder.direction != makerOrder.direction) {
+            if (takerOrder.positionId != makerOrder.positionId) {
+                return (false, LibDoefinStorage.MatchType.Complementary, 0);
+            }
+            matchType = LibDoefinStorage.MatchType.Complementary;
+        } else {
+            LibPositionRegistry.validateComplement(takerOrder.positionId, makerOrder.positionId);
+            matchType = takerOrder.direction == LibDoefinStorage.OrderDirection.Buy
+                ? LibDoefinStorage.MatchType.Mint
+                : LibDoefinStorage.MatchType.Merge;
+        }
+
+        price = LibMatchEngine.effectiveTakerPrice(makerOrder, takerOrder.direction, matchType);
+
+        crossing = takerOrder.direction == LibDoefinStorage.OrderDirection.Buy
+            ? takerOrder.pricePerToken >= price
+            : takerOrder.pricePerToken <= price;
     }
 }
