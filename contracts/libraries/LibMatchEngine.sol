@@ -48,10 +48,8 @@ library LibMatchEngine {
         LibDoefinStorage.MatchType siblingMatchType
     ) internal view returns (uint256[] memory makerIds) {
         LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
-
         uint256 totalPotential = complementaryOrders.length + mintOrMergeOrders.length;
         uint256[] memory tempIds = new uint256[](totalPotential);
-
         uint256 remaining = takerOrder.remainingAmount;
         uint256 count = 0;
         uint256 i = 0;
@@ -60,92 +58,47 @@ library LibMatchEngine {
         while (remaining > 0 && (i < complementaryOrders.length || j < mintOrMergeOrders.length)) {
             bool compAvailable = i < complementaryOrders.length;
             bool sibAvailable = j < mintOrMergeOrders.length;
-
             LibDoefinStorage.Order memory compOrder;
             LibDoefinStorage.Order memory sibOrder;
+            if (compAvailable) compOrder = ds.orderbookStorage.orders[complementaryOrders[i]];
+            if (sibAvailable) sibOrder = ds.orderbookStorage.orders[mintOrMergeOrders[j]];
 
-            if (compAvailable) {
-                compOrder = ds.orderbookStorage.orders[complementaryOrders[i]];
-            }
-            if (sibAvailable) {
-                sibOrder = ds.orderbookStorage.orders[mintOrMergeOrders[j]];
-            }
+            (LibDoefinStorage.MatchExecution memory execution, bool pickComp, bool exhausted) = _pickBestOrder(
+                compOrder,
+                sibOrder,
+                compAvailable && compOrder.remainingAmount > 0,
+                sibAvailable && sibOrder.remainingAmount > 0,
+                takerOrder.direction,
+                siblingMatchType,
+                remaining
+            );
+            if (exhausted) break;
 
-            bool compExhausted = !compAvailable || compOrder.remainingAmount == 0;
-            bool sibExhausted = !sibAvailable || sibOrder.remainingAmount == 0;
-
-            if (compExhausted && sibExhausted) {
-                break;
-            }
-
-            bool pickComp;
-            LibDoefinStorage.Order memory best;
-            uint256 price;
-
-            if (compExhausted) {
-                pickComp = false;
-                best = sibOrder;
-                price = effectiveTakerPrice(best, takerOrder.direction, siblingMatchType);
-            } else if (sibExhausted) {
-                pickComp = true;
-                best = compOrder;
-                price = effectiveTakerPrice(best, takerOrder.direction, LibDoefinStorage.MatchType.Complementary);
-            } else {
-                uint256 compPrice = effectiveTakerPrice(compOrder, takerOrder.direction, LibDoefinStorage.MatchType.Complementary);
-                uint256 sibPrice = effectiveTakerPrice(sibOrder, takerOrder.direction, siblingMatchType);
-
-                if (takerOrder.direction == LibDoefinStorage.OrderDirection.Buy ? compPrice <= sibPrice : compPrice >= sibPrice) {
-                    pickComp = true;
-                    best = compOrder;
-                    price = compPrice;
-                } else {
-                    pickComp = false;
-                    best = sibOrder;
-                    price = sibPrice;
-                }
-            }
-
-            if (takerOrder.executionType == LibDoefinStorage.ExecutionType.Market) {
-                // For market orders, we don't check the price crossing
-                // We just take the best available order
-            } else {
-                // For limit orders, we need to check if the price crosses
+            uint256 price = execution.effectivePrice;
+            if (takerOrder.executionType != LibDoefinStorage.ExecutionType.Market) {
+                // For limit orders, check price crossing
                 if (takerOrder.direction == LibDoefinStorage.OrderDirection.Buy) {
-                    if (price > takerOrder.pricePerToken) {
-                        break; // No crossing, stop searching
-                    }
+                    if (price > takerOrder.pricePerToken) break;
                 } else {
-                    if (price < takerOrder.pricePerToken) {
-                        break; // No crossing, stop searching
-                    }
+                    if (price < takerOrder.pricePerToken) break;
                 }
             }
 
-            uint256 fillAmount = remaining < best.remainingAmount ? remaining : best.remainingAmount;
+            uint256 fillAmount = execution.amount;
+            LibDoefinStorage.Order memory best = pickComp ? compOrder : sibOrder;
             if (fillAmount < takerOrder.minFillAmount || fillAmount < best.minFillAmount) {
-                if (pickComp) {
-                    i++;
-                } else {
-                    j++;
-                }
+                if (pickComp) i++;
+                else j++;
                 continue;
             }
-
             tempIds[count] = best.orderId;
             count++;
             remaining -= fillAmount;
-
-            if (pickComp) {
-                i++;
-            } else {
-                j++;
-            }
+            if (pickComp) i++;
+            else j++;
         }
-
         makerIds = new uint256[](count);
-        for (uint256 k = 0; k < count; k++) {
-            makerIds[k] = tempIds[k];
-        }
+        for (uint256 k = 0; k < count; k++) makerIds[k] = tempIds[k];
     }
 
     function retrieveTheBooksAndMatchType(uint256 positionId, LibDoefinStorage.OrderDirection direction)
@@ -211,42 +164,58 @@ library LibMatchEngine {
     ) internal view returns (LibDoefinStorage.MatchExecution memory execution, bool pickComp) {
         bool compAvailable = i < ctx.complementaryOrders.length;
         bool sibAvailable = j < ctx.mintOrMergeOrders.length;
-
         LibDoefinStorage.Order memory compOrder;
         LibDoefinStorage.Order memory sibOrder;
-
-        if (compAvailable) {
-            compOrder = ds.orderbookStorage.orders[ctx.complementaryOrders[i]];
+        if (compAvailable) compOrder = ds.orderbookStorage.orders[ctx.complementaryOrders[i]];
+        if (sibAvailable) sibOrder = ds.orderbookStorage.orders[ctx.mintOrMergeOrders[j]];
+        (execution, pickComp, ) = _pickBestOrder(
+            compOrder,
+            sibOrder,
+            compAvailable && compOrder.remainingAmount > 0,
+            sibAvailable && sibOrder.remainingAmount > 0,
+            ctx.direction,
+            ctx.siblingMatchType,
+            remaining
+        );
+        if (!compAvailable && !sibAvailable) revert Errors.NoMatchableOrders();
+    }
+    function _pickBestOrder(
+        LibDoefinStorage.Order memory compOrder,
+        LibDoefinStorage.Order memory sibOrder,
+        bool compAvailable,
+        bool sibAvailable,
+        LibDoefinStorage.OrderDirection direction,
+        LibDoefinStorage.MatchType siblingMatchType,
+        uint256 remaining
+    ) internal view returns (LibDoefinStorage.MatchExecution memory execution, bool pickComp, bool exhausted) {
+        if (!compAvailable && !sibAvailable) {
+            return (execution, false, true); // exhausted
         }
-        if (sibAvailable) {
-            sibOrder = ds.orderbookStorage.orders[ctx.mintOrMergeOrders[j]];
+        if (!compAvailable) {
+            return _singleExecution(sibOrder, siblingMatchType, direction, remaining, false);
         }
-
-        bool compExhausted = !compAvailable || compOrder.remainingAmount == 0;
-        bool sibExhausted = !sibAvailable || sibOrder.remainingAmount == 0;
-
-        if (compExhausted && sibExhausted) revert Errors.NoMatchableOrders();
-
-        if (compExhausted) {
-            uint256 price = effectiveTakerPrice(sibOrder, ctx.direction, ctx.siblingMatchType);
-            execution = LibDoefinStorage.MatchExecution({
-                matchedOrderId: sibOrder.orderId,
-                matchType: ctx.siblingMatchType,
-                amount: remaining < sibOrder.remainingAmount ? remaining : sibOrder.remainingAmount,
-                effectivePrice: price
-            });
-            pickComp = false;
-        } else if (sibExhausted) {
-            execution = LibDoefinStorage.MatchExecution({
-                matchedOrderId: compOrder.orderId,
-                matchType: LibDoefinStorage.MatchType.Complementary,
-                amount: remaining < compOrder.remainingAmount ? remaining : compOrder.remainingAmount,
-                effectivePrice: effectiveTakerPrice(compOrder, ctx.direction, LibDoefinStorage.MatchType.Complementary)
-            });
-            pickComp = true;
-        } else {
-            (execution, pickComp) = _computeBestMatchExecution(compOrder, sibOrder, ctx.direction, ctx.siblingMatchType, remaining);
+        if (!sibAvailable) {
+            return _singleExecution(compOrder, LibDoefinStorage.MatchType.Complementary, direction, remaining, true);
         }
+        (execution, pickComp) = _computeBestMatchExecution(compOrder, sibOrder, direction, siblingMatchType, remaining);
+        return (execution, pickComp, false);
+    }
+
+    function _singleExecution(
+        LibDoefinStorage.Order memory order,
+        LibDoefinStorage.MatchType matchType,
+        LibDoefinStorage.OrderDirection direction,
+        uint256 remaining,
+        bool pickComp
+    ) internal view returns (LibDoefinStorage.MatchExecution memory execution, bool, bool) {
+        uint256 price = effectiveTakerPrice(order, direction, matchType);
+        execution = LibDoefinStorage.MatchExecution({
+            matchedOrderId: order.orderId,
+            matchType: matchType,
+            amount: remaining < order.remainingAmount ? remaining : order.remainingAmount,
+            effectivePrice: price
+        });
+        return (execution, pickComp, false);
     }
 
     struct LoopContext {
