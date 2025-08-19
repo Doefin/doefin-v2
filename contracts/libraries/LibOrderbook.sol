@@ -74,25 +74,8 @@ library LibOrderbook {
     }
 
     function _tryFillImmediately(uint256 takerId) internal {
-        LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
-        LibDoefinStorage.Order storage takerOrder = ds.orderbookStorage.orders[takerId];
 
-        (
-            uint256[] storage compOrders,
-            uint256[] storage sibOrders,
-            LibDoefinStorage.MatchType siblingMatchType
-        ) = LibMatchEngine.retrieveTheBooksAndMatchType(takerOrder.positionId, takerOrder.direction);
-
-        if (compOrders.length == 0 && sibOrders.length == 0) {
-            return;
-        }
-
-        uint256[] memory makerIds = LibMatchEngine.findCrossingOrderIds(
-            takerOrder,
-            compOrders,
-            sibOrders,
-            siblingMatchType
-        );
+        uint256[] memory makerIds = LibMatchEngine.findPotentialMatchesForOrder(takerId);
 
         if (makerIds.length > 0) {
             LibSettlement.fillLimitOrders(takerId, makerIds);
