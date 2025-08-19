@@ -41,7 +41,29 @@ library LibMatchEngine {
         return ds.adminConfigStorage.unitPerPair[collateralToken];
     }
 
-    function findCrossingOrderIds(
+    function findPotentialMatchesForOrder(uint256 takerId) internal view returns (uint256[] memory makerIds) {
+        LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
+        LibDoefinStorage.Order storage takerOrder = ds.orderbookStorage.orders[takerId];
+
+        (
+            uint256[] storage compOrders,
+            uint256[] storage sibOrders,
+            LibDoefinStorage.MatchType siblingMatchType
+        ) = retrieveTheBooksAndMatchType(takerOrder.positionId, takerOrder.direction);
+
+        if (compOrders.length == 0 && sibOrders.length == 0) {
+            return makerIds;
+        }
+
+        makerIds = _findCrossingOrderIds(
+            takerOrder,
+            compOrders,
+            sibOrders,
+            siblingMatchType
+        );
+    }
+
+    function _findCrossingOrderIds(
         LibDoefinStorage.Order memory takerOrder,
         uint256[] storage complementaryOrders,
         uint256[] storage mintOrMergeOrders,
