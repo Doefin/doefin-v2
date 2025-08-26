@@ -11,6 +11,7 @@ async function createLimitOrder(
     minFillAmount,
     expiry,
     direction,
+    fillOrKill = false,
   }
 ) {
   return facet
@@ -22,6 +23,7 @@ async function createLimitOrder(
       pricePerToken,
       minFillAmount,
       expiry,
+      fillOrKill,
       direction,
       1 // 1 is for limit orders
     );
@@ -38,6 +40,7 @@ async function createMarketOrder(
     minFillAmount,
     expiry,
     direction,
+    fillOrKill = false,
   }
 ) {
   return facet
@@ -49,6 +52,7 @@ async function createMarketOrder(
       pricePerToken,
       minFillAmount,
       expiry,
+      fillOrKill,
       direction,
       0 // 0 is for market order
     );

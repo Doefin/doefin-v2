@@ -284,7 +284,6 @@ describe("MarketExecutionFacet limit order matching", function () {
         takerExpectedPrice2
       );
 
-    console.log("First one is fine....");
     await expect(tx)
       .to.emit(matchExecutionFacet, "OrderCompletelyFilled")
       .withArgs(
