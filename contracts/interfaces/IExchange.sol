@@ -15,6 +15,7 @@ interface IExchange {
         uint256 pricePerToken,
         uint256 minFillAmount,
         uint256 expiry,
+        bool fillOrKill,
         LibDoefinStorage.OrderDirection direction,
         LibDoefinStorage.ExecutionType executionType
     ) external;
