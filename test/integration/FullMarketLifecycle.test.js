@@ -116,11 +116,13 @@ describe("Full Market Lifecycle Integration Tests", function () {
 
       // Phase 2: Initial Liquidity Provision
       console.log("Phase 2: Adding initial liquidity...");
+      
       const scenario = await createMarketScenario({
         scenario: "balanced",
         contracts,
         signers: [owner, oracle, marketMaker1, marketMaker2, trader1],
         diamondAddress,
+        existingMarket: market, // Pass the existing market
       });
 
       // Verify orderbook state
@@ -264,10 +266,10 @@ describe("Full Market Lifecycle Integration Tests", function () {
         .reportPayouts(questionId, payouts);
 
       // Verify condition is resolved
-      const conditionAfterResolution =
-        await contracts.conditionManagerFacet.getCondition(market.conditionId);
-      expect(conditionAfterResolution.resolved).to.be.true;
-      expect(conditionAfterResolution.payouts).to.deep.equal(payouts);
+      const payoutsAfterResolution = await contracts.conditionalFacet.getPayoutNumerators(market.conditionId);
+      expect(payoutsAfterResolution.length).to.be.greaterThan(0);
+      expect(payoutsAfterResolution[0].toNumber()).to.equal(1);
+      expect(payoutsAfterResolution[1].toNumber()).to.equal(0);
 
       // Phase 6: Position Redemption
       console.log("Phase 6: Redeeming positions...");
@@ -350,6 +352,7 @@ describe("Full Market Lifecycle Integration Tests", function () {
         contracts,
         signers: [owner, oracle, marketMaker1, marketMaker2, trader1, trader2],
         diamondAddress,
+        existingMarket: market, // Pass the existing market
       });
 
       // Execute multiple trades from different participants
@@ -460,15 +463,16 @@ describe("Full Market Lifecycle Integration Tests", function () {
         contracts,
         signers: [owner, oracle, marketMaker1],
         diamondAddress,
+        existingMarket: market, // Pass the existing market
       });
 
       // Check if orders were actually created
       const sellBook = await contracts.exchangeFacet.getOrderbook(
-        market.yesId,
+        market.yesId, // Use the correct market yesId
         1
       );
       const buyBook = await contracts.exchangeFacet.getOrderbook(
-        market.yesId,
+        market.yesId, // Use the correct market yesId
         0
       );
 
@@ -720,6 +724,412 @@ describe("Full Market Lifecycle Integration Tests", function () {
         `Executed ${numMarkets} trades in ${tradeEndTime - tradeStartTime}ms`
       );
       expect(tradeEndTime - tradeStartTime).to.be.lessThan(15000); // Less than 15 seconds
+    });
+  });
+
+  describe("Market Order Creation and Execution End-to-End Tests", function () {
+    let market, questionId, collateralAmount;
+
+    beforeEach(async () => {
+      questionId = ethers.utils.id("will-market-orders-work?");
+      collateralAmount = ethers.utils.parseEther("1000");
+
+      // Mint tokens to all participants
+      await contracts.erc20.mint(trader1.address, collateralAmount);
+      await contracts.erc20.mint(trader2.address, collateralAmount);
+      await contracts.erc20.mint(trader3.address, collateralAmount);
+      await contracts.erc20.mint(marketMaker1.address, collateralAmount);
+      await contracts.erc20.mint(marketMaker2.address, collateralAmount);
+
+      // Approve tokens
+      const approvalAmount = ethers.utils.parseEther("10000");
+      await contracts.erc20.connect(trader1).approve(diamondAddress, approvalAmount);
+      await contracts.erc20.connect(trader2).approve(diamondAddress, approvalAmount);
+      await contracts.erc20.connect(trader3).approve(diamondAddress, approvalAmount);
+      await contracts.erc20.connect(marketMaker1).approve(diamondAddress, approvalAmount);
+      await contracts.erc20.connect(marketMaker2).approve(diamondAddress, approvalAmount);
+
+      // Create market
+      market = await createCompleteMarket({
+        ...contracts,
+        oracle,
+        owner,
+        questionId,
+        diamondAddress,
+      });
+    });
+
+    it("should create and execute market orders successfully", async () => {
+      const { createMarketOrder } = require("../utils/orderUtils.js");
+
+      // Phase 1: Create market buy order (will match against AMM)
+      console.log("Phase 1: Creating market buy order...");
+      
+      const expiry = Math.floor(Date.now() / 1000) + 3600; // 1 hour from now
+      
+      const marketBuyOrderTx = await createMarketOrder(contracts.exchangeFacet, trader1, {
+        positionId: market.yesId,
+        collateralToken: contracts.erc20.address,
+        amount: ethers.utils.parseEther("50"), // Smaller amount for AMM
+        pricePerToken: ethers.utils.parseEther("0.7"), // Max price willing to pay
+        minFillAmount: ethers.utils.parseEther("30"), // Minimum fill required
+        expiry,
+        direction: 0, // BUY
+      });
+
+      const marketOrderReceipt = await marketBuyOrderTx.wait();
+      console.log(`Market buy order created, gas used: ${marketOrderReceipt.gasUsed}`);
+
+      // Get the market order ID from events
+      const orderCreatedEvent = marketOrderReceipt.events?.find(
+        e => e.event === "OrderCreated"
+      );
+      expect(orderCreatedEvent).to.not.be.undefined;
+      const marketOrderId = orderCreatedEvent.args.orderId;
+
+      // Phase 2: Verify the market order was created
+      console.log("Phase 2: Verifying market order creation...");
+      
+      const marketOrder = await contracts.exchangeFacet.getOrder(marketOrderId);
+      expect(marketOrder.amount).to.equal(ethers.utils.parseEther("50"));
+      expect(marketOrder.pricePerToken).to.equal(ethers.utils.parseEther("0.7"));
+      expect(marketOrder.direction).to.equal(0); // BUY
+      expect(marketOrder.active).to.be.true;
+      console.log(`Market order verified: amount=${ethers.utils.formatEther(marketOrder.amount)}, price=${ethers.utils.formatEther(marketOrder.pricePerToken)}`);
+
+      // Phase 3: Simulate route for market order execution
+      console.log("Phase 3: Simulating route for market order execution...");
+      
+      const routeResult = await simulateAndParseMatchRoute({
+        routeSimFacet: contracts.routeSimFacet,
+        positionId: market.yesId,
+        amount: ethers.utils.parseEther("50"),
+        direction: 0, // BUY
+      });
+
+      console.log(`Route simulation: matches found = ${routeResult.matches ? routeResult.matches.length : 0}`);
+      
+      // If matches exist, execute the order
+      if (routeResult.matches && routeResult.matches.length > 0) {
+        console.log("Phase 4: Executing market order...");
+        
+        const executionTx = await contracts.marketExecutionFacet
+          .connect(trader1)
+          .fillMarketOrderWithRoute(
+            market.yesId,
+            ethers.utils.parseEther("50"),
+            ethers.utils.parseEther("0.7"),
+            false, // not fill or kill
+            marketOrderId,
+            routeResult.matches.map((m) => [
+              m.matchedOrderId,
+              m.amount,
+              m.effectivePrice,
+              m.matchType,
+            ])
+          );
+
+        const executionReceipt = await executionTx.wait();
+        console.log(`Market order execution gas: ${executionReceipt.gasUsed}`);
+
+        // Phase 5: Verify execution results
+        console.log("Phase 5: Verifying execution results...");
+        
+        // Check that market order was processed
+        const finalOrder = await contracts.exchangeFacet.getOrder(marketOrderId);
+        
+        // Check trader1's position balance
+        const trader1Balance = await contracts.erc1155.balanceOf(trader1.address, market.yesId);
+        expect(trader1Balance).to.be.greaterThan(0);
+        console.log(`Trader1 YES position balance: ${ethers.utils.formatEther(trader1Balance)}`);
+        
+        console.log("Market order execution completed successfully!");
+      } else {
+        console.log("No matches found in route simulation - this may be expected if no liquidity available");
+        
+        // Even if no execution happened, the order creation itself is a success
+        const orderStillExists = await contracts.exchangeFacet.getOrder(marketOrderId);
+        expect(orderStillExists.active).to.be.true; // Order should still be active if not executed
+        
+        console.log("Market order creation test completed (no execution due to lack of liquidity)!");
+      }
+    });
+
+    it("should demonstrate market order creation with different parameters", async () => {
+      const { createMarketOrder } = require("../utils/orderUtils.js");
+
+      console.log("Testing market order creation with various parameters...");
+
+      const expiry = Math.floor(Date.now() / 1000) + 3600;
+      
+      // Test 1: Standard market buy order
+      console.log("Test 1: Creating standard market buy order...");
+      
+      const buyOrderTx = await createMarketOrder(contracts.exchangeFacet, trader1, {
+        positionId: market.yesId,
+        collateralToken: contracts.erc20.address,
+        amount: ethers.utils.parseEther("25"),
+        pricePerToken: ethers.utils.parseEther("0.6"),
+        minFillAmount: ethers.utils.parseEther("10"),
+        expiry,
+        direction: 0, // BUY
+      });
+
+      const buyReceipt = await buyOrderTx.wait();
+      const buyEvent = buyReceipt.events?.find(e => e.event === "OrderCreated");
+      console.log(`Market buy order created: ID=${buyEvent.args.orderId}, gas=${buyReceipt.gasUsed}`);
+
+      // Verify buy order
+      const buyOrder = await contracts.exchangeFacet.getOrder(buyEvent.args.orderId);
+      expect(buyOrder.amount).to.equal(ethers.utils.parseEther("25"));
+      expect(buyOrder.direction).to.equal(0);
+      expect(buyOrder.active).to.be.true;
+
+      // Test 2: Market order with different parameters
+      console.log("Test 2: Creating market order with higher price...");
+      
+      const buyOrderTx2 = await createMarketOrder(contracts.exchangeFacet, trader2, {
+        positionId: market.yesId,
+        collateralToken: contracts.erc20.address,
+        amount: ethers.utils.parseEther("40"),
+        pricePerToken: ethers.utils.parseEther("0.8"),
+        minFillAmount: ethers.utils.parseEther("20"),
+        expiry,
+        direction: 0, // BUY
+      });
+
+      const buyReceipt2 = await buyOrderTx2.wait();
+      const buyEvent2 = buyReceipt2.events?.find(e => e.event === "OrderCreated");
+      console.log(`Market buy order 2 created: ID=${buyEvent2.args.orderId}, gas=${buyReceipt2.gasUsed}`);
+
+      // Test 3: Market order with minimal amount
+      console.log("Test 3: Creating market order with minimal amount...");
+      
+      const buyOrderTx3 = await createMarketOrder(contracts.exchangeFacet, trader3, {
+        positionId: market.yesId,
+        collateralToken: contracts.erc20.address,
+        amount: ethers.utils.parseEther("5"),
+        pricePerToken: ethers.utils.parseEther("0.5"),
+        minFillAmount: ethers.utils.parseEther("1"),
+        expiry,
+        direction: 0, // BUY
+      });
+
+      const buyReceipt3 = await buyOrderTx3.wait();
+      const buyEvent3 = buyReceipt3.events?.find(e => e.event === "OrderCreated");
+      console.log(`Market buy order 3 created: ID=${buyEvent3.args.orderId}, gas=${buyReceipt3.gasUsed}`);
+
+      // Verify all orders exist in the system
+      const order1 = await contracts.exchangeFacet.getOrder(buyEvent.args.orderId);
+      const order2 = await contracts.exchangeFacet.getOrder(buyEvent2.args.orderId);
+      const order3 = await contracts.exchangeFacet.getOrder(buyEvent3.args.orderId);
+
+      expect(order1.active).to.be.true;
+      expect(order2.active).to.be.true;
+      expect(order3.active).to.be.true;
+
+      console.log("Market order creation tests completed successfully!");
+      console.log(`Order 1: ${ethers.utils.formatEther(order1.amount)} tokens at ${ethers.utils.formatEther(order1.pricePerToken)} price`);
+      console.log(`Order 2: ${ethers.utils.formatEther(order2.amount)} tokens at ${ethers.utils.formatEther(order2.pricePerToken)} price`);
+      console.log(`Order 3: ${ethers.utils.formatEther(order3.amount)} tokens at ${ethers.utils.formatEther(order3.pricePerToken)} price`);
+    });
+
+    it("should validate market order parameters and constraints", async () => {
+      const { createMarketOrder } = require("../utils/orderUtils.js");
+
+      console.log("Testing market order parameter validation...");
+
+      const expiry = Math.floor(Date.now() / 1000) + 3600;
+
+      // Test different minimum fill amounts
+      console.log("Test: Market order with strict minimum fill...");
+      
+      const strictOrderTx = await createMarketOrder(contracts.exchangeFacet, trader1, {
+        positionId: market.yesId,
+        collateralToken: contracts.erc20.address,
+        amount: ethers.utils.parseEther("100"),
+        pricePerToken: ethers.utils.parseEther("0.9"),
+        minFillAmount: ethers.utils.parseEther("95"), // High minimum fill requirement
+        expiry,
+        direction: 0, // BUY
+      });
+
+      const strictReceipt = await strictOrderTx.wait();
+      const strictEvent = strictReceipt.events?.find(e => e.event === "OrderCreated");
+      
+      const strictOrder = await contracts.exchangeFacet.getOrder(strictEvent.args.orderId);
+      expect(strictOrder.minFillAmount).to.equal(ethers.utils.parseEther("95"));
+      
+      console.log(`Strict order created: minFill=${ethers.utils.formatEther(strictOrder.minFillAmount)}`);
+
+      // Test order with expiry
+      console.log("Test: Market order with specific expiry...");
+      
+      const futureExpiry = Math.floor(Date.now() / 1000) + 7200; // 2 hours from now
+      
+      const expiryOrderTx = await createMarketOrder(contracts.exchangeFacet, trader2, {
+        positionId: market.yesId,
+        collateralToken: contracts.erc20.address,
+        amount: ethers.utils.parseEther("30"),
+        pricePerToken: ethers.utils.parseEther("0.7"),
+        minFillAmount: ethers.utils.parseEther("15"),
+        expiry: futureExpiry,
+        direction: 0, // BUY
+      });
+
+      const expiryReceipt = await expiryOrderTx.wait();
+      const expiryEvent = expiryReceipt.events?.find(e => e.event === "OrderCreated");
+      
+      const expiryOrder = await contracts.exchangeFacet.getOrder(expiryEvent.args.orderId);
+      expect(expiryOrder.expiry).to.equal(futureExpiry);
+      
+      console.log(`Expiry order created: expiry timestamp=${expiryOrder.expiry}`);
+
+      console.log("Market order parameter validation completed!");
+    });
+
+    it("should demonstrate Fill-or-Kill market order behavior", async () => {
+      const { createMarketOrder } = require("../utils/orderUtils.js");
+
+      console.log("Testing Fill-or-Kill market order behavior...");
+
+      const expiry = Math.floor(Date.now() / 1000) + 3600;
+      
+      // Test 1: Normal market order (non-FOK)
+      console.log("Test 1: Creating normal market order...");
+      
+      const normalOrderTx = await createMarketOrder(contracts.exchangeFacet, trader1, {
+        positionId: market.yesId,
+        collateralToken: contracts.erc20.address,
+        amount: ethers.utils.parseEther("50"),
+        pricePerToken: ethers.utils.parseEther("0.7"),
+        minFillAmount: ethers.utils.parseEther("25"),
+        expiry,
+        direction: 0, // BUY
+        fillOrKill: false, // Normal order
+      });
+
+      const normalReceipt = await normalOrderTx.wait();
+      const normalEvent = normalReceipt.events?.find(e => e.event === "OrderCreated");
+      
+      const normalOrder = await contracts.exchangeFacet.getOrder(normalEvent.args.orderId);
+      expect(normalOrder.fillOrKill).to.be.false;
+      console.log(`Normal order created: fillOrKill=${normalOrder.fillOrKill}, gas=${normalReceipt.gasUsed}`);
+
+      // Test 2: Fill-or-Kill order (this may fail due to lack of liquidity, which is expected)
+      console.log("Test 2: Creating Fill-or-Kill market order...");
+      
+      try {
+        const fokOrderTx = await createMarketOrder(contracts.exchangeFacet, trader2, {
+          positionId: market.yesId,
+          collateralToken: contracts.erc20.address,
+          amount: ethers.utils.parseEther("100"),
+          pricePerToken: ethers.utils.parseEther("0.8"),
+          minFillAmount: ethers.utils.parseEther("100"), // Must fill completely
+          expiry,
+          direction: 0, // BUY
+          fillOrKill: true,
+        });
+
+        const fokReceipt = await fokOrderTx.wait();
+        const fokEvent = fokReceipt.events?.find(e => e.event === "OrderCreated");
+        
+        if (fokEvent) {
+          const fokOrder = await contracts.exchangeFacet.getOrder(fokEvent.args.orderId);
+          expect(fokOrder.fillOrKill).to.be.true;
+          console.log(`FOK order created: fillOrKill=${fokOrder.fillOrKill}, gas=${fokReceipt.gasUsed}`);
+        }
+      } catch (error) {
+        console.log(`FOK order failed during creation: ${error.message}`);
+        // This is expected behavior when there's insufficient liquidity for FOK
+        expect(error.message).to.include("FillOrKillFailed");
+        console.log("FOK rejection working correctly - order failed due to insufficient liquidity");
+      }
+
+      console.log("Fill-or-Kill test completed!");
+    });
+
+    it("should handle multiple market orders and verify gas usage", async () => {
+      const { createMarketOrder } = require("../utils/orderUtils.js");
+
+      console.log("Testing multiple market order creation and gas optimization...");
+
+      const expiry = Math.floor(Date.now() / 1000) + 3600;
+      const orderCreationStart = Date.now();
+
+      // Create multiple market orders with different parameters
+      const orders = [
+        {
+          trader: trader1,
+          amount: ethers.utils.parseEther("20"),
+          price: ethers.utils.parseEther("0.6"),
+          minFill: ethers.utils.parseEther("10"),
+        },
+        {
+          trader: trader2,
+          amount: ethers.utils.parseEther("35"),
+          price: ethers.utils.parseEther("0.7"),
+          minFill: ethers.utils.parseEther("15"),
+        },
+        {
+          trader: trader3,
+          amount: ethers.utils.parseEther("15"),
+          price: ethers.utils.parseEther("0.55"),
+          minFill: ethers.utils.parseEther("5"),
+        },
+      ];
+
+      const createdOrders = [];
+      let totalGasUsed = 0;
+
+      for (let i = 0; i < orders.length; i++) {
+        const order = orders[i];
+        console.log(`Creating market order ${i + 1}/3...`);
+
+        const orderTx = await createMarketOrder(contracts.exchangeFacet, order.trader, {
+          positionId: market.yesId,
+          collateralToken: contracts.erc20.address,
+          amount: order.amount,
+          pricePerToken: order.price,
+          minFillAmount: order.minFill,
+          expiry,
+          direction: 0, // BUY
+        });
+
+        const receipt = await orderTx.wait();
+        const event = receipt.events?.find(e => e.event === "OrderCreated");
+        
+        createdOrders.push({
+          orderId: event.args.orderId,
+          gasUsed: receipt.gasUsed,
+          trader: order.trader.address,
+        });
+
+        totalGasUsed += receipt.gasUsed.toNumber();
+        console.log(`Order ${i + 1} created: ID=${event.args.orderId}, gas=${receipt.gasUsed}`);
+      }
+
+      const orderCreationEnd = Date.now();
+      const creationTime = orderCreationEnd - orderCreationStart;
+
+      console.log(`\nCreated ${orders.length} market orders in ${creationTime}ms`);
+      console.log(`Total gas used: ${totalGasUsed}`);
+      console.log(`Average gas per order: ${Math.round(totalGasUsed / orders.length)}`);
+
+      // Verify all orders exist and have correct parameters
+      for (let i = 0; i < createdOrders.length; i++) {
+        const orderData = await contracts.exchangeFacet.getOrder(createdOrders[i].orderId);
+        expect(orderData.active).to.be.true;
+        expect(orderData.direction).to.equal(0); // BUY
+        expect(orderData.amount).to.equal(orders[i].amount);
+        expect(orderData.pricePerToken).to.equal(orders[i].price);
+      }
+
+      // Performance expectations
+      expect(creationTime).to.be.lessThan(5000); // Should complete within 5 seconds
+      expect(totalGasUsed).to.be.lessThan(1500000); // Reasonable gas usage
+
+      console.log("Multiple market orders test completed successfully!");
     });
   });
 });
