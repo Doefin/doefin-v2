@@ -135,18 +135,23 @@ async function createMultipleLimitOrders({
       });
     }
 
-    await createLimitOrder(exchangeFacet, maker, {
-      positionId,
-      collateralToken: erc20.address,
-      amount,
-      pricePerToken: price,
-      minFillAmount: minFill,
-      expiry: 0,
-      direction,
-    });
+    try {
+      await createLimitOrder(exchangeFacet, maker, {
+        positionId,
+        collateralToken: erc20.address,
+        amount,
+        pricePerToken: price,
+        minFillAmount: minFill,
+        expiry: 0,
+        direction,
+      });
 
-    const orderId = (await exchangeFacet.callStatic.getNextOrderId()) - 1;
-    orderIds.push(orderId);
+      const orderId = (await exchangeFacet.callStatic.getNextOrderId()) - 1;
+      orderIds.push(orderId);
+    } catch (error) {
+      console.error("Failed to create limit order:", error.message);
+      throw error;
+    }
   }
 
   return orderIds;
@@ -185,18 +190,22 @@ async function setupComplexOrderbook({
     const maker = makers[i % makers.length];
     const orderConfig = { ...sellOrders[i], direction: 1 };
 
-    const [orderId] = await createMultipleLimitOrders({
-      exchangeFacet,
-      erc1155,
-      erc20,
-      maker,
-      owner,
-      positionId,
-      orderConfigs: [orderConfig],
-      diamondAddress,
-    });
+    try {
+      const [orderId] = await createMultipleLimitOrders({
+        exchangeFacet,
+        erc1155,
+        erc20,
+        maker,
+        owner,
+        positionId,
+        orderConfigs: [orderConfig],
+        diamondAddress,
+      });
 
-    sellOrderIds.push(orderId);
+      sellOrderIds.push(orderId);
+    } catch (error) {
+      console.error(`Failed to create SELL order ${i + 1}:`, error.message);
+    }
   }
 
   // Create BUY orders
@@ -204,18 +213,22 @@ async function setupComplexOrderbook({
     const maker = makers[i % makers.length];
     const orderConfig = { ...buyOrders[i], direction: 0 };
 
-    const [orderId] = await createMultipleLimitOrders({
-      exchangeFacet,
-      erc1155,
-      erc20,
-      maker,
-      owner,
-      positionId,
-      orderConfigs: [orderConfig],
-      diamondAddress,
-    });
+    try {
+      const [orderId] = await createMultipleLimitOrders({
+        exchangeFacet,
+        erc1155,
+        erc20,
+        maker,
+        owner,
+        positionId,
+        orderConfigs: [orderConfig],
+        diamondAddress,
+      });
 
-    buyOrderIds.push(orderId);
+      buyOrderIds.push(orderId);
+    } catch (error) {
+      console.error(`Failed to create BUY order ${i + 1}:`, error.message);
+    }
   }
 
   return { sellOrderIds, buyOrderIds };
@@ -304,6 +317,7 @@ function calculateTradeCosts(amount, price, direction, feeConfig, unit) {
  * @param {Object} params.contracts - All required contract instances
  * @param {Array<Signer>} params.signers
  * @param {string} params.diamondAddress
+ * @param {Object} params.existingMarket - Optional existing market to use instead of creating new one
  * @returns {Promise<Object>} Market setup details
  */
 async function createMarketScenario({
@@ -311,6 +325,7 @@ async function createMarketScenario({
   contracts,
   signers,
   diamondAddress,
+  existingMarket = null,
 }) {
   const {
     conditionManagerFacet,
@@ -321,19 +336,25 @@ async function createMarketScenario({
   } = contracts;
   const [owner, oracle, ...makers] = signers;
 
-  const questionId = ethers.utils.id(`scenario-${scenario}-${Date.now()}`);
+  let market;
+  
+  if (existingMarket) {
+    market = existingMarket;
+  } else {
+    const questionId = ethers.utils.id(`scenario-${scenario}-${Date.now()}`);
 
-  // Create basic market
-  const market = await createCompleteMarket({
-    conditionManagerFacet,
-    conditionalFacet,
-    exchangeFacet,
-    erc20,
-    oracle,
-    owner,
-    questionId,
-    diamondAddress,
-  });
+    // Create basic market
+    market = await createCompleteMarket({
+      conditionManagerFacet,
+      conditionalFacet,
+      exchangeFacet,
+      erc20,
+      oracle,
+      owner,
+      questionId,
+      diamondAddress,
+    });
+  }
 
   let orderConfig;
 
