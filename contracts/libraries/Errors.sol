@@ -26,10 +26,10 @@ library Errors {
     /// @notice Thrown when caller is not the order maker
     error NotOrderMaker();
 
-    ///
+    /// @notice Thrown when maker address is invalid
     error InvalidMakerAddress();
 
-    ///
+    /// @notice Thrown when already a market maker
     error AlreadyMarketMaker();
 
     // ========================================
@@ -66,9 +66,6 @@ library Errors {
 
     /// @notice Thrown when condition is already inactive
     error ConditionAlreadyInactive();
-
-    /// @notice Thrown when condition is inactive
-    error ConditionInactive();
 
     /// @notice Thrown when not authorized to cancel condition
     error NotAuthorizedToCancel();
@@ -137,16 +134,13 @@ library Errors {
     error InsufficientERC20Balance();
 
     /// @notice Thrown when insufficient ERC20 balance in escrow with custom details for debugging
-    error CustomInsufficientERC20Balance(address user, address token, uint256 requested, uint256 actual);
+    error InsufficientERC20EscrowBalance(address user, address token, uint256 requested, uint256 actual);
 
     /// @notice Thrown when insufficient ERC1155 balance in escrow
-    error InsufficientERC1155Balance();
+    error InsufficientERC1155Balance(address owner, uint256 tokenId, uint256 requested, uint256 actual);
 
-    /// @notice Thrown when taker has not approved enough tokens
-    error InsufficientAllowance();
-
-    /// @notice Thrown when maker has not approved enough tokens
-    error InsufficientERC20Allowance();
+    /// @notice Thrown when ERC20 allowance is insufficient
+    error InsufficientERC20Allowance(address owner, address token, uint256 required, uint256 approved);
 
     // ========================================
     // FEE MANAGEMENT ERRORS
