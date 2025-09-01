@@ -33,14 +33,14 @@ library Events {
     /// @notice Emitted when the resolution fee is updated
     /// @param oldFeeBps Previous fee in basis points
     /// @param newFeeBps New fee in basis points
-    event ResolutionFeeUpdated(uint256 oldFeeBps, uint256 newFeeBps);
+    event ResolutionFeeUpdated(uint16 oldFeeBps, uint16 newFeeBps);
 
     /// @notice Emitted when trading fees are updated
     /// @param oldMakerBps Previous maker fee in basis points
     /// @param oldTakerBps Previous taker fee in basis points
     /// @param newMakerBps New maker fee in basis points
     /// @param newTakerBps New taker fee in basis points
-    event TradingFeesUpdated(uint256 oldMakerBps, uint256 oldTakerBps, uint256 newMakerBps, uint256 newTakerBps);
+    event TradingFeesUpdated(uint16 oldMakerBps, uint16 oldTakerBps, uint16 newMakerBps, uint16 newTakerBps);
 
     // ========================================
     // ACCESS CONTROL EVENTS

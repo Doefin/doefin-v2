@@ -182,7 +182,7 @@ contract ConditionalTokensFacet is IConditionalTokens {
         LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
 
         address feeReceiver = ds.adminConfigStorage.feeReceiver;
-        uint256 feeBps = ds.adminConfigStorage.resolutionFeeBps;
+        uint16 feeBps = ds.adminConfigStorage.resolutionFeeBps;
 
         require(feeReceiver != address(0), "ConditionalTokens: invalid feeReceiver");
 

@@ -43,9 +43,9 @@ library LibDoefinStorage {
         mapping(address => bool) isAllowed;
         mapping(address => uint256) unitPerPair; // token => unit amount (e.g., 1e6 USDC)
         address feeReceiver;
-        uint256 resolutionFeeBps;
-        uint256 makerTradingFeeBps;
-        uint256 takerTradingFeeBps;
+        uint16 resolutionFeeBps;
+        uint16 makerTradingFeeBps;
+        uint16 takerTradingFeeBps;
         uint256[10] __gap;
     }
 
@@ -61,8 +61,8 @@ library LibDoefinStorage {
     }
 
     struct OrderFeeConfig {
-        uint256 makerFeeBps;
-        uint256 takerFeeBps;
+        uint16 makerFeeBps;
+        uint16 takerFeeBps;
     }
 
     struct SettlementExecutionContext {
@@ -77,7 +77,7 @@ library LibDoefinStorage {
         address maker;
         address collateralToken;
         uint256 positionId;
-        uint256 makerFeeBps;
+        uint16 makerFeeBps;
         uint256 oldAmount;
         uint256 newAmount;
         uint256 oldPrice;
@@ -114,7 +114,7 @@ library LibDoefinStorage {
         uint256 amount;
         uint256 remainingAmount;
         uint256 targetAvgPrice;
-        uint256 takerPaidFeeBps;
+        uint16 takerPaidFeeBps;
         bool fillOrKill;
         OrderDirection direction;
     }
@@ -179,6 +179,7 @@ library LibDoefinStorage {
         mapping(address => mapping(address => uint256)) collateralBalances; // user => ERC20 token => amount
         mapping(address => mapping(uint256 => uint256)) lockedERC1155Balances; // user => positionId => amount
         mapping(address => uint256) protocolFees; // ERC20 token => total accumulated
+        uint256[10] __gap;
     }
 
     struct MarketMetadata {

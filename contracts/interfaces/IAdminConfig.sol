@@ -9,14 +9,14 @@ interface IAdminConfig {
     event CollateralTokenAdded(address token, uint256 unitPerPair);
     event CollateralTokenRemoved(address token);
     event FeeReceiverUpdated(address newReceiver);
-    event ResolutionFeeUpdated(uint256 newBps);
-    event TradingFeesUpdated(uint256 makerBps, uint256 takerBps);
+    event ResolutionFeeUpdated(uint16 newBps);
+    event TradingFeesUpdated(uint16 makerBps, uint16 takerBps);
 
     function addCollateralToken(address token, uint256 unitPerPair) external;
     function removeCollateralToken(address token) external;
     function isAllowedCollateral(address token) external view returns (bool);
     function getCollateralUnit(address token) external view returns (uint256);
     function setFeeReceiver(address feeReceiver) external;
-    function setResolutionFeeBps(uint256 bps) external;
-    function setTradingFeesBps(uint256 makerBps, uint256 takerBps) external;
+    function setResolutionFeeBps(uint16 bps) external;
+    function setTradingFeesBps(uint16 makerBps, uint16 takerBps) external;
 }

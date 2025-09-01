@@ -43,7 +43,7 @@ contract AdminConfigFacet is IAdminConfig {
         emit FeeReceiverUpdated(feeReceiver);
     }
 
-    function setResolutionFeeBps(uint256 bps) external override {
+    function setResolutionFeeBps(uint16 bps) external override {
         LibDiamond.enforceIsContractOwner();
         require(bps <= 10_000, "AdminConfig: fee too high");
 
@@ -51,7 +51,7 @@ contract AdminConfigFacet is IAdminConfig {
         emit ResolutionFeeUpdated(bps);
     }
 
-    function setTradingFeesBps(uint256 makerBps, uint256 takerBps) external override {
+    function setTradingFeesBps(uint16 makerBps, uint16 takerBps) external override {
         LibDiamond.enforceIsContractOwner();
         require(makerBps <= 10_000 && takerBps <= 10_000, "AdminConfig: fee too high");
 
@@ -71,7 +71,7 @@ contract AdminConfigFacet is IAdminConfig {
         return LibDoefinStorage.diamondStorage().adminConfigStorage.unitPerPair[token];
     }
 
-    function getFees() external view returns (address feeReceiver, uint256 resolutionFeeBps, uint256 makerTradingFeeBps, uint256 takerTradingFeeBps) {
+    function getFees() external view returns (address feeReceiver, uint16 resolutionFeeBps, uint16 makerTradingFeeBps, uint16 takerTradingFeeBps) {
         LibDoefinStorage.AdminConfigStorage storage cfg = LibDoefinStorage.diamondStorage().adminConfigStorage;
         return (cfg.feeReceiver, cfg.resolutionFeeBps, cfg.makerTradingFeeBps, cfg.takerTradingFeeBps);
     }
