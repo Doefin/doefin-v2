@@ -66,7 +66,17 @@ library LibReentrancyGuard {
 
     /**
      * @notice Modifier for reentrancy protection
-     * @dev Use this modifier on functions that need protection
+     * @dev This modifier demonstrates the reentrancy protection pattern using library functions
+     * @dev WARNING: Library modifiers cannot be imported or used directly by contracts.
+     *      To implement reentrancy protection in your facet:
+     *      1. Copy this modifier pattern to your facet contract, OR
+     *      2. Manually call _nonReentrantBefore() at function start and _nonReentrantAfter() at function end
+     * @dev Example manual implementation:
+     *      function myFunction() external {
+     *          LibReentrancyGuard._nonReentrantBefore();
+     *          // your function logic here
+     *          LibReentrancyGuard._nonReentrantAfter();
+     *      }
      */
     modifier nonReentrant() {
         _nonReentrantBefore();
