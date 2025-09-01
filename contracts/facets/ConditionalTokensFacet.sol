@@ -70,8 +70,8 @@ contract ConditionalTokensFacet is IConditionalTokens {
         address collateralToken,
         bytes32 parentCollectionId,
         bytes32 conditionId,
-        uint256 amount,
-        uint256[] calldata partition
+        uint256[] calldata partition,
+        uint256 amount
     ) external override {
         LibCTFCondition._splitPosition(msg.sender, collateralToken, parentCollectionId, conditionId, amount, partition);
 

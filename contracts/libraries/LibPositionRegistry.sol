@@ -15,6 +15,10 @@ library LibPositionRegistry {
         bytes32 conditionId = ds.positionRegistry.conditionIdByPositionId[positionId];
         uint256[] memory positionIds = ds.positionRegistry.marketsByCondition[conditionId].positionIds;
 
+        if (positionIds.length != 2) {
+            revert Errors.InvalidComplement();
+        }
+
         if (positionIds[0] == positionId) {
             return positionIds[1];
         } else if (positionIds[1] == positionId) {
@@ -27,6 +31,7 @@ library LibPositionRegistry {
     function getCollateralToken(uint256 positionId) internal view returns (address) {
         LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
 
+        validatePositionId(positionId);
         bytes32 conditionId = ds.positionRegistry.conditionIdByPositionId[positionId];
         address collateralToken = ds.positionRegistry.marketsByCondition[conditionId].collateralToken;
 
@@ -73,12 +78,14 @@ library LibPositionRegistry {
             meta.partitions = partitions;
 
             emit Events.PositionPairsRegistered(conditionId, collateralToken, parentCollectionId, positionIds, partitions);
+        } else {
+            // Prevent silent drift in metadata
+            if (meta.collateralToken != collateralToken || meta.parentCollectionId != parentCollectionId) {
+                revert Errors.InvalidMatch();
+            }
         }
 
-        for (uint256 i = 0; i < positionIds.length; i++) {
-            ds.positionRegistry.conditionIdByPositionId[positionIds[i]] = conditionId;
-            emit Events.MarketMetadataUpdated(conditionId, collateralToken, parentCollectionId);
-        }
+        emit Events.MarketMetadataUpdated(conditionId, meta.collateralToken, meta.parentCollectionId);
     }
 
     function getMarketMetadata(uint256 positionId) internal view returns (LibDoefinStorage.MarketMetadata memory positionMeta) {

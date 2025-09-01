@@ -3,6 +3,7 @@ pragma solidity ^0.8.6;
 
 import {LibDoefinStorage} from "./LibDoefinStorage.sol";
 import {SafeERC20, IERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {LibReentrancyGuard} from "./LibReentrancyGuard.sol";
 import {LibDiamond} from "./LibDiamond.sol";
 import {Errors} from "./Errors.sol";
@@ -43,7 +44,7 @@ library LibFeeManager {
      */
     function computeMakerFee(uint256 cost) internal view returns (uint256) {
         uint256 bps = LibDoefinStorage.diamondStorage().adminConfigStorage.makerTradingFeeBps;
-        return (cost * bps) / 10_000;
+        return Math.mulDiv(cost, bps, 10_000);
     }
 
     /**
@@ -70,11 +71,11 @@ library LibFeeManager {
         if (unitPerPair == 0) revert Errors.TokenNotAllowed();
 
         // Calculate normalized cost
-        cost = (settlementExecCtx.fillableAmount * makerOrder.pricePerToken) / unitPerPair;
+        cost = Math.mulDiv(settlementExecCtx.fillableAmount, makerOrder.pricePerToken, unitPerPair);
 
         // Calculate fees
-        makerFee = (cost * makerOrder.orderFeeConfig.makerFeeBps) / 10_000;
-        takerFee = (cost * makerOrder.orderFeeConfig.takerFeeBps) / 10_000;
+        makerFee = Math.mulDiv(cost, makerOrder.orderFeeConfig.makerFeeBps, 10_000);
+        takerFee = Math.mulDiv(cost, makerOrder.orderFeeConfig.takerFeeBps, 10_000);
     }
 
     /**
@@ -101,12 +102,12 @@ library LibFeeManager {
         uint256 unitPerPair = ds.adminConfigStorage.unitPerPair[collateralToken];
 
         // Calculate contributions
-        makerContribution = (fillableAmount * makerOrder.pricePerToken) / unitPerPair;
+        makerContribution = Math.mulDiv(fillableAmount, makerOrder.pricePerToken, unitPerPair);
         takerContribution = fillableAmount - makerContribution;
 
         // Calculate fees on respective contributions
-        makerFee = (makerContribution * makerOrder.orderFeeConfig.makerFeeBps) / 10_000;
-        takerFee = (takerContribution * makerOrder.orderFeeConfig.takerFeeBps) / 10_000;
+        makerFee = Math.mulDiv(makerContribution, makerOrder.orderFeeConfig.makerFeeBps, 10_000);
+        takerFee = Math.mulDiv(takerContribution, makerOrder.orderFeeConfig.takerFeeBps, 10_000);
     }
 
     // ----------------------------------------
@@ -233,24 +234,6 @@ library LibFeeManager {
 
         for (uint256 i = 0; i < tokens.length; i++) {
             fees[i] = ds.escrowStorage.protocolFees[tokens[i]];
-        }
-    }
-
-    /**
-     * @notice Get total value of accumulated fees across all tokens (in USD equivalent)
-     * @dev This would require price oracles in a real implementation
-     * @param tokens Array of token addresses to sum
-     * @return totalValue The total value (implementation dependent on price feeds)
-     */
-    function getTotalAccumulatedFeesValue(address[] memory tokens) internal view returns (uint256 totalValue) {
-        // Placeholder for future oracle integration
-        // For now, just return the count of tokens with fees
-        LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
-
-        for (uint256 i = 0; i < tokens.length; i++) {
-            if (ds.escrowStorage.protocolFees[tokens[i]] > 0) {
-                totalValue++;
-            }
         }
     }
 

@@ -17,7 +17,7 @@ library LibERC1155 {
 
     function balanceOfBatch(address[] memory owners, uint256[] memory ids) internal view returns (uint256[] memory batchBalances) {
         if (owners.length == 0 || ids.length == 0) {
-            revert Errors.EmptyArray();
+            return new uint256[](0);
         }
         if (owners.length != ids.length) revert Errors.ArrayLengthMismatch();
         batchBalances = new uint256[](owners.length);
@@ -33,6 +33,7 @@ library LibERC1155 {
         bool approved
     ) internal {
         LibDoefinStorage.diamondStorage().erc1155Storage.erc1155OperatorApprovals[owner][operator] = approved;
+        emit Events.ApprovalForAll(owner, operator, approved);
     }
 
     function isApprovedForAll(address owner, address operator) internal view returns (bool) {
@@ -51,7 +52,9 @@ library LibERC1155 {
 
         LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
 
-        require(from == operator || ds.erc1155Storage.erc1155OperatorApprovals[from][operator], "ERC1155: not owner nor approved");
+        if (from != operator && !ds.erc1155Storage.erc1155OperatorApprovals[from][operator]) {
+            revert Errors.NotOwnerNorApproved();
+        }
 
         ds.erc1155Storage.erc1155Balances[id][from] -= value;
         ds.erc1155Storage.erc1155Balances[id][to] += value;

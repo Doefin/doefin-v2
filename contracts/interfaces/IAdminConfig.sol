@@ -112,11 +112,4 @@ interface IAdminConfig {
      * @return receiver The configured fee receiver
      */
     function getFeeStatistics(address token) external view returns (uint256 available, address receiver);
-
-    /**
-     * @notice Get total value of accumulated fees across all tokens
-     * @param tokens Array of token addresses to sum
-     * @return totalValue The total value (implementation dependent on price feeds)
-     */
-    function getTotalAccumulatedFeesValue(address[] calldata tokens) external view returns (uint256 totalValue);
 }

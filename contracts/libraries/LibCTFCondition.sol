@@ -57,6 +57,7 @@ library LibCTFCondition {
 
         if (freeIndexSet == 0) {
             if (parentCollectionId == bytes32(0)) {
+                /// @dev Skip token transfer when contract calls itself to avoid circular transfers
                 if (sender != address(this)) {
                     IERC20(collateralToken).safeTransfer(sender, amount);
                 }
@@ -95,6 +96,7 @@ library LibCTFCondition {
         LibReentrancyGuard._nonReentrantBefore();
         if (freeIndexSet == 0) {
             if (parentCollectionId == bytes32(0)) {
+                /// @dev Skip token transfer when contract calls itself to avoid circular transfers
                 if (sender != address(this)) {
                     IERC20(collateralToken).safeTransferFrom(sender, address(this), amount);
                 }

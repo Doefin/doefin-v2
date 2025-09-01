@@ -17,8 +17,8 @@ interface IConditionalTokens {
         address collateralToken,
         bytes32 parentCollectionId,
         bytes32 conditionId,
-        uint256 amount,
-        uint256[] calldata partition
+        uint256[] calldata partition,
+        uint256 amount
     ) external;
 
     function mergePositions(

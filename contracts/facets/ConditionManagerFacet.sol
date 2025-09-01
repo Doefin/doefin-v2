@@ -45,14 +45,11 @@ contract ConditionManagerFacet is IConditionManager {
         view
         override
         returns (
-            address oracle,
-            bytes32 questionId,
-            uint8 outcomeSlotCount,
-            string memory metadataURI
+            LibDoefinStorage.Condition memory
         )
     {
-        LibDoefinStorage.Condition storage cond = LibDoefinStorage.diamondStorage().conditionManager.conditions[conditionId];
-        return (cond.oracle, cond.questionId, cond.outcomeSlotCount, cond.metadataURI);
+        LibDoefinStorage.Condition storage condition = LibDoefinStorage.diamondStorage().conditionManager.conditions[conditionId];
+        return condition;
     }
 
     function cancelCondition(bytes32 conditionId) external override {

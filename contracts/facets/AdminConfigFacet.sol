@@ -46,7 +46,7 @@ contract AdminConfigFacet is IAdminConfig {
         if (feeReceiver == address(0)) revert Errors.InvalidFeeReceiver();
         LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
         address oldReceiver = ds.adminConfigStorage.feeReceiver;
-        if (oldReceiver == feeReceiver) return; // No change, no event
+        if (oldReceiver == feeReceiver) revert Errors.NoChangeRequired();
         ds.adminConfigStorage.feeReceiver = feeReceiver;
         emit Events.FeeReceiverUpdated(oldReceiver, feeReceiver);
     }
@@ -57,7 +57,7 @@ contract AdminConfigFacet is IAdminConfig {
 
         LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
         uint16 oldFeeBps = ds.adminConfigStorage.resolutionFeeBps;
-        if (oldFeeBps == bps) return; // No change, no event
+        if (oldFeeBps == bps) revert Errors.NoChangeRequired();
         ds.adminConfigStorage.resolutionFeeBps = bps;
         emit Events.ResolutionFeeUpdated(oldFeeBps, bps);
     }
@@ -205,14 +205,5 @@ contract AdminConfigFacet is IAdminConfig {
      */
     function getFeeStatistics(address token) external view override returns (uint256 available, address receiver) {
         return LibFeeManager.getFeeStatistics(token);
-    }
-
-    /**
-     * @notice Get total value of accumulated fees across all tokens
-     * @param tokens Array of token addresses to sum
-     * @return totalValue The total value (implementation dependent on price feeds)
-     */
-    function getTotalAccumulatedFeesValue(address[] calldata tokens) external view override returns (uint256 totalValue) {
-        return LibFeeManager.getTotalAccumulatedFeesValue(tokens);
     }
 }
