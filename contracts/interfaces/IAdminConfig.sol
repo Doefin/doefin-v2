@@ -24,9 +24,9 @@ interface IAdminConfig {
         view
         returns (
             address feeReceiver,
-            uint256 resolutionFeeBps,
-            uint256 makerTradingFeeBps,
-            uint256 takerTradingFeeBps
+            uint16 resolutionFeeBps,
+            uint16 makerTradingFeeBps,
+            uint16 takerTradingFeeBps
         );
 
     /**

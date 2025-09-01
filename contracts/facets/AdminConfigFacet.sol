@@ -56,7 +56,7 @@ contract AdminConfigFacet is IAdminConfig {
         if (bps > 10_000) revert Errors.FeeTooHigh();
 
         LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
-        uint256 oldFeeBps = ds.adminConfigStorage.resolutionFeeBps;
+        uint16 oldFeeBps = ds.adminConfigStorage.resolutionFeeBps;
         if (oldFeeBps == bps) return; // No change, no event
         ds.adminConfigStorage.resolutionFeeBps = bps;
         emit Events.ResolutionFeeUpdated(oldFeeBps, bps);
@@ -67,8 +67,8 @@ contract AdminConfigFacet is IAdminConfig {
         if (makerBps > 10_000 || takerBps > 10_000) revert Errors.FeeTooHigh();
 
         LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
-        uint256 oldMakerBps = ds.adminConfigStorage.makerTradingFeeBps;
-        uint256 oldTakerBps = ds.adminConfigStorage.takerTradingFeeBps;
+        uint16 oldMakerBps = ds.adminConfigStorage.makerTradingFeeBps;
+        uint16 oldTakerBps = ds.adminConfigStorage.takerTradingFeeBps;
         ds.adminConfigStorage.makerTradingFeeBps = makerBps;
         ds.adminConfigStorage.takerTradingFeeBps = takerBps;
         emit Events.TradingFeesUpdated(oldMakerBps, oldTakerBps, makerBps, takerBps);
