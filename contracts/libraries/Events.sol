@@ -78,8 +78,8 @@ library Events {
 
     /// @notice Emitted when a condition is cancelled
     /// @param conditionId Unique identifier for the condition
-    /// @param canceledBy Address that cancelled the condition
-    event ConditionCancelled(bytes32 indexed conditionId, address indexed canceledBy);
+    /// @param cancelledBy Address that cancelled the condition
+    event ConditionCancelled(bytes32 indexed conditionId, address indexed cancelledBy);
 
     // ========================================
     // CONDITIONAL TOKENS EVENTS
