@@ -17,15 +17,15 @@ interface IMarketData {
     /// @return positionIds Array of all position IDs associated with the condition
     function getAllPositionIdsByCondition(bytes32 conditionId) external view returns (uint256[] memory positionIds);
 
-    /// @notice Get position IDs for a specific market (condition + collateral + parent)
+    /// @notice Get position IDs for a specific market (condition + parent + collateral)
     /// @param conditionId The condition identifier
-    /// @param collateralToken The collateral token address
     /// @param parentCollectionId The parent collection identifier
+    /// @param collateralToken The collateral token address
     /// @return positionIds Array of position IDs for the specific market
     function getPositionIdsByMarket(
         bytes32 conditionId,
-        address collateralToken,
-        bytes32 parentCollectionId
+        bytes32 parentCollectionId,
+        address collateralToken
     ) external view returns (uint256[] memory positionIds);
 
     /// @notice Get market metadata for a specific position
@@ -35,13 +35,13 @@ interface IMarketData {
 
     /// @notice Get market metadata for a specific market combination
     /// @param conditionId The condition identifier
-    /// @param collateralToken The collateral token address
     /// @param parentCollectionId The parent collection identifier
+    /// @param collateralToken The collateral token address
     /// @return metadata Complete market metadata for the specific market
     function getMarketMetadataByMarket(
         bytes32 conditionId,
-        address collateralToken,
-        bytes32 parentCollectionId
+        bytes32 parentCollectionId,
+        address collateralToken
     ) external view returns (LibDoefinStorage.MarketMetadata memory metadata);
 
     /// @notice Get the collateral token address for a position

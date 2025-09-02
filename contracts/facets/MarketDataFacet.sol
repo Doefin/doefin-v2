@@ -41,22 +41,22 @@ contract MarketDataFacet is IMarketData {
         }
     }
 
-    /// @notice Get position IDs for a specific market (condition + collateral + parent)
+    /// @notice Get position IDs for a specific market (condition + parent + collateral)
     /// @param conditionId The condition identifier
-    /// @param collateralToken The collateral token address
     /// @param parentCollectionId The parent collection identifier
+    /// @param collateralToken The collateral token address
     /// @return positionIds Array of position IDs for the specific market
     function getPositionIdsByMarket(
         bytes32 conditionId,
-        address collateralToken,
-        bytes32 parentCollectionId
-    ) external view returns (uint256[] memory positionIds) {
+        bytes32 parentCollectionId,
+        address collateralToken
+    ) external override view returns (uint256[] memory positionIds) {
         LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
         
-        // Create the market key
-        bytes32 marketKey = keccak256(abi.encodePacked(conditionId, parentCollectionId, collateralToken));
-        
-        LibDoefinStorage.MarketMetadata storage metadata = ds.positionRegistry.marketsByKey[marketKey];
+        // Create the market key using centralized helper
+        bytes32 marketKeyHash = LibPositionRegistry.buildMarketKey(conditionId, parentCollectionId, collateralToken);
+
+        LibDoefinStorage.MarketMetadata storage metadata = ds.positionRegistry.marketsByKey[marketKeyHash];
         
         // Validate market exists
         if (metadata.collateralToken == address(0)) {
@@ -76,20 +76,20 @@ contract MarketDataFacet is IMarketData {
 
     /// @notice Get market metadata for a specific market combination
     /// @param conditionId The condition identifier
-    /// @param collateralToken The collateral token address
     /// @param parentCollectionId The parent collection identifier
+    /// @param collateralToken The collateral token address
     /// @return metadata Complete market metadata for the specific market
     function getMarketMetadataByMarket(
         bytes32 conditionId,
-        address collateralToken,
-        bytes32 parentCollectionId
-    ) external view returns (LibDoefinStorage.MarketMetadata memory metadata) {
+        bytes32 parentCollectionId,
+        address collateralToken
+    ) external override view returns (LibDoefinStorage.MarketMetadata memory metadata) {
         LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
         
-        // Create the market key
-        bytes32 marketKey = keccak256(abi.encodePacked(conditionId, parentCollectionId, collateralToken));
-        
-        LibDoefinStorage.MarketMetadata storage storedMetadata = ds.positionRegistry.marketsByKey[marketKey];
+        // Create the market key using centralized helper
+        bytes32 marketKeyHash = LibPositionRegistry.buildMarketKey(conditionId, parentCollectionId, collateralToken);
+
+        LibDoefinStorage.MarketMetadata storage storedMetadata = ds.positionRegistry.marketsByKey[marketKeyHash];
         
         // Validate market exists
         if (storedMetadata.collateralToken == address(0)) {
