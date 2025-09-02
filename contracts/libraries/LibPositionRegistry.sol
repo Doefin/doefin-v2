@@ -55,6 +55,7 @@ library LibPositionRegistry {
 
     function getConditionId(uint256 positionId) internal view returns (bytes32) {
         LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
+        validatePositionId(positionId);
         return ds.positionRegistry.conditionIdByPositionId[positionId];
     }
 
@@ -91,8 +92,8 @@ library LibPositionRegistry {
         LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
         
         // Create unique market key
-        bytes32 marketKey = keccak256(abi.encodePacked(conditionId, parentCollectionId, collateralToken));
-        
+        bytes32 marketKey = buildMarketKey(conditionId, parentCollectionId, collateralToken);
+
         LibDoefinStorage.MarketMetadata storage meta = ds.positionRegistry.marketsByKey[marketKey];
         
         if (meta.collateralToken == address(0)) {
@@ -167,6 +168,19 @@ library LibPositionRegistry {
             markets[i] = ds.positionRegistry.marketsByKey[marketKeys[i]];
         }
         return markets;
+    }
+
+    /// @notice Generate market key from condition, parent collection, and collateral token
+    /// @param conditionId The condition identifier
+    /// @param parentCollectionId The parent collection identifier  
+    /// @param collateralToken The collateral token address
+    /// @return Market key hash (condition + parent + collateral)
+    function buildMarketKey(
+        bytes32 conditionId,
+        bytes32 parentCollectionId,
+        address collateralToken
+    ) internal pure returns (bytes32) {
+        return keccak256(abi.encode(conditionId, parentCollectionId, collateralToken));
     }
     
     function getMarketCount(bytes32 conditionId) internal view returns (uint256) {
