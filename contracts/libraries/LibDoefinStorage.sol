@@ -190,8 +190,15 @@ library LibDoefinStorage {
     }
 
     struct PositionRegistryStorage {
-        mapping(uint256 => bytes32) conditionIdByPositionId;
-        mapping(bytes32 => MarketMetadata) marketsByCondition;
+        // Unique market metadata by composite key
+        mapping(bytes32 => MarketMetadata) marketsByKey; // marketKey => metadata
+        
+        // Track all market keys for a given conditionId
+        mapping(bytes32 => bytes32[]) marketKeysByCondition; // conditionId => marketKey[]
+        
+        // Reverse lookups
+        mapping(uint256 => bytes32) conditionIdByPositionId; // positionId => conditionId
+        mapping(uint256 => bytes32) marketKeyByPositionId;   // positionId => marketKey
         uint256[10] __gap;
     }
     struct ReentrancyStorage {
