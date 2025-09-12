@@ -101,7 +101,7 @@ library LibTradeSettlement {
             // Validate taker has sufficient allowance
             uint256 allowance = IERC20(collateralToken).allowance(settlementExecCtx.takerOrder.taker, address(this));
             if (allowance < takerTotalPayment) {
-                revert Errors.InsufficientERC20Allowance();
+                revert Errors.InsufficientERC20Allowance(settlementExecCtx.takerOrder.taker, collateralToken, takerTotalPayment, allowance);
             }
             LibReentrancyGuard._nonReentrantBefore();
             // Collect taker's ERC20 contribution
@@ -300,7 +300,7 @@ library LibTradeSettlement {
             uint256 totalTakerPayment = cost + takerFee;
             LibReentrancyGuard._nonReentrantBefore();
             if(IERC20(collateralToken).allowance(settlementExecCtx.takerOrder.taker, address(this)) < totalTakerPayment) {
-                revert Errors.InsufficientERC20Allowance();
+                revert Errors.InsufficientERC20Allowance(settlementExecCtx.takerOrder.taker, collateralToken, totalTakerPayment, IERC20(collateralToken).allowance(settlementExecCtx.takerOrder.taker, address(this)));
             }
             IERC20(collateralToken).safeTransferFrom(settlementExecCtx.takerOrder.taker, address(this), totalTakerPayment);
             LibReentrancyGuard._nonReentrantAfter();

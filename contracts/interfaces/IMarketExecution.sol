@@ -15,7 +15,7 @@ interface IMarketExecution {
         uint256 targetAvgPrice,
         bool fillOrKill,
         LibDoefinStorage.OrderDirection direction,
-        LibDoefinStorage.MatchExecution[] calldata matches
+        LibDoefinStorage.Match[] calldata matches
     ) external;
 
     function fillLimitOrders(uint256 takerId, uint256[] calldata makerIds) external;

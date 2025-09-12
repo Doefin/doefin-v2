@@ -17,7 +17,7 @@ library LibSettlement {
      */
     function executeMatchedRoute(
         LibDoefinStorage.TakerOrderContext memory takerOrder, 
-        LibDoefinStorage.MatchExecution[] memory matches
+        LibDoefinStorage.Match[] memory matches
     ) internal {
         _executeMatches(takerOrder, matches, LibDoefinStorage.ExecutionType.Market);
     }
@@ -43,7 +43,7 @@ library LibSettlement {
         });
 
         // Generate and execute matches
-        LibDoefinStorage.MatchExecution[] memory matches = _generateMatches(takerCtx, takerOrderStorage, makerIds);
+        LibDoefinStorage.Match[] memory matches = _generateMatches(takerCtx, takerOrderStorage, makerIds);
         _executeMatches(takerCtx, matches, takerOrderStorage.executionType);
         _updateStoredTakerOrder(takerId, takerCtx, matches, msg.sender);
     }
@@ -57,14 +57,14 @@ library LibSettlement {
      */
     function _executeMatches(
         LibDoefinStorage.TakerOrderContext memory takerOrder,
-        LibDoefinStorage.MatchExecution[] memory matches,
+        LibDoefinStorage.Match[] memory matches,
         LibDoefinStorage.ExecutionType executionType
     ) internal {
         LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
         uint256 totalValue = 0;
         
         for (uint256 i = 0; i < matches.length && takerOrder.remainingAmount > 0; ++i) {
-            LibDoefinStorage.MatchExecution memory matchExec = matches[i];
+            LibDoefinStorage.Match memory matchExec = matches[i];
             LibDoefinStorage.Order storage makerOrder = ds.orderbookStorage.orders[matchExec.matchedOrderId];
             uint256 collateralUnit = ds.adminConfigStorage.unitPerPair[makerOrder.collateralToken];
             
@@ -122,10 +122,10 @@ library LibSettlement {
         LibDoefinStorage.TakerOrderContext memory takerCtx,
         LibDoefinStorage.Order storage takerOrderStorage,
         uint256[] memory makerIds
-    ) internal view returns (LibDoefinStorage.MatchExecution[] memory matches) {
+    ) internal view returns (LibDoefinStorage.Match[] memory matches) {
         LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
         
-        LibDoefinStorage.MatchExecution[] memory tempMatches = new LibDoefinStorage.MatchExecution[](makerIds.length);
+        LibDoefinStorage.Match[] memory tempMatches = new LibDoefinStorage.Match[](makerIds.length);
         uint256 matchCount = 0;
         uint256 totalValue = 0;
         uint256 tempRemainingAmount = takerCtx.remainingAmount;
@@ -163,7 +163,7 @@ library LibSettlement {
                 continue;
             }
 
-            tempMatches[matchCount] = LibDoefinStorage.MatchExecution({
+            tempMatches[matchCount] = LibDoefinStorage.Match({
                 matchedOrderId: makerIds[i],
                 amount: fillAmount,
                 effectivePrice: effectivePrice,
@@ -175,7 +175,7 @@ library LibSettlement {
         }
 
         // Resize to actual matches
-        matches = new LibDoefinStorage.MatchExecution[](matchCount);
+        matches = new LibDoefinStorage.Match[](matchCount);
         for (uint256 i = 0; i < matchCount; i++) {
             matches[i] = tempMatches[i];
         }
@@ -187,7 +187,7 @@ library LibSettlement {
     function _updateStoredTakerOrder(
         uint256 takerId,
         LibDoefinStorage.TakerOrderContext memory takerCtx,
-        LibDoefinStorage.MatchExecution[] memory matches,
+        LibDoefinStorage.Match[] memory matches,
         address executor
     ) internal {
         LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
@@ -290,7 +290,7 @@ library LibSettlement {
     }
 
     function _calculateWeightedAvgPrice(
-        LibDoefinStorage.MatchExecution[] memory matches,
+        LibDoefinStorage.Match[] memory matches,
         uint256 totalFilledAmount
     ) internal pure returns (uint256) {
         if (matches.length == 0 || totalFilledAmount == 0) return 0;

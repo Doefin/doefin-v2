@@ -85,7 +85,7 @@ library LibMatchEngine {
             if (compAvailable) compOrder = ds.orderbookStorage.orders[complementaryOrders[i]];
             if (sibAvailable) sibOrder = ds.orderbookStorage.orders[mintOrMergeOrders[j]];
 
-            (LibDoefinStorage.MatchExecution memory execution, bool pickComp, bool exhausted) = _pickBestOrder(
+            (LibDoefinStorage.Match memory execution, bool pickComp, bool exhausted) = _pickBestOrder(
                 compOrder,
                 sibOrder,
                 compAvailable && compOrder.remainingAmount > 0,
@@ -157,7 +157,7 @@ library LibMatchEngine {
         LibDoefinStorage.OrderDirection direction,
         LibDoefinStorage.MatchType siblingMatchType,
         uint256 remaining
-    ) internal view returns (LibDoefinStorage.MatchExecution memory execution, bool pickComp) {
+    ) internal view returns (LibDoefinStorage.Match memory execution, bool pickComp) {
         uint256 effCompPrice = effectiveTakerPrice(compOrder, direction, LibDoefinStorage.MatchType.Complementary);
         uint256 effSibPrice = effectiveTakerPrice(sibOrder, direction, siblingMatchType);
 
@@ -169,7 +169,7 @@ library LibMatchEngine {
 
         uint256 fillAmount = remaining < best.remainingAmount ? remaining : best.remainingAmount;
 
-        execution = LibDoefinStorage.MatchExecution({
+        execution = LibDoefinStorage.Match({
             matchedOrderId: best.orderId,
             matchType: matchType,
             amount: fillAmount,
@@ -183,7 +183,7 @@ library LibMatchEngine {
         uint256 i,
         uint256 j,
         uint256 remaining
-    ) internal view returns (LibDoefinStorage.MatchExecution memory execution, bool pickComp) {
+    ) internal view returns (LibDoefinStorage.Match memory execution, bool pickComp) {
         bool compAvailable = i < ctx.complementaryOrders.length;
         bool sibAvailable = j < ctx.mintOrMergeOrders.length;
         LibDoefinStorage.Order memory compOrder;
@@ -209,7 +209,7 @@ library LibMatchEngine {
         LibDoefinStorage.OrderDirection direction,
         LibDoefinStorage.MatchType siblingMatchType,
         uint256 remaining
-    ) internal view returns (LibDoefinStorage.MatchExecution memory execution, bool pickComp, bool exhausted) {
+    ) internal view returns (LibDoefinStorage.Match memory execution, bool pickComp, bool exhausted) {
         if (!compAvailable && !sibAvailable) {
             return (execution, false, true); // exhausted
         }
@@ -229,9 +229,9 @@ library LibMatchEngine {
         LibDoefinStorage.OrderDirection direction,
         uint256 remaining,
         bool pickComp
-    ) internal view returns (LibDoefinStorage.MatchExecution memory execution, bool, bool) {
+    ) internal view returns (LibDoefinStorage.Match memory execution, bool, bool) {
         uint256 price = effectiveTakerPrice(order, direction, matchType);
-        execution = LibDoefinStorage.MatchExecution({
+        execution = LibDoefinStorage.Match({
             matchedOrderId: order.orderId,
             matchType: matchType,
             amount: remaining < order.remainingAmount ? remaining : order.remainingAmount,
@@ -254,7 +254,7 @@ library LibMatchEngine {
     {
         LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
 
-        LibDoefinStorage.MatchExecution[] memory tempMatches = new LibDoefinStorage.MatchExecution[](
+        LibDoefinStorage.Match[] memory tempMatches = new LibDoefinStorage.Match[](
             ctx.complementaryOrders.length + ctx.mintOrMergeOrders.length
         );
 
@@ -264,7 +264,7 @@ library LibMatchEngine {
         LoopContext memory lc = LoopContext({i: 0, j: 0, remaining: ctx.desiredMarketAmount, matchCount: 0});
 
         while (lc.remaining > 0 && (lc.i < ctx.complementaryOrders.length || lc.j < ctx.mintOrMergeOrders.length)) {
-            (LibDoefinStorage.MatchExecution memory execution, bool pickComp) = _selectBestMatch(ds, ctx, lc.i, lc.j, lc.remaining);
+            (LibDoefinStorage.Match memory execution, bool pickComp) = _selectBestMatch(ds, ctx, lc.i, lc.j, lc.remaining);
 
             tempMatches[lc.matchCount] = execution;
             route.totalInputAmount += execution.amount;
@@ -277,7 +277,7 @@ library LibMatchEngine {
         }
 
         // Shrink match array
-        route.matches = new LibDoefinStorage.MatchExecution[](lc.matchCount);
+        route.matches = new LibDoefinStorage.Match[](lc.matchCount);
         for (uint256 k = 0; k < lc.matchCount; k++) {
             route.matches[k] = tempMatches[k];
         }

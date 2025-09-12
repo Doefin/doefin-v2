@@ -51,7 +51,7 @@ library LibCollateralManager {
 
         LibReentrancyGuard._nonReentrantBefore();
         if (IERC20(collateralToken).allowance(user, address(this)) < totalRequired) {
-            revert Errors.InsufficientAllowance();
+            revert Errors.InsufficientERC20Allowance(user, collateralToken, totalRequired, IERC20(collateralToken).allowance(user, address(this)));
         }
         // Transfer tokens from user to contract
         IERC20(collateralToken).safeTransferFrom(user, address(this), totalRequired);
@@ -262,7 +262,7 @@ library LibCollateralManager {
         LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
 
         if (ds.escrowStorage.collateralBalances[user][token] < amount) {
-            revert Errors.CustomInsufficientERC20Balance(user, token, amount, ds.escrowStorage.collateralBalances[user][token]);
+            revert Errors.InsufficientERC20EscrowBalance(user, token, amount, ds.escrowStorage.collateralBalances[user][token]);
         }
 
         ds.escrowStorage.collateralBalances[user][token] -= amount;
@@ -282,7 +282,7 @@ library LibCollateralManager {
         LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
 
         if (ds.escrowStorage.lockedERC1155Balances[user][positionId] < amount) {
-            revert Errors.InsufficientERC1155Balance();
+            revert Errors.InsufficientERC1155Balance(user, positionId, amount, ds.escrowStorage.lockedERC1155Balances[user][positionId]);
         }
 
         ds.escrowStorage.lockedERC1155Balances[user][positionId] -= amount;

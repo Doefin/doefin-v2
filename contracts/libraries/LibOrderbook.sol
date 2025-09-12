@@ -59,8 +59,7 @@ library LibOrderbook {
             active: true,
             orderFeeConfig: orderFeeConfig,
             executionType: executionType,
-            fillOrKill: fillOrKill,
-            __gap: [uint256(0), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+            fillOrKill: fillOrKill
         });
 
         if (order.executionType == LibDoefinStorage.ExecutionType.Limit) {

@@ -18,7 +18,7 @@ contract MarketExecutionFacet is IMarketExecution {
         uint256 targetAvgPrice,
         bool fillOrKill,
         LibDoefinStorage.OrderDirection direction,
-        LibDoefinStorage.MatchExecution[] calldata matches
+        LibDoefinStorage.Match[] calldata matches
     ) external {
         LibDoefinStorage.TakerOrderContext memory takerOrder = LibDoefinStorage.TakerOrderContext({
             taker: msg.sender,
@@ -31,7 +31,7 @@ contract MarketExecutionFacet is IMarketExecution {
             direction: direction
         });
         // Convert calldata to memory for compatibility
-        LibDoefinStorage.MatchExecution[] memory matchesMemory = new LibDoefinStorage.MatchExecution[](matches.length);
+        LibDoefinStorage.Match[] memory matchesMemory = new LibDoefinStorage.Match[](matches.length);
         for (uint256 i = 0; i < matches.length; i++) {
             matchesMemory[i] = matches[i];
         }
