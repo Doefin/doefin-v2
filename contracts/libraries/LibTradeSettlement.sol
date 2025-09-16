@@ -70,7 +70,7 @@ library LibTradeSettlement {
         address collateralToken = settlementExecCtx.makerOrder.collateralToken;
 
         // Accrue protocol fees
-        LibFeeManager.accrueFees(collateralToken, makerFee, takerFee);
+        LibFeeManager.accrueFees(makerFee, takerFee, settlementExecCtx);
 
         _executeMintMatch(settlementExecCtx, collateralToken, makerContribution, takerContribution, makerFee, takerFee);
     }
@@ -142,7 +142,7 @@ library LibTradeSettlement {
         address collateralToken = settlementExecCtx.makerOrder.collateralToken;
 
         // Accrue protocol fees
-        LibFeeManager.accrueFees(collateralToken, makerFee, takerFee);
+        LibFeeManager.accrueFees(makerFee, takerFee, settlementExecCtx);
         
         // Consume maker's ERC1155 tokens
         LibCollateralManager.consumeERC1155Collateral(
@@ -191,10 +191,8 @@ library LibTradeSettlement {
         // Calculate fees
         (uint256 makerFee, uint256 takerFee, uint256 cost) = LibFeeManager.computeTradeExecutionFees(settlementExecCtx);
 
-        address collateralToken = settlementExecCtx.makerOrder.collateralToken;
-
         // Accrue protocol fees
-        LibFeeManager.accrueFees(collateralToken, makerFee, takerFee);
+        LibFeeManager.accrueFees(makerFee, takerFee, settlementExecCtx);
 
         // Handle different taker directions
         if (settlementExecCtx.takerOrder.direction == LibDoefinStorage.OrderDirection.Sell) {

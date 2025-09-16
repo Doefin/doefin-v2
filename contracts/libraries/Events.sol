@@ -322,52 +322,6 @@ library Events {
     );
 
     // ========================================
-    // FEE TRACKING EVENTS
-    // ========================================
-
-    /// @notice Emitted when trading fees are charged during order execution
-    /// @param orderId Maker order ID that was filled
-    /// @param takerOrderId Taker order ID (0 for market orders)
-    /// @param maker Address of the maker
-    /// @param taker Address of the taker
-    /// @param collateralToken Address of the collateral token
-    /// @param fillAmount Amount that was filled
-    /// @param pricePerToken Price used for the fill
-    /// @param makerFeeAmount Fee amount paid by maker
-    /// @param takerFeeAmount Fee amount paid by taker
-    /// @param protocolFeeAmount Total fee amount received by protocol
-    /// @param feeReceiver Address that received the fees
-    event TradingFeesCharged(
-        uint256 indexed orderId,
-        uint256 indexed takerOrderId,
-        address indexed maker,
-        address taker,
-        address collateralToken,
-        uint256 fillAmount,
-        uint256 pricePerToken,
-        uint256 makerFeeAmount,
-        uint256 takerFeeAmount,
-        uint256 protocolFeeAmount,
-        address feeReceiver
-    );
-
-    /// @notice Emitted when resolution fees are charged during redemption
-    /// @param redeemer Address redeeming the positions
-    /// @param collateralToken Address of the collateral token
-    /// @param grossPayout Payout amount before fees
-    /// @param feeAmount Fee amount charged
-    /// @param netPayout Payout amount after fees
-    /// @param feeReceiver Address that received the fee
-    event ResolutionFeeCharged(
-        address indexed redeemer,
-        address indexed collateralToken,
-        uint256 grossPayout,
-        uint256 feeAmount,
-        uint256 netPayout,
-        address feeReceiver
-    );
-
-    // ========================================
     // ESCROW EVENTS
     // ========================================
 
@@ -400,10 +354,30 @@ library Events {
     event ERC1155CollateralReleased(address indexed user, uint256 indexed positionId, uint256 amount, uint256 totalBalance);
 
     /// @notice Emitted when protocol fees are accrued
-    /// @param token Address of the token
-    /// @param amount Fee amount accrued
-    /// @param totalFees New total fees for token
-    event ProtocolFeesAccrued(address indexed token, uint256 amount, uint256 totalFees);
+    /// @param token The token in which fees are collected
+    /// @param makerOrderId ID of the maker order
+    /// @param takerOrderId ID of the taker order (0 for market orders)
+    /// @param maker Address of the maker
+    /// @param taker Address of the taker
+    /// @param fillAmount Amount filled in this trade
+    /// @param pricePerToken Price used for the trade
+    /// @param makerFeeAmount Fee paid by maker
+    /// @param takerFeeAmount Fee paid by taker
+    /// @param totalFeesAccrued Total fees from this trade
+    /// @param cumulativeProtocolFees Cumulative protocol fees for this token
+    event ProtocolFeesAccrued(
+        address indexed token,
+        uint256 indexed makerOrderId,
+        uint256 indexed takerOrderId,
+        address maker,
+        address taker,
+        uint256 fillAmount,
+        uint256 pricePerToken,
+        uint256 makerFeeAmount,
+        uint256 takerFeeAmount,
+        uint256 totalFeesAccrued,
+        uint256 cumulativeProtocolFees
+    );
 
     /// @notice Emitted when a refund is issued for surplus funds
     /// @param user Address of the user
