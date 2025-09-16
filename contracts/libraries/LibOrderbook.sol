@@ -69,7 +69,7 @@ library LibOrderbook {
         ds.orderbookStorage.orders[orderId] = order;
         _insertSorted(order);
 
-        emit Events.OrderCreated(orderId, msg.sender, positionId, collateralToken, amount, pricePerToken, minFillAmount, expiry, direction);
+        emit Events.OrderCreated(orderId, msg.sender, positionId, collateralToken, amount, pricePerToken, minFillAmount, expiry, direction, executionType, fillOrKill, orderFeeConfig.makerFeeBps, orderFeeConfig.takerFeeBps);
 
         _tryFillImmediately(order);
     }
