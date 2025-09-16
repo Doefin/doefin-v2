@@ -191,6 +191,10 @@ library Events {
     /// @param minFillAmount Minimum fill amount
     /// @param expiry Order expiry timestamp (0 for no expiry)
     /// @param direction Order direction (Buy/Sell)
+    /// @param executionType Order execution type (Limit/Market)
+    /// @param fillOrKill Whether order must be filled completely or cancelled
+    /// @param makerFeeBps Maker fee in basis points
+    /// @param takerFeeBps Taker fee in basis points
     event OrderCreated(
         uint256 indexed orderId,
         address indexed maker,
@@ -200,7 +204,11 @@ library Events {
         uint256 pricePerToken,
         uint256 minFillAmount,
         uint256 expiry,
-        LibDoefinStorage.OrderDirection direction
+        LibDoefinStorage.OrderDirection direction,
+        LibDoefinStorage.ExecutionType executionType,
+        bool fillOrKill,
+        uint256 makerFeeBps,
+        uint256 takerFeeBps
     );
 
     /// @notice Emitted when an order is cancelled
@@ -234,28 +242,42 @@ library Events {
     );
 
     /// @notice Emitted when an order is partially filled
-    /// @param orderId Unique identifier for the order
-    /// @param maker Address that owns the order
+    /// @param makerOrderId Unique identifier for the maker order (the one being filled)
+    /// @param takerOrderId ID of the taker order (0 for market orders created using fillwithroutes endpoint)
+    /// @param maker Address that owns the maker order
     /// @param taker Address that filled the order
-    /// @param fillAmount Amount filled in this transaction
-    /// @param remainingAmount Amount remaining after fill
+    /// @param makerFillAmount Amount filled from the maker order in this transaction
+    /// @param makerRemainingAmount Amount remaining in the maker order after fill
     /// @param pricePerToken Price used for the fill
+    /// @param matchType Type of match (Complementary/Mint/Merge)
     event OrderPartiallyFilled(
-        uint256 indexed orderId,
-        address indexed maker,
-        address indexed taker,
-        uint256 fillAmount,
-        uint256 remainingAmount,
-        uint256 pricePerToken
+        uint256 indexed makerOrderId,
+        uint256 indexed takerOrderId,
+        address maker,
+        address taker,
+        uint256 makerFillAmount,
+        uint256 makerRemainingAmount,
+        uint256 pricePerToken,
+        LibDoefinStorage.MatchType matchType
     );
 
     /// @notice Emitted when an order is completely filled
-    /// @param orderId Unique identifier for the order
+    /// @param makerOrderId Unique identifier for the maker order (the one that got completely filled)
+    /// @param takerOrderId ID of the taker order (0 for market orders using fillwithroutes endpoint)
     /// @param maker Address that owned the order
     /// @param taker Address that completed the fill
-    /// @param totalAmount Total amount that was filled
+    /// @param makerTotalAmount Total amount that was filled from the maker order
     /// @param pricePerToken Price used for the fill
-    event OrderCompletelyFilled(uint256 indexed orderId, address indexed maker, address indexed taker, uint256 totalAmount, uint256 pricePerToken);
+    /// @param matchType Type of match (Complementary/Mint/Merge)
+    event OrderCompletelyFilled(
+        uint256 indexed makerOrderId,
+        uint256 indexed takerOrderId,
+        address maker,
+        address taker, 
+        uint256 makerTotalAmount, 
+        uint256 pricePerToken,
+        LibDoefinStorage.MatchType matchType
+    );
 
     // ========================================
     // MARKET EXECUTION EVENTS
@@ -279,18 +301,70 @@ library Events {
 
     /// @notice Emitted for each individual match in a market order
     /// @param taker Address executing the market order
-    /// @param matchedOrderId ID of the matched limit order
-    /// @param matchedMaker Address of the limit order maker
+    /// @param positionId Position being traded in the market order
+    /// @param makerOrderId ID of the matched limit order (for consistency with other events)
+    /// @param maker Address of the limit order maker
+    /// @param takerOrderId ID of the taker order (0 for market orders, actual ID for limit orders acting as taker)
     /// @param fillAmount Amount filled in this match
-    /// @param price Price used for this match
+    /// @param pricePerToken Price used for this match
     /// @param matchType Type of match (Complementary/Mint/Merge)
+    /// @param direction Market order direction (Buy/Sell)
     event MarketOrderMatch(
         address indexed taker,
-        uint256 indexed matchedOrderId,
-        address indexed matchedMaker,
+        uint256 indexed positionId,
+        uint256 indexed makerOrderId,
+        address maker,
+        uint256 takerOrderId,
         uint256 fillAmount,
-        uint256 price,
-        LibDoefinStorage.MatchType matchType
+        uint256 pricePerToken,
+        LibDoefinStorage.MatchType matchType,
+        LibDoefinStorage.OrderDirection direction
+    );
+
+    // ========================================
+    // FEE TRACKING EVENTS
+    // ========================================
+
+    /// @notice Emitted when trading fees are charged during order execution
+    /// @param orderId Maker order ID that was filled
+    /// @param takerOrderId Taker order ID (0 for market orders)
+    /// @param maker Address of the maker
+    /// @param taker Address of the taker
+    /// @param collateralToken Address of the collateral token
+    /// @param fillAmount Amount that was filled
+    /// @param pricePerToken Price used for the fill
+    /// @param makerFeeAmount Fee amount paid by maker
+    /// @param takerFeeAmount Fee amount paid by taker
+    /// @param protocolFeeAmount Total fee amount received by protocol
+    /// @param feeReceiver Address that received the fees
+    event TradingFeesCharged(
+        uint256 indexed orderId,
+        uint256 indexed takerOrderId,
+        address indexed maker,
+        address taker,
+        address collateralToken,
+        uint256 fillAmount,
+        uint256 pricePerToken,
+        uint256 makerFeeAmount,
+        uint256 takerFeeAmount,
+        uint256 protocolFeeAmount,
+        address feeReceiver
+    );
+
+    /// @notice Emitted when resolution fees are charged during redemption
+    /// @param redeemer Address redeeming the positions
+    /// @param collateralToken Address of the collateral token
+    /// @param grossPayout Payout amount before fees
+    /// @param feeAmount Fee amount charged
+    /// @param netPayout Payout amount after fees
+    /// @param feeReceiver Address that received the fee
+    event ResolutionFeeCharged(
+        address indexed redeemer,
+        address indexed collateralToken,
+        uint256 grossPayout,
+        uint256 feeAmount,
+        uint256 netPayout,
+        address feeReceiver
     );
 
     // ========================================
