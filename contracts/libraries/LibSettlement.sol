@@ -32,6 +32,7 @@ library LibSettlement {
 
         // Build taker context from stored order
         LibDoefinStorage.TakerOrderContext memory takerCtx = LibDoefinStorage.TakerOrderContext({
+            orderId: takerOrderStorage.orderId,
             taker: takerOrderStorage.maker,
             positionId: takerOrderStorage.positionId,
             amount: takerOrderStorage.amount,
@@ -45,7 +46,7 @@ library LibSettlement {
         // Generate and execute matches
         LibDoefinStorage.Match[] memory matches = _generateMatches(takerCtx, takerOrderStorage, makerIds);
         _executeMatches(takerCtx, matches, takerOrderStorage.executionType);
-        _updateStoredTakerOrder(takerId, takerCtx, matches, msg.sender);
+        _updateStoredTakerOrder(takerId, takerCtx);
     }
 
     // ========================================
@@ -87,7 +88,7 @@ library LibSettlement {
             // Update states
             takerOrder.remainingAmount -= fillableAmount;
             totalValue += (fillableAmount * effectivePrice) / collateralUnit;
-            _updateOrderAfterFill(makerOrder, takerOrder.taker, fillableAmount, effectivePrice);
+            _updateOrderAfterFill(makerOrder, takerOrder, fillableAmount, effectivePrice, matchType);
 
             // Execute settlement
             LibTradeSettlement.settlementDispatcher(_buildSettlementCtx(
@@ -97,8 +98,15 @@ library LibSettlement {
             // Emit market order events
             if (executionType == LibDoefinStorage.ExecutionType.Market) {
                 emit Events.MarketOrderMatch(
-                    takerOrder.taker, makerOrder.orderId, makerOrder.maker, 
-                    fillableAmount, effectivePrice, matchType
+                    takerOrder.taker,           // taker
+                    takerOrder.positionId,      // positionId
+                    makerOrder.orderId,         // makerOrderId
+                    makerOrder.maker,           // maker
+                    takerOrder.orderId,         // takerOrderId (0 for market orders)
+                    fillableAmount,             // fillAmount
+                    effectivePrice,             // pricePerToken
+                    matchType,                  // matchType
+                    takerOrder.direction        // direction
                 );
             }
         }
@@ -186,9 +194,7 @@ library LibSettlement {
      */
     function _updateStoredTakerOrder(
         uint256 takerId,
-        LibDoefinStorage.TakerOrderContext memory takerCtx,
-        LibDoefinStorage.Match[] memory matches,
-        address executor
+        LibDoefinStorage.TakerOrderContext memory takerCtx
     ) internal {
         LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
         LibDoefinStorage.Order storage takerOrder = ds.orderbookStorage.orders[takerId];
@@ -198,23 +204,9 @@ library LibSettlement {
 
         takerOrder.remainingAmount = takerCtx.remainingAmount;
         
-        // Calculate metrics
-        uint256 weightedAvgPrice = _calculateWeightedAvgPrice(matches, filledAmount);
-        address primaryCounterparty = matches.length > 0 ? 
-            _getOrderMaker(matches[matches.length - 1].matchedOrderId) : executor;
-        
         if (takerOrder.remainingAmount == 0) {
             takerOrder.active = false;
             LibOrderbook.removeOrderFromOrderbook(takerOrder);
-            emit Events.OrderCompletelyFilled(
-                takerOrder.orderId, takerOrder.maker, primaryCounterparty, 
-                takerOrder.amount, weightedAvgPrice
-            );
-        } else {
-            emit Events.OrderPartiallyFilled(
-                takerOrder.orderId, takerOrder.maker, primaryCounterparty,
-                filledAmount, takerOrder.remainingAmount, weightedAvgPrice
-            );
         }
     }
 
@@ -229,9 +221,10 @@ library LibSettlement {
 
     function _updateOrderAfterFill(
         LibDoefinStorage.Order storage order,
-        address counterparty,
+        LibDoefinStorage.TakerOrderContext memory takerOrder,
         uint256 fillAmount,
-        uint256 price
+        uint256 price,
+        LibDoefinStorage.MatchType matchType
     ) internal {
         if (fillAmount > order.remainingAmount) fillAmount = order.remainingAmount;
         
@@ -239,9 +232,9 @@ library LibSettlement {
         if (order.remainingAmount == 0) {
             order.active = false;
             LibOrderbook.removeOrderFromOrderbook(order);
-            emit Events.OrderCompletelyFilled(order.orderId, order.maker, counterparty, order.amount, price);
+            emit Events.OrderCompletelyFilled(order.orderId, takerOrder.orderId, order.maker, takerOrder.taker, fillAmount, price, matchType);
         } else {
-            emit Events.OrderPartiallyFilled(order.orderId, order.maker, counterparty, fillAmount, order.remainingAmount, price);
+            emit Events.OrderPartiallyFilled(order.orderId, takerOrder.orderId, order.maker, takerOrder.taker, fillAmount, order.remainingAmount, price, matchType);
         }
     }
 

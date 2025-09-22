@@ -21,6 +21,7 @@ contract MarketExecutionFacet is IMarketExecution {
         LibDoefinStorage.Match[] calldata matches
     ) external {
         LibDoefinStorage.TakerOrderContext memory takerOrder = LibDoefinStorage.TakerOrderContext({
+            orderId: 0,
             taker: msg.sender,
             positionId: positionId,
             amount: amount,

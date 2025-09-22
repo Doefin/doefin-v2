@@ -109,6 +109,7 @@ library LibDoefinStorage {
     }
 
     struct TakerOrderContext {
+        uint256 orderId;
         address taker;
         uint256 positionId;
         uint256 amount;
