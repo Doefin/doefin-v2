@@ -51,7 +51,7 @@ contract MarketDataFacet is IMarketData {
         bytes32 parentCollectionId,
         address collateralToken
     ) external override view returns (uint256[] memory positionIds) {
-        LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
         
         // Create the market key using centralized helper
         bytes32 marketKeyHash = LibPositionRegistry.buildMarketKey(conditionId, parentCollectionId, collateralToken);
@@ -84,7 +84,7 @@ contract MarketDataFacet is IMarketData {
         bytes32 parentCollectionId,
         address collateralToken
     ) external override view returns (LibDoefinStorage.MarketMetadata memory metadata) {
-        LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
         
         // Create the market key using centralized helper
         bytes32 marketKeyHash = LibPositionRegistry.buildMarketKey(conditionId, parentCollectionId, collateralToken);
@@ -117,7 +117,7 @@ contract MarketDataFacet is IMarketData {
         address collateralToken = LibPositionRegistry.getCollateralToken(positionId);
 
         // Get unit from admin config storage
-        LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
         return ds.adminConfigStorage.unitPerPair[collateralToken];
     }
 
@@ -129,7 +129,7 @@ contract MarketDataFacet is IMarketData {
         LibPositionRegistry.validatePositionId(positionId);
 
         // Use existing mapping
-        LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
         return ds.positionRegistry.conditionIdByPositionId[positionId];
     }
 
@@ -164,7 +164,7 @@ contract MarketDataFacet is IMarketData {
         LibPositionRegistry.validatePositionId(positionId);
 
         // Get all information efficiently
-        LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
         conditionId = ds.positionRegistry.conditionIdByPositionId[positionId];
         collateralToken = LibPositionRegistry.getCollateralToken(positionId);
         complementId = LibPositionRegistry.getComplement(positionId);

@@ -11,7 +11,7 @@ import {IExchange} from "../interfaces/IExchange.sol";
  * @notice Refactored exchange facet using the new library architecture
  */
 contract ExchangeFacet is IExchange {
-    using LibDoefinStorage for LibDoefinStorage.DiamondStorage;
+    using LibDoefinStorage for LibDoefinStorage.AppStorage;
 
     /// @notice Create a new limit order
     function createLimitOrder(
@@ -45,16 +45,16 @@ contract ExchangeFacet is IExchange {
     }
 
     function getNextOrderId() external view returns (uint256) {
-        return LibDoefinStorage.diamondStorage().orderbookStorage.nextOrderId;
+        return LibDoefinStorage.appStorage().orderbookStorage.nextOrderId;
     }
 
     function getOrder(uint256 orderId) external view returns (LibDoefinStorage.Order memory) {
-        LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
         return ds.orderbookStorage.orders[orderId];
     }
 
     function getOrderbook(uint256 positionId, LibDoefinStorage.OrderDirection direction) external view returns (uint256[] memory) {
-        LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
 
         if (direction == LibDoefinStorage.OrderDirection.Buy) {
             return ds.orderbookStorage.buyOrdersByPosition[positionId];
@@ -69,7 +69,7 @@ contract ExchangeFacet is IExchange {
      * @return orders Array of order details
      */
     function getOrders(uint256[] calldata orderIds) external view returns (LibDoefinStorage.Order[] memory orders) {
-        LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
         orders = new LibDoefinStorage.Order[](orderIds.length);
 
         for (uint256 i = 0; i < orderIds.length; i++) {

@@ -11,7 +11,7 @@ import {Events} from "./Events.sol";
 
 /// @title LibOrderbook - Handles creation, modification, and cancellation of orders
 library LibOrderbook {
-    using LibDoefinStorage for LibDoefinStorage.DiamondStorage;
+    using LibDoefinStorage for LibDoefinStorage.AppStorage;
 
     /// @notice Create a new limit order and lock collateral
     function createOrder(
@@ -25,7 +25,7 @@ library LibOrderbook {
         LibDoefinStorage.OrderDirection direction,
         LibDoefinStorage.ExecutionType executionType
     ) internal returns (uint256 orderId) {
-        LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
         uint256 unitsPerPair = ds.adminConfigStorage.unitPerPair[collateralToken];
         if (unitsPerPair == 0) {
             revert Errors.TokenNotAllowed();
@@ -93,7 +93,7 @@ library LibOrderbook {
 
     /// @notice Cancel an open order and release collateral
     function cancelOrder(uint256 orderId, address sender) internal {
-        LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
         LibDoefinStorage.Order storage order = ds.orderbookStorage.orders[orderId];
         if (order.maker != sender) revert Errors.NotAuthorizedToCancel();
 
@@ -115,7 +115,7 @@ library LibOrderbook {
         uint256 newMinFillAmount,
         uint256 newExpiry
     ) internal {
-        LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
         LibDoefinStorage.Order storage order = ds.orderbookStorage.orders[orderId];
 
         if (order.maker != maker) revert Errors.NotAuthorizedToCancel();
@@ -166,7 +166,7 @@ library LibOrderbook {
     }
 
     function _insertSorted(LibDoefinStorage.Order memory order) internal {
-        LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
         uint256[] storage book = order.direction == LibDoefinStorage.OrderDirection.Buy
             ? ds.orderbookStorage.buyOrdersByPosition[order.positionId]
             : ds.orderbookStorage.sellOrdersByPosition[order.positionId];
@@ -198,7 +198,7 @@ library LibOrderbook {
 
     /// @dev Remove an orderId from orderbook array
     function removeOrderFromOrderbook(LibDoefinStorage.Order memory order) internal {
-        LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
         uint256[] storage book = order.direction == LibDoefinStorage.OrderDirection.Buy
             ? ds.orderbookStorage.buyOrdersByPosition[order.positionId]
             : ds.orderbookStorage.sellOrdersByPosition[order.positionId];

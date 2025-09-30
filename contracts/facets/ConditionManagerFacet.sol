@@ -12,7 +12,7 @@ import {Errors} from "../libraries/Errors.sol";
 import {Events} from "../libraries/Events.sol";
 
 contract ConditionManagerFacet is IConditionManager {
-    using LibDoefinStorage for LibDoefinStorage.DiamondStorage;
+    using LibDoefinStorage for LibDoefinStorage.AppStorage;
 
     function createCondition(
         address oracle,
@@ -24,7 +24,7 @@ contract ConditionManagerFacet is IConditionManager {
         if (outcomeSlotCount <= 1) {
             revert Errors.InvalidOutcomeSlotCount();
         }
-        LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
         conditionId = LibCTFCondition.prepareCondition(oracle, questionId, outcomeSlotCount);
 
         ds.conditionManager.conditions[conditionId] = LibDoefinStorage.Condition({
@@ -48,12 +48,12 @@ contract ConditionManagerFacet is IConditionManager {
             LibDoefinStorage.Condition memory
         )
     {
-        LibDoefinStorage.Condition storage condition = LibDoefinStorage.diamondStorage().conditionManager.conditions[conditionId];
+        LibDoefinStorage.Condition storage condition = LibDoefinStorage.appStorage().conditionManager.conditions[conditionId];
         return condition;
     }
 
     function cancelCondition(bytes32 conditionId) external override {
-        LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
         LibDoefinStorage.Condition storage cond = ds.conditionManager.conditions[conditionId];
         if (cond.creator == address(0)) {
             revert Errors.ConditionDoesNotExist();

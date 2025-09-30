@@ -9,7 +9,7 @@ import {Events} from "./Events.sol";
 
 library LibPositionRegistry {
     function getComplement(uint256 positionId) internal view returns (uint256) {
-        LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
         validatePositionId(positionId);
 
         bytes32 marketKey = ds.positionRegistry.marketKeyByPositionId[positionId];
@@ -29,7 +29,7 @@ library LibPositionRegistry {
     }
 
     function getCollateralToken(uint256 positionId) internal view returns (address) {
-        LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
         validatePositionId(positionId);
 
         bytes32 marketKey = ds.positionRegistry.marketKeyByPositionId[positionId];
@@ -37,7 +37,7 @@ library LibPositionRegistry {
     }
 
     function retrieveConditionId(uint256 positionId1, uint256 positionId2) internal view returns (bytes32) {
-        LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
         
         // Validate both positions exist
         validatePositionId(positionId1);
@@ -54,13 +54,13 @@ library LibPositionRegistry {
     }
 
     function getConditionId(uint256 positionId) internal view returns (bytes32) {
-        LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
         validatePositionId(positionId);
         return ds.positionRegistry.conditionIdByPositionId[positionId];
     }
 
     function validatePositionId(uint256 positionId) internal view {
-        LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
         if (ds.positionRegistry.marketKeyByPositionId[positionId] == bytes32(0)) {
             revert Errors.InvalidPositionId();
         }
@@ -70,7 +70,7 @@ library LibPositionRegistry {
         validatePositionId(positionId);
         validatePositionId(complementPositionId);
 
-        LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
         
         // They must belong to the same market
         bytes32 positionMarketKey = ds.positionRegistry.marketKeyByPositionId[positionId];
@@ -89,7 +89,7 @@ library LibPositionRegistry {
         address collateralToken
     ) internal {
         if (positionIds.length != partitions.length) revert Errors.MismatchedInputLengths();
-        LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
         
         // Create unique market key
         bytes32 marketKey = buildMarketKey(conditionId, parentCollectionId, collateralToken);
@@ -152,7 +152,7 @@ library LibPositionRegistry {
     
     // Get specific market metadata for a position
     function getMarketMetadata(uint256 positionId) internal view returns (LibDoefinStorage.MarketMetadata memory) {
-        LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
         validatePositionId(positionId);
         
         bytes32 marketKey = ds.positionRegistry.marketKeyByPositionId[positionId];
@@ -160,7 +160,7 @@ library LibPositionRegistry {
     }
 
     function getMarketsForCondition(bytes32 conditionId) internal view returns (LibDoefinStorage.MarketMetadata[] memory) {
-        LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
         bytes32[] memory marketKeys = ds.positionRegistry.marketKeysByCondition[conditionId];
         
         LibDoefinStorage.MarketMetadata[] memory markets = new LibDoefinStorage.MarketMetadata[](marketKeys.length);
@@ -184,7 +184,7 @@ library LibPositionRegistry {
     }
     
     function getMarketCount(bytes32 conditionId) internal view returns (uint256) {
-        LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
         return ds.positionRegistry.marketKeysByCondition[conditionId].length;
     }
 }

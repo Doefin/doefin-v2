@@ -26,7 +26,7 @@ library LibFeeManager {
      * @return orderFeeConfig The current fee configuration
      */
     function getMarketFees() internal view returns (LibDoefinStorage.OrderFeeConfig memory orderFeeConfig) {
-        LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
         orderFeeConfig = LibDoefinStorage.OrderFeeConfig({
             makerFeeBps: ds.adminConfigStorage.makerTradingFeeBps,
             takerFeeBps: ds.adminConfigStorage.takerTradingFeeBps
@@ -43,7 +43,7 @@ library LibFeeManager {
      * @return The maker fee amount
      */
     function computeMakerFee(uint256 cost) internal view returns (uint256) {
-        uint256 bps = LibDoefinStorage.diamondStorage().adminConfigStorage.makerTradingFeeBps;
+        uint256 bps = LibDoefinStorage.appStorage().adminConfigStorage.makerTradingFeeBps;
         return Math.mulDiv(cost, bps, 10_000);
     }
 
@@ -63,7 +63,7 @@ library LibFeeManager {
             uint256 cost
         )
     {
-        LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
         LibDoefinStorage.Order memory makerOrder = settlementExecCtx.makerOrder;
 
         address token = makerOrder.collateralToken;
@@ -97,7 +97,7 @@ library LibFeeManager {
             uint256 takerContribution
         )
     {
-        LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
         address collateralToken = makerOrder.collateralToken;
         uint256 unitPerPair = ds.adminConfigStorage.unitPerPair[collateralToken];
 
@@ -128,7 +128,7 @@ library LibFeeManager {
         uint256 totalFees = makerFee + takerFee;
         if (totalFees == 0) return;
 
-        LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
         ds.escrowStorage.protocolFees[token] += totalFees;
 
         emit Events.ProtocolFeesAccrued(token, totalFees, ds.escrowStorage.protocolFees[token]);
@@ -152,7 +152,7 @@ library LibFeeManager {
         // Enforce admin access
         LibDiamond.enforceIsContractOwner();
 
-        LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
 
         // Validate token
         if (token == address(0)) revert Errors.InvalidTokenAddress();
@@ -220,7 +220,7 @@ library LibFeeManager {
      * @return The accumulated fee amount
      */
     function getAccumulatedFees(address token) internal view returns (uint256) {
-        return LibDoefinStorage.diamondStorage().escrowStorage.protocolFees[token];
+        return LibDoefinStorage.appStorage().escrowStorage.protocolFees[token];
     }
 
     /**
@@ -230,7 +230,7 @@ library LibFeeManager {
      */
     function getAccumulatedFeesForTokens(address[] memory tokens) internal view returns (uint256[] memory fees) {
         fees = new uint256[](tokens.length);
-        LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
 
         for (uint256 i = 0; i < tokens.length; i++) {
             fees[i] = ds.escrowStorage.protocolFees[tokens[i]];
@@ -243,7 +243,7 @@ library LibFeeManager {
      * @return True if fees are available
      */
     function hasFeesAvailable(address token) internal view returns (bool) {
-        return LibDoefinStorage.diamondStorage().escrowStorage.protocolFees[token] > 0;
+        return LibDoefinStorage.appStorage().escrowStorage.protocolFees[token] > 0;
     }
 
     // ----------------------------------------
@@ -257,7 +257,7 @@ library LibFeeManager {
      * @return receiver The configured fee receiver
      */
     function getFeeStatistics(address token) internal view returns (uint256 available, address receiver) {
-        LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
         available = ds.escrowStorage.protocolFees[token];
         receiver = ds.adminConfigStorage.feeReceiver;
     }

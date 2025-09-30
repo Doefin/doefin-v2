@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0
-// Based on Diamond Standard by Nick Mudge: https://github.com/mudgen/diamond-3-hardhat
-// Uses shared logic from Gnosis Conditional Tokens Framework: https://github.com/gnosis/conditional-tokens-contracts
-
 pragma solidity ^0.8.6;
 
 library LibDoefinStorage {
     bytes32 constant STORAGE_POSITION = keccak256("doefin.storage");
+    
+    // Add initialization flag
+    bytes32 constant INITIALIZED_POSITION = keccak256("doefin.storage.initialized");
 
     struct ERC1155Storage {
         mapping(uint256 => mapping(address => uint256)) erc1155Balances;
@@ -164,14 +164,7 @@ library LibDoefinStorage {
 
     /// @notice Global storage layout for the Orderbook facet/module
     struct OrderbookStorageStruct {
-        uint256 nextOrderId;
-        /// @notice Mapping from order ID to Order struct
-        mapping(uint256 => Order) orders;
-        /// @notice Mapping of position ID to array of active buy order IDs
-        mapping(uint256 => uint256[]) buyOrdersByPosition;
-        /// @notice Mapping of position ID to array of active sell order IDs
-        mapping(uint256 => uint256[]) sellOrdersByPosition;
-        /// @notice Added Extra Gaps for safe upgrades
+        // Your orderbook storage fields
         uint256[20] __gap;
     }
 
@@ -201,11 +194,13 @@ library LibDoefinStorage {
         mapping(uint256 => bytes32) marketKeyByPositionId;   // positionId => marketKey
         uint256[10] __gap;
     }
+
     struct ReentrancyStorage {
         uint256 _status;
         uint256[10] __gap;
     }
-    struct DiamondStorage {
+
+    struct AppStorage {
         ConditionalTokensStorage conditionalTokens;
         ConditionManagerStorage conditionManager;
         AccessControlStorage accessControl;
@@ -218,10 +213,33 @@ library LibDoefinStorage {
         uint256[50] __gap;
     }
 
-    function diamondStorage() internal pure returns (DiamondStorage storage ds) {
+    function appStorage() internal pure returns (AppStorage storage ds) {
         bytes32 position = STORAGE_POSITION;
         assembly {
             ds.slot := position
         }
+    }
+
+    /// @notice Check if storage has been initialized
+    function isInitialized() internal view returns (bool initialized) {
+        bytes32 position = INITIALIZED_POSITION;
+        assembly {
+            initialized := sload(position)
+        }
+    }
+
+    /// @notice Mark storage as initialized
+    function setInitialized() internal {
+        bytes32 position = INITIALIZED_POSITION;
+        assembly {
+            sstore(position, 1)
+        }
+    }
+
+    /// @notice Get storage with initialization check
+    /// @dev This ensures storage is accessed only after proper initialization
+    function appStorageSafe() internal view returns (AppStorage storage ds) {
+        require(isInitialized(), "LibDoefinStorage: Not initialized");
+        return appStorage();
     }
 }

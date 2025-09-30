@@ -37,7 +37,7 @@ library LibCollateralManager {
     ) internal {
         if (amount == 0) return;
 
-        LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
 
         uint256 unitPerPair = ds.adminConfigStorage.unitPerPair[collateralToken];
         if (unitPerPair == 0) revert Errors.TokenNotAllowed();
@@ -66,7 +66,7 @@ library LibCollateralManager {
     }
 
     function refundSurplus(uint256 takerPaidPerToken, uint256 tradeEffectivePrice, uint256 filledAmount, address taker, address collateralToken) internal {
-        LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
         uint256 residue = takerPaidPerToken - tradeEffectivePrice;
         uint256 unitPerPair = ds.adminConfigStorage.unitPerPair[collateralToken];
         if (residue > 0){
@@ -96,7 +96,7 @@ library LibCollateralManager {
     ) internal {
         if (amount == 0) return;
 
-        LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
 
         uint256 unitPerPair = ds.adminConfigStorage.unitPerPair[collateralToken];
         if (unitPerPair == 0) revert Errors.TokenNotAllowed();
@@ -152,7 +152,7 @@ library LibCollateralManager {
     ) internal {
         if (amount == 0) return;
 
-        LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
 
         // Transfer tokens from user to contract
         LibERC1155.safeTransferFrom(address(this), user, address(this), positionId, amount, "");
@@ -183,7 +183,7 @@ library LibCollateralManager {
         // Transfer tokens back to user
         LibERC1155.safeTransferFrom(address(this), address(this), user, positionId, amount, "");
 
-        uint256 newBalance = LibDoefinStorage.diamondStorage().escrowStorage.lockedERC1155Balances[user][positionId];
+        uint256 newBalance = LibDoefinStorage.appStorage().escrowStorage.lockedERC1155Balances[user][positionId];
         emit Events.ERC1155CollateralReleased(user, positionId, amount, newBalance);
     }
 
@@ -231,7 +231,7 @@ library LibCollateralManager {
      * @return The collateral balance
      */
     function getERC20CollateralBalance(address user, address token) internal view returns (uint256) {
-        return LibDoefinStorage.diamondStorage().escrowStorage.collateralBalances[user][token];
+        return LibDoefinStorage.appStorage().escrowStorage.collateralBalances[user][token];
     }
 
     /**
@@ -241,7 +241,7 @@ library LibCollateralManager {
      * @return The collateral balance
      */
     function getERC1155CollateralBalance(address user, uint256 positionId) internal view returns (uint256) {
-        return LibDoefinStorage.diamondStorage().escrowStorage.lockedERC1155Balances[user][positionId];
+        return LibDoefinStorage.appStorage().escrowStorage.lockedERC1155Balances[user][positionId];
     }
 
     // ----------------------------------------
@@ -259,7 +259,7 @@ library LibCollateralManager {
         address token,
         uint256 amount
     ) internal {
-        LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
 
         if (ds.escrowStorage.collateralBalances[user][token] < amount) {
             revert Errors.InsufficientERC20EscrowBalance(user, token, amount, ds.escrowStorage.collateralBalances[user][token]);
@@ -279,7 +279,7 @@ library LibCollateralManager {
         uint256 positionId,
         uint256 amount
     ) internal {
-        LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
 
         if (ds.escrowStorage.lockedERC1155Balances[user][positionId] < amount) {
             revert Errors.InsufficientERC1155Balance(user, positionId, amount, ds.escrowStorage.lockedERC1155Balances[user][positionId]);
@@ -299,7 +299,7 @@ library LibCollateralManager {
         uint256 oldCost,
         uint256 newCost
     ) internal {
-        LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
 
         uint256 oldFee = (oldCost * modifyCtx.makerFeeBps) / 10_000;
         uint256 newFee = (newCost * modifyCtx.makerFeeBps) / 10_000;

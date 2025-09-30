@@ -30,7 +30,9 @@ import {IAdminConfig} from "../interfaces/IAdminConfig.sol";
 contract DiamondInit {
     // You can add parameters to this function in order to pass in
     // data to set your own state variables
-    function init() external {
+    function init(address _owner) external {
+        LibDiamond.setContractOwner(_owner);
+
         // adding ERC165 data
         LibDiamond.DiamondStorage storage ds = LibDiamond.diamondStorage();
         ds.supportedInterfaces[type(IERC165).interfaceId] = true;
@@ -43,7 +45,7 @@ contract DiamondInit {
         ds.supportedInterfaces[type(IAccessControl).interfaceId] = true;
         ds.supportedInterfaces[type(IAdminConfig).interfaceId] = true;
 
-        LibDoefinStorage.DiamondStorage storage dfs = LibDoefinStorage.diamondStorage();
+        LibDoefinStorage.AppStorage storage dfs = LibDoefinStorage.appStorage();
         dfs.adminConfigStorage.feeReceiver = msg.sender;
         dfs.adminConfigStorage.resolutionFeeBps = 500;
         dfs.adminConfigStorage.makerTradingFeeBps = 100;

@@ -10,7 +10,7 @@ import {Events} from "./Events.sol";
 
 /// @title LibMatchEngine - Simulates and ranks order matches from multiple sources (orderbook, mint, merge)
 library LibMatchEngine {
-    using LibDoefinStorage for LibDoefinStorage.DiamondStorage;
+    using LibDoefinStorage for LibDoefinStorage.AppStorage;
 
     function simulateMarketOrder(
         uint256 positionId,
@@ -36,13 +36,13 @@ library LibMatchEngine {
     }
 
     function retrieveCollateralUnit(uint256 positionId) internal view returns (uint256) {
-        LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
         address collateralToken = LibPositionRegistry.getCollateralToken(positionId);
         return ds.adminConfigStorage.unitPerPair[collateralToken];
     }
 
     function findPotentialMatchesForOrder(uint256 takerId) internal view returns (uint256[] memory makerIds) {
-        LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
         LibDoefinStorage.Order storage takerOrder = ds.orderbookStorage.orders[takerId];
 
         (
@@ -69,7 +69,7 @@ library LibMatchEngine {
         uint256[] storage mintOrMergeOrders,
         LibDoefinStorage.MatchType siblingMatchType
     ) internal view returns (uint256[] memory makerIds) {
-        LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
         uint256 totalPotential = complementaryOrders.length + mintOrMergeOrders.length;
         uint256[] memory tempIds = new uint256[](totalPotential);
         uint256 remaining = takerOrder.remainingAmount;
@@ -132,7 +132,7 @@ library LibMatchEngine {
             LibDoefinStorage.MatchType siblingMatchType
         )
     {
-        LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
         // Determine sibling (complementary) position
         uint256 complementPositionId = LibPositionRegistry.getComplement(positionId);
 
@@ -178,7 +178,7 @@ library LibMatchEngine {
     }
 
     function _selectBestMatch(
-        LibDoefinStorage.DiamondStorage storage ds,
+        LibDoefinStorage.AppStorage storage ds,
         LibDoefinStorage.SimulationContext memory ctx,
         uint256 i,
         uint256 j,
@@ -252,7 +252,7 @@ library LibMatchEngine {
         view
         returns (LibDoefinStorage.MatchOrderRoute memory route)
     {
-        LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
 
         LibDoefinStorage.Match[] memory tempMatches = new LibDoefinStorage.Match[](
             ctx.complementaryOrders.length + ctx.mintOrMergeOrders.length
@@ -302,7 +302,7 @@ library LibMatchEngine {
         } else {
             // Maker wants to buy one token → taker buying the opposite side
             // Price for taker = 1 - makerPrice
-            LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
+            LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
             uint256 unit = ds.adminConfigStorage.unitPerPair[makerOrder.collateralToken];
             basePrice = unit - makerOrder.pricePerToken;
         }

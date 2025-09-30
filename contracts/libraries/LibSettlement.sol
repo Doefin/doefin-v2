@@ -26,7 +26,7 @@ library LibSettlement {
      * @notice Fill limit orders against maker orders (for ExchangeFacet via LibOrderbook)  
      */
     function fillLimitOrders(uint256 takerId, uint256[] memory makerIds) internal {
-        LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
         LibDoefinStorage.Order storage takerOrderStorage = ds.orderbookStorage.orders[takerId];
         _validateOrder(takerOrderStorage);
 
@@ -60,7 +60,7 @@ library LibSettlement {
         LibDoefinStorage.Match[] memory matches,
         LibDoefinStorage.ExecutionType executionType
     ) internal {
-        LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
         uint256 totalValue = 0;
         
         for (uint256 i = 0; i < matches.length && takerOrder.remainingAmount > 0; ++i) {
@@ -123,7 +123,7 @@ library LibSettlement {
         LibDoefinStorage.Order storage takerOrderStorage,
         uint256[] memory makerIds
     ) internal view returns (LibDoefinStorage.Match[] memory matches) {
-        LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
         
         LibDoefinStorage.Match[] memory tempMatches = new LibDoefinStorage.Match[](makerIds.length);
         uint256 matchCount = 0;
@@ -190,7 +190,7 @@ library LibSettlement {
         LibDoefinStorage.Match[] memory matches,
         address executor
     ) internal {
-        LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
         LibDoefinStorage.Order storage takerOrder = ds.orderbookStorage.orders[takerId];
         
         uint256 filledAmount = takerOrder.remainingAmount - takerCtx.remainingAmount;
@@ -303,7 +303,7 @@ library LibSettlement {
     }
 
     function _getOrderMaker(uint256 orderId) internal view returns (address) {
-        LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
         return ds.orderbookStorage.orders[orderId].maker;
     }
 
