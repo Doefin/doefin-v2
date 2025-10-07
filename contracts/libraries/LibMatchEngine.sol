@@ -3,6 +3,7 @@
 
 pragma solidity ^0.8.6;
 
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {LibDoefinStorage} from "./LibDoefinStorage.sol";
 import {LibPositionRegistry} from "./LibPositionRegistry.sol";
 import {Errors} from "./Errors.sol";
@@ -38,7 +39,9 @@ library LibMatchEngine {
     function retrieveCollateralUnit(uint256 positionId) internal view returns (uint256) {
         LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
         address collateralToken = LibPositionRegistry.getCollateralToken(positionId);
-        return ds.adminConfigStorage.unitPerPair[collateralToken];
+        uint256 unit = ds.adminConfigStorage.unitPerPair[collateralToken];
+        if (unit == 0) revert Errors.TokenNotAllowed();
+        return unit;
     }
 
     function findPotentialMatchesForOrder(uint256 takerId) internal view returns (uint256[] memory makerIds) {
@@ -79,11 +82,13 @@ library LibMatchEngine {
             if (compAvailable) compOrder = ds.orderbookStorage.orders[complementaryOrders[i]];
             if (sibAvailable) sibOrder = ds.orderbookStorage.orders[mintOrMergeOrders[j]];
 
+            bool compOrderValid = compAvailable && compOrder.remainingAmount > 0;
+            bool sibOrderValid = sibAvailable && sibOrder.remainingAmount > 0;
             (LibDoefinStorage.Match memory execution, bool pickComp, bool exhausted) = _pickBestOrder(
                 compOrder,
                 sibOrder,
-                compAvailable && compOrder.remainingAmount > 0,
-                sibAvailable && sibOrder.remainingAmount > 0,
+                compOrderValid,
+                sibOrderValid,
                 takerOrder.direction,
                 siblingMatchType,
                 remaining
@@ -156,7 +161,12 @@ library LibMatchEngine {
         uint256 effCompPrice = effectiveTakerPrice(compOrder, direction, LibDoefinStorage.MatchType.Complementary);
         uint256 effSibPrice = effectiveTakerPrice(sibOrder, direction, siblingMatchType);
 
-        pickComp = direction == LibDoefinStorage.OrderDirection.Buy ? effCompPrice <= effSibPrice : effCompPrice >= effSibPrice;
+        // Respecting Price-Time priority
+        if (effCompPrice == effSibPrice) {
+            pickComp = compOrder.createdAt <= sibOrder.createdAt;
+        } else {
+            pickComp = direction == LibDoefinStorage.OrderDirection.Buy ? effCompPrice <= effSibPrice : effCompPrice >= effSibPrice;
+        }
 
         LibDoefinStorage.Order memory best = pickComp ? compOrder : sibOrder;
         LibDoefinStorage.MatchType matchType = pickComp ? LibDoefinStorage.MatchType.Complementary : siblingMatchType;
@@ -256,7 +266,7 @@ library LibMatchEngine {
 
             tempMatches[lc.matchCount] = execution;
             route.totalInputAmount += execution.amount;
-            route.totalOutputAmount += (execution.amount * execution.effectivePrice) / ctx.collateralUnit;
+            route.totalOutputAmount += Math.mulDiv(execution.amount, execution.effectivePrice, ctx.collateralUnit);
             lc.remaining -= execution.amount;
             lc.matchCount++;
 

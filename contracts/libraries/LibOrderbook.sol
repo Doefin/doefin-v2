@@ -67,7 +67,9 @@ library LibOrderbook {
         }
 
         ds.orderbookStorage.orders[orderId] = order;
-        _insertSorted(order);
+        if (order.executionType == LibDoefinStorage.ExecutionType.Limit) {
+            _insertSorted(order);
+        }
 
         emit Events.OrderCreated(
             orderId,

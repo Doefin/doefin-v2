@@ -161,9 +161,6 @@ library LibSettlement {
                     takerOrderCtx.direction == LibDoefinStorage.OrderDirection.Buy
                 );
                 fillAmount = _min(affordableAmount, fillAmount);
-                if (fillAmount > 0) {
-                    totalValue += (fillAmount * effectivePrice) / collateralUnit;
-                }
             }
 
             // Check minimum fill amounts
@@ -184,6 +181,11 @@ library LibSettlement {
 
             tempRemainingAmount -= fillAmount;
             matchCount++;
+
+            if (takerOrderStorage.executionType == LibDoefinStorage.ExecutionType.Market) {
+                uint256 collateralUnit = ds.adminConfigStorage.unitPerPair[makerOrder.collateralToken];
+                totalValue += (fillAmount * effectivePrice) / collateralUnit;
+            }
         }
 
         // Resize to actual matches
