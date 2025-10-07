@@ -119,9 +119,12 @@ library LibFeeManager {
      * @param makerFee The maker fee amount
      * @param takerFee The taker fee amount
      * @param settlementExecCtx The settlement execution context containing trade details
+     * @param settlementExecCtx The settlement execution context containing trade details
      */
     function accrueFees(
         uint256 makerFee,
+        uint256 takerFee,
+        LibDoefinStorage.SettlementExecutionContext memory settlementExecCtx
         uint256 takerFee,
         LibDoefinStorage.SettlementExecutionContext memory settlementExecCtx
     ) internal {
@@ -133,6 +136,19 @@ library LibFeeManager {
         LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
         ds.escrowStorage.protocolFees[token] += totalFees;
 
+        emit Events.ProtocolFeesAccrued(
+            token,
+            settlementExecCtx.makerOrder.orderId,
+            settlementExecCtx.takerOrder.orderId,
+            settlementExecCtx.makerOrder.maker,
+            settlementExecCtx.takerOrder.taker,
+            settlementExecCtx.fillableAmount,
+            settlementExecCtx.makerOrder.pricePerToken,
+            makerFee,
+            takerFee,
+            totalFees,
+            ds.escrowStorage.protocolFees[token]
+        );
         emit Events.ProtocolFeesAccrued(
             token,
             settlementExecCtx.makerOrder.orderId,
