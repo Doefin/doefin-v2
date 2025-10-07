@@ -14,7 +14,7 @@ contract ExchangeFacet is IExchange {
     using LibDoefinStorage for LibDoefinStorage.AppStorage;
 
     /// @notice Create a new limit order
-    function createLimitOrder(
+    function createOrder(
         uint256 positionId,
         address collateralToken,
         uint256 amount,

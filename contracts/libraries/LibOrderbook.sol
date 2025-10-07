@@ -69,25 +69,44 @@ library LibOrderbook {
         ds.orderbookStorage.orders[orderId] = order;
         _insertSorted(order);
 
-        emit Events.OrderCreated(orderId, msg.sender, positionId, collateralToken, amount, pricePerToken, minFillAmount, expiry, direction);
+        emit Events.OrderCreated(
+            orderId,
+            msg.sender,
+            positionId,
+            collateralToken,
+            amount,
+            pricePerToken,
+            minFillAmount,
+            expiry,
+            direction,
+            executionType,
+            fillOrKill,
+            orderFeeConfig.makerFeeBps,
+            orderFeeConfig.takerFeeBps
+        );
 
-        _tryFillImmediately(order);
+        _tryFillImmediately(orderId);
     }
 
-    function _tryFillImmediately(LibDoefinStorage.Order memory order) internal {
+    function _tryFillImmediately(uint256 orderId) internal {
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
 
-        uint256[] memory makerIds = LibMatchEngine.findPotentialMatchesForOrder(order.orderId);
+        uint256[] memory makerIds = LibMatchEngine.findPotentialMatchesForOrder(orderId);
 
         if (makerIds.length > 0) {
-            LibSettlement.fillLimitOrders(order.orderId, makerIds);
-            if (order.executionType == LibDoefinStorage.ExecutionType.Market && 
-            order.fillOrKill && 
-            order.remainingAmount > 0) {
-            revert Errors.FillOrKillFailed();
-        }
-        } else if (order.executionType == LibDoefinStorage.ExecutionType.Market && order.fillOrKill) {
-            // Market order with fillOrKill but no matches found
-            revert Errors.FillOrKillFailed();
+            LibSettlement.fillOrders(orderId, makerIds);
+
+            // Re-read from storage after execution
+            LibDoefinStorage.Order storage order = ds.orderbookStorage.orders[orderId];
+            if (order.executionType == LibDoefinStorage.ExecutionType.Market && order.fillOrKill && order.remainingAmount > 0) {
+                revert Errors.FillOrKillFailed();
+            }
+        } else {
+            LibDoefinStorage.Order storage order = ds.orderbookStorage.orders[orderId];
+
+            if (order.executionType == LibDoefinStorage.ExecutionType.Market && order.fillOrKill) {
+                revert Errors.FillOrKillFailed();
+            }
         }
     }
 
@@ -147,10 +166,11 @@ library LibOrderbook {
         order.expiry = newExpiry;
 
         // Reorder the book if the price has changed.
-        if (newPricePerToken != order.pricePerToken) {
+        if (newPricePerToken != modifyCtx.oldPrice) {
             removeOrderFromOrderbook(order);
             _insertSorted(order);
         }
+
         emit Events.OrderModified(
             orderId,
             maker,
@@ -173,27 +193,32 @@ library LibOrderbook {
 
         uint256 price = order.pricePerToken;
 
-        uint256 i = 0;
+        // Binary search for insertion index - O(log n)
+        uint256 left = 0;
+        uint256 right = book.length;
 
-        // Ascending for Sell (lowest price first)
-        // Descending for Buy (highest price first)
-        while (i < book.length) {
-            uint256 existingPrice = ds.orderbookStorage.orders[book[i]].pricePerToken;
+        while (left < right) {
+            uint256 mid = (left + right) / 2;
+            uint256 existingPrice = ds.orderbookStorage.orders[book[mid]].pricePerToken;
+
+            // Ascending for Sell (lowest price first)
+            // Descending for Buy (highest price first)
             if (
                 (order.direction == LibDoefinStorage.OrderDirection.Sell && price < existingPrice) ||
                 (order.direction == LibDoefinStorage.OrderDirection.Buy && price > existingPrice)
             ) {
-                break;
+                right = mid;
+            } else {
+                left = mid + 1;
             }
-            i++;
         }
 
-        // Insert at position i
+        // Insert at position left
         book.push(order.orderId); // expand length
-        for (uint256 j = book.length - 1; j > i; j--) {
+        for (uint256 j = book.length - 1; j > left; j--) {
             book[j] = book[j - 1];
         }
-        book[i] = order.orderId;
+        book[left] = order.orderId;
     }
 
     /// @dev Remove an orderId from orderbook array

@@ -45,22 +45,16 @@ library LibMatchEngine {
         LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
         LibDoefinStorage.Order storage takerOrder = ds.orderbookStorage.orders[takerId];
 
-        (
-            uint256[] storage compOrders,
-            uint256[] storage sibOrders,
-            LibDoefinStorage.MatchType siblingMatchType
-        ) = retrieveTheBooksAndMatchType(takerOrder.positionId, takerOrder.direction);
+        (uint256[] storage compOrders, uint256[] storage sibOrders, LibDoefinStorage.MatchType siblingMatchType) = retrieveTheBooksAndMatchType(
+            takerOrder.positionId,
+            takerOrder.direction
+        );
 
         if (compOrders.length == 0 && sibOrders.length == 0) {
             return makerIds;
         }
 
-        makerIds = _findCrossingOrderIds(
-            takerOrder,
-            compOrders,
-            sibOrders,
-            siblingMatchType
-        );
+        makerIds = _findCrossingOrderIds(takerOrder, compOrders, sibOrders, siblingMatchType);
     }
 
     function _findCrossingOrderIds(
@@ -123,26 +117,27 @@ library LibMatchEngine {
         for (uint256 k = 0; k < count; k++) makerIds[k] = tempIds[k];
     }
 
-    function retrieveTheBooksAndMatchType(uint256 positionId, LibDoefinStorage.OrderDirection direction)
+    function retrieveTheBooksAndMatchType(
+        uint256 positionId,
+        LibDoefinStorage.OrderDirection direction
+    )
         internal
         view
-        returns (
-            uint256[] storage complementaryOrders,
-            uint256[] storage mintOrMergeOrders,
-            LibDoefinStorage.MatchType siblingMatchType
-        )
+        returns (uint256[] storage complementaryOrders, uint256[] storage mintOrMergeOrders, LibDoefinStorage.MatchType siblingMatchType)
     {
         LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
         // Determine sibling (complementary) position
         uint256 complementPositionId = LibPositionRegistry.getComplement(positionId);
 
+        bool isBuy = direction == LibDoefinStorage.OrderDirection.Buy;
+
         // Get orderbooks
-        complementaryOrders = direction == LibDoefinStorage.OrderDirection.Buy
+        complementaryOrders = isBuy
             ? ds.orderbookStorage.sellOrdersByPosition[positionId] // Buy YES → Sell YES (complementary)
             : ds.orderbookStorage.buyOrdersByPosition[positionId]; // Sell YES → Buy YES (complementary)
 
         // Get the match type
-        if (direction == LibDoefinStorage.OrderDirection.Buy) {
+        if (isBuy) {
             mintOrMergeOrders = ds.orderbookStorage.buyOrdersByPosition[complementPositionId]; // Buy NO → Mint YES
             siblingMatchType = LibDoefinStorage.MatchType.Mint;
         } else {
@@ -169,12 +164,7 @@ library LibMatchEngine {
 
         uint256 fillAmount = remaining < best.remainingAmount ? remaining : best.remainingAmount;
 
-        execution = LibDoefinStorage.Match({
-            matchedOrderId: best.orderId,
-            matchType: matchType,
-            amount: fillAmount,
-            effectivePrice: bestPrice
-        });
+        execution = LibDoefinStorage.Match({matchedOrderId: best.orderId, matchType: matchType, amount: fillAmount, effectivePrice: bestPrice});
     }
 
     function _selectBestMatch(
@@ -201,6 +191,7 @@ library LibMatchEngine {
         );
         if (!compAvailable && !sibAvailable) revert Errors.NoMatchableOrders();
     }
+
     function _pickBestOrder(
         LibDoefinStorage.Order memory compOrder,
         LibDoefinStorage.Order memory sibOrder,
@@ -228,8 +219,8 @@ library LibMatchEngine {
         LibDoefinStorage.MatchType matchType,
         LibDoefinStorage.OrderDirection direction,
         uint256 remaining,
-        bool pickComp
-    ) internal view returns (LibDoefinStorage.Match memory execution, bool, bool) {
+        bool isComplementaryOrder
+    ) internal view returns (LibDoefinStorage.Match memory execution, bool pickComp, bool exhausted) {
         uint256 price = effectiveTakerPrice(order, direction, matchType);
         execution = LibDoefinStorage.Match({
             matchedOrderId: order.orderId,
@@ -237,7 +228,8 @@ library LibMatchEngine {
             amount: remaining < order.remainingAmount ? remaining : order.remainingAmount,
             effectivePrice: price
         });
-        return (execution, pickComp, false);
+        pickComp = isComplementaryOrder;
+        exhausted = false;
     }
 
     struct LoopContext {
@@ -247,16 +239,12 @@ library LibMatchEngine {
         uint256 matchCount;
     }
 
-    function _simulateWithContext(LibDoefinStorage.SimulationContext memory ctx)
-        internal
-        view
-        returns (LibDoefinStorage.MatchOrderRoute memory route)
-    {
+    function _simulateWithContext(
+        LibDoefinStorage.SimulationContext memory ctx
+    ) internal view returns (LibDoefinStorage.MatchOrderRoute memory route) {
         LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
 
-        LibDoefinStorage.Match[] memory tempMatches = new LibDoefinStorage.Match[](
-            ctx.complementaryOrders.length + ctx.mintOrMergeOrders.length
-        );
+        LibDoefinStorage.Match[] memory tempMatches = new LibDoefinStorage.Match[](ctx.complementaryOrders.length + ctx.mintOrMergeOrders.length);
 
         route.totalInputAmount = 0;
         route.totalOutputAmount = 0;
@@ -285,15 +273,32 @@ library LibMatchEngine {
         return route;
     }
 
+    /// @notice Calculate the effective price per token that a taker will pay or receive when matching against a maker order
+    /// @dev This function computes the all-in price from the taker's perspective, including fees:
+    ///      - For BUY orders: returns the total cost per token (base price + taker fee)
+    ///      - For SELL orders: returns the net revenue per token (base price - taker fee)
+    ///
+    ///      Price calculation varies by match type:
+    ///      1. Complementary matches: Uses maker's price directly (same position, opposite direction)
+    ///      2. Mint/Merge matches: Uses complementary price (unitPerPair - maker's price) since
+    ///         the taker is trading the opposite outcome
+    ///
+    ///      Example scenarios:
+    ///      - BUY taker + complementary SELL at 0.6 USDC with 1% taker fee:
+    ///        basePrice = 0.6, effectivePrice = 0.606 (taker pays 0.606 per token)
+    ///      - BUY taker minting against complementary BUY at 0.6 USDC:
+    ///        basePrice = 1 - 0.6 = 0.4, effectivePrice = 0.404 with 1% fee
+    ///
+    /// @param makerOrder The maker order being matched against
+    /// @param takerDirection The direction of the taker order (Buy or Sell)
+    /// @param matchType The type of match (Complementary, Mint, or Merge)
+    /// @return The effective price per token in collateral token's smallest unit, scaled by unitPerPair.
+    ///         This is the actual amount the taker pays (buy) or receives (sell) per position token
     function effectiveTakerPrice(
         LibDoefinStorage.Order memory makerOrder,
         LibDoefinStorage.OrderDirection takerDirection,
         LibDoefinStorage.MatchType matchType
     ) internal view returns (uint256) {
-        // Fee is applied differently based on Buy/Sell
-        // For Buy: effective cost increases (taker pays more)
-        // For Sell: effective revenue decreases (taker receives less)
-
         uint256 basePrice;
 
         if (matchType == LibDoefinStorage.MatchType.Complementary) {
@@ -310,6 +315,24 @@ library LibMatchEngine {
             return (basePrice * (10_000 + makerOrder.orderFeeConfig.takerFeeBps)) / 10_000;
         } else {
             return (basePrice * (10_000 - makerOrder.orderFeeConfig.takerFeeBps)) / 10_000;
+        }
+    }
+
+    /// @notice Calculate the effective price from maker's perspective (includes maker fees)
+    /// @dev The maker's effective price is:
+    ///      - Buy maker: listed price + maker fee (total cost per token)
+    ///      - Sell maker: listed price - maker fee (net revenue per token)
+    ///      Note: Match type doesn't affect maker price - they only care about their listed price
+    /// @param makerOrder The maker order
+    /// @return The effective price per token the maker pays/receives, including maker fees
+    function effectiveMakerPrice(LibDoefinStorage.Order memory makerOrder) internal pure returns (uint256) {
+        uint256 makerPrice = makerOrder.pricePerToken;
+        if (makerOrder.direction == LibDoefinStorage.OrderDirection.Buy) {
+            // Buyer pays more: base price + maker fee
+            return (makerPrice * (10_000 + makerOrder.orderFeeConfig.makerFeeBps)) / 10_000;
+        } else {
+            // Seller receives less: base price - maker fee
+            return (makerPrice * (10_000 - makerOrder.orderFeeConfig.makerFeeBps)) / 10_000;
         }
     }
 }

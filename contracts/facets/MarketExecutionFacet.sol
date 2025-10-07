@@ -21,6 +21,7 @@ contract MarketExecutionFacet is IMarketExecution {
         LibDoefinStorage.Match[] calldata matches
     ) external {
         LibDoefinStorage.TakerOrderContext memory takerOrder = LibDoefinStorage.TakerOrderContext({
+            orderId: 0,
             taker: msg.sender,
             positionId: positionId,
             amount: amount,
@@ -41,7 +42,7 @@ contract MarketExecutionFacet is IMarketExecution {
     /// @notice Match a limit order against multiple maker orders
     /// @param takerId Order ID of the taker order
     /// @param makerIds Array of maker order IDs to match against
-    function fillLimitOrders(uint256 takerId, uint256[] calldata makerIds) external override {
-        LibSettlement.fillLimitOrders(takerId, makerIds);
+    function fillOrders(uint256 takerId, uint256[] calldata makerIds) external override {
+        LibSettlement.fillOrders(takerId, makerIds);
     }
 }

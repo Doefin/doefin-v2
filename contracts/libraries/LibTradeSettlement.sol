@@ -40,7 +40,7 @@ library LibTradeSettlement {
      * @notice Main settlement dispatcher that routes to appropriate settlement handler
      * @param settlementExecCtx The settlement execution context
      */
-    function executeSettlement(LibDoefinStorage.SettlementExecutionContext memory settlementExecCtx) internal {
+    function executeSettlement(LibDoefinStorage.SettlementExecutionContext memory settlementExecCtx) private {
         if (settlementExecCtx.matchType == LibDoefinStorage.MatchType.Complementary) {
             _handleComplementaryMatch(settlementExecCtx);
         } else if (settlementExecCtx.matchType == LibDoefinStorage.MatchType.Mint) {
@@ -70,7 +70,7 @@ library LibTradeSettlement {
         address collateralToken = settlementExecCtx.makerOrder.collateralToken;
 
         // Accrue protocol fees
-        LibFeeManager.accrueFees(collateralToken, makerFee, takerFee);
+        LibFeeManager.accrueFees(makerFee, takerFee, settlementExecCtx);
 
         _executeMintMatch(settlementExecCtx, collateralToken, makerContribution, takerContribution, makerFee, takerFee);
     }
@@ -142,7 +142,7 @@ library LibTradeSettlement {
         address collateralToken = settlementExecCtx.makerOrder.collateralToken;
 
         // Accrue protocol fees
-        LibFeeManager.accrueFees(collateralToken, makerFee, takerFee);
+        LibFeeManager.accrueFees(makerFee, takerFee, settlementExecCtx);
         
         // Consume maker's ERC1155 tokens
         LibCollateralManager.consumeERC1155Collateral(
@@ -191,10 +191,8 @@ library LibTradeSettlement {
         // Calculate fees
         (uint256 makerFee, uint256 takerFee, uint256 cost) = LibFeeManager.computeTradeExecutionFees(settlementExecCtx);
 
-        address collateralToken = settlementExecCtx.makerOrder.collateralToken;
-
         // Accrue protocol fees
-        LibFeeManager.accrueFees(collateralToken, makerFee, takerFee);
+        LibFeeManager.accrueFees(makerFee, takerFee, settlementExecCtx);
 
         // Handle different taker directions
         if (settlementExecCtx.takerOrder.direction == LibDoefinStorage.OrderDirection.Sell) {
@@ -447,7 +445,7 @@ library LibTradeSettlement {
      * @notice Validate settlement context before execution
      * @param settlementExecCtx The settlement execution context
      */
-    function validateSettlementContext(LibDoefinStorage.SettlementExecutionContext memory settlementExecCtx) internal view {
+    function validateSettlementContext(LibDoefinStorage.SettlementExecutionContext memory settlementExecCtx) private view {
         // Validate fillable amount
         if (settlementExecCtx.fillableAmount == 0) {
             revert Errors.ZeroAmount();
@@ -465,7 +463,7 @@ library LibTradeSettlement {
      * @notice Validate complementary match requirements
      * @param settlementExecCtx The settlement execution context
      */
-    function _validateComplementaryMatch(LibDoefinStorage.SettlementExecutionContext memory settlementExecCtx) internal pure {
+    function _validateComplementaryMatch(LibDoefinStorage.SettlementExecutionContext memory settlementExecCtx) private pure {
         // For complementary matches, positions must be the same
         if (settlementExecCtx.makerOrder.positionId != settlementExecCtx.takerOrder.positionId) {
             revert Errors.PositionIdMismatch();
@@ -481,7 +479,7 @@ library LibTradeSettlement {
      * @notice Validate mint/merge match requirements
      * @param settlementExecCtx The settlement execution context
      */
-    function _validateMintMergeMatch(LibDoefinStorage.SettlementExecutionContext memory settlementExecCtx) internal view {
+    function _validateMintMergeMatch(LibDoefinStorage.SettlementExecutionContext memory settlementExecCtx) private view {
         // For mint/merge matches, directions must be the same
         if (settlementExecCtx.makerOrder.direction != settlementExecCtx.takerOrder.direction) {
             revert Errors.DifferentOrderDirectionForNonComplementary();

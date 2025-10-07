@@ -18,5 +18,5 @@ interface IMarketExecution {
         LibDoefinStorage.Match[] calldata matches
     ) external;
 
-    function fillLimitOrders(uint256 takerId, uint256[] calldata makerIds) external;
+    function fillOrders(uint256 takerId, uint256[] calldata makerIds) external;
 }

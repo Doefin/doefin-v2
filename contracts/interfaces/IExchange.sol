@@ -8,7 +8,7 @@ import {LibDoefinStorage} from "../libraries/LibDoefinStorage.sol";
 
 interface IExchange {
     /// @notice Create a new limit order
-    function createLimitOrder(
+    function createOrder(
         uint256 positionId,
         address collateralToken,
         uint256 amount,

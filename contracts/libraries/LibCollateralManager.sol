@@ -210,12 +210,21 @@ library LibCollateralManager {
      * @param modifyCtx The modification context containing old and new order parameters
      */
     function adjustCollateralForModifiedOrder(LibDoefinStorage.ModifyCollateralContext memory modifyCtx) internal {
-        uint256 oldCost = modifyCtx.oldAmount * modifyCtx.oldPrice;
-        uint256 newCost = modifyCtx.newAmount * modifyCtx.newPrice;
-
         if (modifyCtx.direction == LibDoefinStorage.OrderDirection.Buy) {
+            LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
+            uint256 unitPerPair = ds.adminConfigStorage.unitPerPair[modifyCtx.collateralToken];
+            
+            uint256 oldCost = (modifyCtx.oldAmount * modifyCtx.oldPrice) / unitPerPair;
+            uint256 newCost = (modifyCtx.newAmount * modifyCtx.newPrice) / unitPerPair;
+            
+            // Early return if cost unchanged
+            if (oldCost == newCost) return;
+            
             _adjustERC20CollateralForModification(modifyCtx, oldCost, newCost);
         } else {
+            // Early return if amount unchanged (already handled inside the function)
+            if (modifyCtx.oldAmount == modifyCtx.newAmount) return;
+            
             _adjustERC1155CollateralForModification(modifyCtx);
         }
     }
