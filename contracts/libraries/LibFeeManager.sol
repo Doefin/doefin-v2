@@ -125,8 +125,6 @@ library LibFeeManager {
         uint256 makerFee,
         uint256 takerFee,
         LibDoefinStorage.SettlementExecutionContext memory settlementExecCtx
-        uint256 takerFee,
-        LibDoefinStorage.SettlementExecutionContext memory settlementExecCtx
     ) internal {
         uint256 totalFees = makerFee + takerFee;
         if (totalFees == 0) return;
