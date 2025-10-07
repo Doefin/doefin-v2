@@ -3,7 +3,7 @@ pragma solidity ^0.8.6;
 
 library LibDoefinStorage {
     bytes32 constant STORAGE_POSITION = keccak256("doefin.storage");
-    
+
     // Add initialization flag
     bytes32 constant INITIALIZED_POSITION = keccak256("doefin.storage.initialized");
 
@@ -109,6 +109,7 @@ library LibDoefinStorage {
     }
 
     struct TakerOrderContext {
+        uint256 orderId;
         address taker;
         uint256 positionId;
         uint256 amount;
@@ -127,7 +128,7 @@ library LibDoefinStorage {
 
     /// @notice Struct representing a single limit or market order
     /// @dev Each order maps to a specific ERC1155 position token and can be either a buy or a sell
-        struct Order {
+    struct Order {
         /// @notice Unique order identifier (incremental)
         uint256 orderId;
         /// @notice Creator of the order
@@ -150,7 +151,6 @@ library LibDoefinStorage {
         uint256 createdAt;
         /// @notice Maker and Taker Fees
         OrderFeeConfig orderFeeConfig;
-        
         // These 4 fields will be packed into a single slot (Slot 13):
         /// @notice Buy or Sell side of the order
         OrderDirection direction;
@@ -164,7 +164,14 @@ library LibDoefinStorage {
 
     /// @notice Global storage layout for the Orderbook facet/module
     struct OrderbookStorageStruct {
-        // Your orderbook storage fields
+        uint256 nextOrderId;
+        /// @notice Mapping from order ID to Order struct
+        mapping(uint256 => Order) orders;
+        /// @notice Mapping of position ID to array of active buy order IDs
+        mapping(uint256 => uint256[]) buyOrdersByPosition;
+        /// @notice Mapping of position ID to array of active sell order IDs
+        mapping(uint256 => uint256[]) sellOrdersByPosition;
+        /// @notice Added Extra Gaps for safe upgrades
         uint256[20] __gap;
     }
 
@@ -185,13 +192,11 @@ library LibDoefinStorage {
     struct PositionRegistryStorage {
         // Unique market metadata by composite key
         mapping(bytes32 => MarketMetadata) marketsByKey; // marketKey => metadata
-        
         // Track all market keys for a given conditionId
         mapping(bytes32 => bytes32[]) marketKeysByCondition; // conditionId => marketKey[]
-        
         // Reverse lookups
         mapping(uint256 => bytes32) conditionIdByPositionId; // positionId => conditionId
-        mapping(uint256 => bytes32) marketKeyByPositionId;   // positionId => marketKey
+        mapping(uint256 => bytes32) marketKeyByPositionId; // positionId => marketKey
         uint256[10] __gap;
     }
 
@@ -220,6 +225,24 @@ library LibDoefinStorage {
         }
     }
 
+    /// @notice Initialize critical storage values (call once during deployment)
+    function initialize(address feeReceiver, uint16 resolutionFeeBps, uint16 makerFeeBps, uint16 takerFeeBps) internal {
+        require(!isInitialized(), "Already initialized");
+
+        AppStorage storage ds = appStorage();
+
+        ds.orderbookStorage.nextOrderId = 1;
+        ds.reentrancyStorage._status = 1;
+
+        // Set admin config during initialization
+        ds.adminConfigStorage.feeReceiver = feeReceiver;
+        ds.adminConfigStorage.resolutionFeeBps = resolutionFeeBps;
+        ds.adminConfigStorage.makerTradingFeeBps = makerFeeBps;
+        ds.adminConfigStorage.takerTradingFeeBps = takerFeeBps;
+
+        setInitialized();
+    }
+
     /// @notice Check if storage has been initialized
     function isInitialized() internal view returns (bool initialized) {
         bytes32 position = INITIALIZED_POSITION;
@@ -234,12 +257,5 @@ library LibDoefinStorage {
         assembly {
             sstore(position, 1)
         }
-    }
-
-    /// @notice Get storage with initialization check
-    /// @dev This ensures storage is accessed only after proper initialization
-    function appStorageSafe() internal view returns (AppStorage storage ds) {
-        require(isInitialized(), "LibDoefinStorage: Not initialized");
-        return appStorage();
     }
 }

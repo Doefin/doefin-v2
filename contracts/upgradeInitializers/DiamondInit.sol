@@ -33,6 +33,14 @@ contract DiamondInit {
     function init(address _owner) external {
         LibDiamond.setContractOwner(_owner);
 
+        // Initialize Doefin storage with fee configuration
+        LibDoefinStorage.initialize(
+            msg.sender, // feeReceiver
+            500, // resolutionFeeBps (5%)
+            100, // makerTradingFeeBps (1%)
+            200 // takerTradingFeeBps (2%)
+        );
+
         // adding ERC165 data
         LibDiamond.DiamondStorage storage ds = LibDiamond.diamondStorage();
         ds.supportedInterfaces[type(IERC165).interfaceId] = true;
@@ -44,12 +52,6 @@ contract DiamondInit {
         ds.supportedInterfaces[type(IERC1155Facet).interfaceId] = true;
         ds.supportedInterfaces[type(IAccessControl).interfaceId] = true;
         ds.supportedInterfaces[type(IAdminConfig).interfaceId] = true;
-
-        LibDoefinStorage.AppStorage storage dfs = LibDoefinStorage.appStorage();
-        dfs.adminConfigStorage.feeReceiver = msg.sender;
-        dfs.adminConfigStorage.resolutionFeeBps = 500;
-        dfs.adminConfigStorage.makerTradingFeeBps = 100;
-        dfs.adminConfigStorage.takerTradingFeeBps = 200;
 
         // add your own state variables
         // EIP-2535 specifies that the `diamondCut` function takes two optional
