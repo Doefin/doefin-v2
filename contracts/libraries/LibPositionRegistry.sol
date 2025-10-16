@@ -146,8 +146,6 @@ library LibPositionRegistry {
             ds.positionRegistry.marketKeyByPositionId[positionIds[i]] = marketKey;
             ds.positionRegistry.conditionIdByPositionId[positionIds[i]] = conditionId;
         }
-        
-        emit Events.MarketMetadataUpdated(conditionId, meta.collateralToken, meta.parentCollectionId);
     }
     
     // Get specific market metadata for a position

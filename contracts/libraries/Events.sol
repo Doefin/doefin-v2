@@ -416,12 +416,6 @@ library Events {
         uint256[] partitions
     );
 
-    /// @notice Emitted when market metadata is updated
-    /// @param conditionId Condition identifier
-    /// @param collateralToken Address of the collateral token
-    /// @param parentCollectionId Parent collection identifier
-    event MarketMetadataUpdated(bytes32 indexed conditionId, address indexed collateralToken, bytes32 parentCollectionId);
-
     // ========================================
     // ERC1155 EVENTS
     // ========================================
