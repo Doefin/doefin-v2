@@ -182,7 +182,7 @@ library LibCTFCondition {
 
     function enforceConditionIsActive(bytes32 conditionId) internal view {
         LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
-        if (!ds.conditionManager.conditions[conditionId].active) {
+        if (!ds.conditionalTokens.conditions[conditionId].active) {
             revert Errors.ConditionNotActive();
         }
     }

@@ -35,7 +35,7 @@ contract DiamondInit {
 
         // Initialize Doefin storage with fee configuration
         LibDoefinStorage.initialize(
-            msg.sender, // feeReceiver
+            _owner, // feeReceiver
             500, // resolutionFeeBps (5%)
             100, // makerTradingFeeBps (1%)
             200 // takerTradingFeeBps (2%)

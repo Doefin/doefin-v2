@@ -27,14 +27,13 @@ contract ConditionManagerFacet is IConditionManager {
         LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
         conditionId = LibCTFCondition.prepareCondition(oracle, questionId, outcomeSlotCount);
 
-        ds.conditionManager.conditions[conditionId] = LibDoefinStorage.Condition({
+        ds.conditionalTokens.conditions[conditionId] = LibDoefinStorage.Condition({
             oracle: oracle,
             questionId: questionId,
             outcomeSlotCount: outcomeSlotCount,
             metadataURI: metadataURI,
             active: true,
-            creator: msg.sender,
-            __gap: [uint256(0), 0, 0, 0, 0, 0, 0, 0, 0, 0]
+            creator: msg.sender
         });
 
         emit Events.ConditionCreated(conditionId, oracle, questionId, outcomeSlotCount, metadataURI, msg.sender);
@@ -48,13 +47,13 @@ contract ConditionManagerFacet is IConditionManager {
             LibDoefinStorage.Condition memory
         )
     {
-        LibDoefinStorage.Condition storage condition = LibDoefinStorage.appStorage().conditionManager.conditions[conditionId];
+        LibDoefinStorage.Condition storage condition = LibDoefinStorage.appStorage().conditionalTokens.conditions[conditionId];
         return condition;
     }
 
     function cancelCondition(bytes32 conditionId) external override {
         LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
-        LibDoefinStorage.Condition storage cond = ds.conditionManager.conditions[conditionId];
+        LibDoefinStorage.Condition storage cond = ds.conditionalTokens.conditions[conditionId];
         if (cond.creator == address(0)) {
             revert Errors.ConditionDoesNotExist();
         }

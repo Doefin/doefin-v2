@@ -16,7 +16,8 @@ library LibDoefinStorage {
     struct ConditionalTokensStorage {
         mapping(bytes32 => uint256[]) payoutNumerators; // conditionId => numerators
         mapping(bytes32 => uint256) payoutDenominator; // conditionId => denominator
-        uint256[10] __gap;
+        mapping(bytes32 => Condition) conditions; // conditionId => Condition
+        uint256[50] __gap;
     }
 
     struct Condition {
@@ -26,12 +27,6 @@ library LibDoefinStorage {
         string metadataURI;
         bool active;
         address creator;
-        uint256[10] __gap;
-    }
-
-    struct ConditionManagerStorage {
-        mapping(bytes32 => Condition) conditions; // conditionId => Condition
-        uint256[10] __gap;
     }
 
     struct AccessControlStorage {
@@ -207,7 +202,6 @@ library LibDoefinStorage {
 
     struct AppStorage {
         ConditionalTokensStorage conditionalTokens;
-        ConditionManagerStorage conditionManager;
         AccessControlStorage accessControl;
         ERC1155Storage erc1155Storage;
         AdminConfigStorage adminConfigStorage;
