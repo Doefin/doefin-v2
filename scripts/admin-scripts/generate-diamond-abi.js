@@ -4,8 +4,8 @@ const path = require('path');
 async function main() {
     console.log("🔨 Generating Diamond Combined ABI...");
     
-    const artifactsDir = path.join(__dirname, '../artifacts/contracts');
-    const outputPath = path.join(__dirname, '../diamond-combined-abi.json');
+    const artifactsDir = path.join(__dirname, '../../artifacts/contracts');
+    const outputPath = path.join(__dirname, '../../diamond-combined-abi.json');
     
     // List of facet contract names to include
     const facetNames = [
@@ -15,7 +15,13 @@ async function main() {
         'ERC1155Facet',
         'DiamondCutFacet',
         'DiamondLoupeFacet',
-        'OwnershipFacet'
+        'OwnershipFacet',
+        'ExchangeFacet',
+        'MarketDataFacet',
+        'MarketExecutionFacet',
+        'AccessControlFacet',
+        'ERC1155ReceiverFacet',
+        'RouteSimulationFacet'
     ];
     
     const combinedAbi = [];
@@ -132,7 +138,7 @@ async function main() {
     }
     
     // Also create a simple ABI-only file for easy import
-    const simpleAbiPath = path.join(__dirname, '../diamond-abi.json');
+    const simpleAbiPath = path.join(__dirname, '../../diamond-abi.json');
     fs.writeFileSync(simpleAbiPath, JSON.stringify(output.abi, null, 2));
     console.log(`📄 Simple ABI: ${simpleAbiPath}`);
     
