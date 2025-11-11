@@ -66,8 +66,10 @@ library LibOrderbook {
             }
         } else {
             // For Standard orders, ensure no cross currency config is provided
-            if (crossCurrencyConfig.quoteCurrencyToken != address(0) || crossCurrencyConfig.exchangeRate != 0) {
-                revert Errors.MissingCrossCurrencyConfig();
+            if (crossCurrencyConfig.quoteCurrencyToken != address(0) || 
+                crossCurrencyConfig.exchangeRate != 0 || 
+                crossCurrencyConfig.exchangeRateType != LibDoefinStorage.ExchangeRateType.Fixed) {
+                revert Errors.UnexpectedCrossCurrencyConfig();
             }
         }
 

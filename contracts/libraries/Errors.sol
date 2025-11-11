@@ -187,8 +187,8 @@ library Errors {
     /// @notice Thrown when order is created with past expiry
     error OrderCreatedWithPastExpiry();
 
-    /// @notice Thrown when cross currency configuration is missing for cross currency orders
-    error MissingCrossCurrencyConfig();
+    /// @notice Thrown when cross currency configuration is unexpected for standard orders
+    error UnexpectedCrossCurrencyConfig();
 
     /// @notice Thrown when invalid quote currency token is provided
     error InvalidQuoteCurrencyToken();
