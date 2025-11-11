@@ -23,7 +23,9 @@ library LibOrderbook {
         uint256 expiry,
         bool fillOrKill,
         LibDoefinStorage.OrderDirection direction,
-        LibDoefinStorage.ExecutionType executionType
+        LibDoefinStorage.ExecutionType executionType,
+        LibDoefinStorage.OrderType orderType,
+        LibDoefinStorage.CrossCurrencyConfig memory crossCurrencyConfig
     ) internal returns (uint256 orderId) {
         LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
         uint256 unitsPerPair = ds.adminConfigStorage.unitPerPair[collateralToken];
@@ -40,6 +42,35 @@ library LibOrderbook {
             revert Errors.OrderCreatedWithPastExpiry();
         }
 
+        // Validate cross currency configuration if order type is CrossCurrency
+        if (orderType == LibDoefinStorage.OrderType.CrossCurrency) {
+            uint256 quoteUnitPerPair = ds.adminConfigStorage.unitPerPair[crossCurrencyConfig.quoteCurrencyToken];
+            if (quoteUnitPerPair == 0) {
+                revert Errors.TokenNotAllowed();
+            }
+            if (crossCurrencyConfig.quoteCurrencyToken == address(0)) {
+                revert Errors.InvalidQuoteCurrencyToken();
+            }
+            if (crossCurrencyConfig.quoteCurrencyToken == collateralToken) {
+                revert Errors.SameCollateralAndQuoteCurrency();
+            }
+            if (crossCurrencyConfig.exchangeRate == 0) {
+                revert Errors.InvalidExchangeRate();
+            }
+
+            // Dynamic exchange rate is only allowed for sell orders
+            if (
+                crossCurrencyConfig.exchangeRateType == LibDoefinStorage.ExchangeRateType.Dynamic && direction != LibDoefinStorage.OrderDirection.Sell
+            ) {
+                revert Errors.DynamicRateNotAllowedForBuyOrders();
+            }
+        } else {
+            // For Standard orders, ensure no cross currency config is provided
+            if (crossCurrencyConfig.quoteCurrencyToken != address(0) || crossCurrencyConfig.exchangeRate != 0) {
+                revert Errors.MissingCrossCurrencyConfig();
+            }
+        }
+
         orderId = ds.orderbookStorage.nextOrderId++;
 
         LibDoefinStorage.OrderFeeConfig memory orderFeeConfig = LibEscrowLogic.getMarketFees();
@@ -51,14 +82,16 @@ library LibOrderbook {
             collateralToken: collateralToken,
             amount: amount,
             remainingAmount: amount,
-            pricePerToken: pricePerToken,
             minFillAmount: minFillAmount,
+            pricePerToken: pricePerToken,
             expiry: expiry,
-            direction: direction,
             createdAt: block.timestamp,
-            active: true,
+            orderType: orderType,
             orderFeeConfig: orderFeeConfig,
+            crossCurrencyConfig: crossCurrencyConfig,
+            direction: direction,
             executionType: executionType,
+            active: true,
             fillOrKill: fillOrKill
         });
 
@@ -84,7 +117,11 @@ library LibOrderbook {
             executionType,
             fillOrKill,
             orderFeeConfig.makerFeeBps,
-            orderFeeConfig.takerFeeBps
+            orderFeeConfig.takerFeeBps,
+            orderType,
+            crossCurrencyConfig.quoteCurrencyToken,
+            crossCurrencyConfig.exchangeRateType,
+            crossCurrencyConfig.exchangeRate
         );
 
         _tryFillImmediately(orderId);
