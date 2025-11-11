@@ -23,9 +23,23 @@ contract ExchangeFacet is IExchange {
         uint256 expiry,
         bool fillOrKill,
         LibDoefinStorage.OrderDirection direction,
-        LibDoefinStorage.ExecutionType executionType
+        LibDoefinStorage.ExecutionType executionType,
+        LibDoefinStorage.OrderType orderType,
+        LibDoefinStorage.CrossCurrencyConfig memory crossCurrencyConfig
     ) external {
-        LibOrderbook.createOrder(positionId, collateralToken, amount, pricePerToken, minFillAmount, expiry, fillOrKill, direction, executionType);
+        LibOrderbook.createOrder(
+            positionId,
+            collateralToken,
+            amount,
+            pricePerToken,
+            minFillAmount,
+            expiry,
+            fillOrKill,
+            direction,
+            executionType,
+            orderType,
+            crossCurrencyConfig
+        );
     }
 
     /// @notice Cancel an existing order by ID
@@ -34,13 +48,7 @@ contract ExchangeFacet is IExchange {
     }
 
     /// @notice Modify an existing limit order
-    function modifyLimitOrder(
-        uint256 orderId,
-        uint256 newAmount,
-        uint256 newPricePerToken,
-        uint256 newMinFillAmount,
-        uint256 newExpiry
-    ) external {
+    function modifyLimitOrder(uint256 orderId, uint256 newAmount, uint256 newPricePerToken, uint256 newMinFillAmount, uint256 newExpiry) external {
         LibOrderbook.modifyOrder(msg.sender, orderId, newAmount, newPricePerToken, newMinFillAmount, newExpiry);
     }
 
@@ -77,11 +85,11 @@ contract ExchangeFacet is IExchange {
         }
     }
 
-    function getUserEscrowStatus(address user, address[] calldata tokens, uint256[] calldata positionIds)
-        external
-        view
-        returns (uint256[] memory erc20Balances, uint256[] memory erc1155Balances)
-    {
+    function getUserEscrowStatus(
+        address user,
+        address[] calldata tokens,
+        uint256[] calldata positionIds
+    ) external view returns (uint256[] memory erc20Balances, uint256[] memory erc1155Balances) {
         return LibEscrowLogic.getEscrowStatus(user, tokens, positionIds);
     }
 }
