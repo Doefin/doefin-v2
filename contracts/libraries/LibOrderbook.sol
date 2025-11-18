@@ -44,12 +44,12 @@ library LibOrderbook {
 
         // Validate cross currency configuration if order type is CrossCurrency
         if (orderType == LibDoefinStorage.OrderType.CrossCurrency) {
+            if (crossCurrencyConfig.quoteCurrencyToken == address(0)) {
+                revert Errors.InvalidQuoteCurrencyToken();
+            }
             uint256 quoteUnitPerPair = ds.adminConfigStorage.unitPerPair[crossCurrencyConfig.quoteCurrencyToken];
             if (quoteUnitPerPair == 0) {
                 revert Errors.TokenNotAllowed();
-            }
-            if (crossCurrencyConfig.quoteCurrencyToken == address(0)) {
-                revert Errors.InvalidQuoteCurrencyToken();
             }
             if (crossCurrencyConfig.quoteCurrencyToken == collateralToken) {
                 revert Errors.SameCollateralAndQuoteCurrency();
@@ -66,9 +66,12 @@ library LibOrderbook {
             }
         } else {
             // For Standard orders, ensure no cross currency config is provided
-            if (crossCurrencyConfig.quoteCurrencyToken != address(0) || 
-                crossCurrencyConfig.exchangeRate != 0 || 
-                crossCurrencyConfig.exchangeRateType != LibDoefinStorage.ExchangeRateType.Fixed) {
+            // Explicitly check that all crossCurrencyConfig fields are in their default state (zero values)
+            if (
+                crossCurrencyConfig.quoteCurrencyToken != address(0) ||
+                crossCurrencyConfig.exchangeRate != 0 ||
+                uint8(crossCurrencyConfig.exchangeRateType) != 0
+            ) {
                 revert Errors.UnexpectedCrossCurrencyConfig();
             }
         }
@@ -240,14 +243,22 @@ library LibOrderbook {
 
         while (left < right) {
             uint256 mid = (left + right) / 2;
-            uint256 existingPrice = ds.orderbookStorage.orders[book[mid]].pricePerToken;
+            LibDoefinStorage.Order storage existingOrder = ds.orderbookStorage.orders[book[mid]];
+            uint256 existingPrice = existingOrder.pricePerToken;
 
             // Ascending for Sell (lowest price first)
             // Descending for Buy (highest price first)
-            if (
-                (order.direction == LibDoefinStorage.OrderDirection.Sell && price < existingPrice) ||
-                (order.direction == LibDoefinStorage.OrderDirection.Buy && price > existingPrice)
-            ) {
+            bool shouldInsertBefore;
+            if (price == existingPrice) {
+                // Price-time priority: earlier orders come first
+                shouldInsertBefore = order.createdAt >= existingOrder.createdAt;
+            } else {
+                shouldInsertBefore =
+                    (order.direction == LibDoefinStorage.OrderDirection.Sell && price < existingPrice) ||
+                    (order.direction == LibDoefinStorage.OrderDirection.Buy && price > existingPrice);
+            }
+
+            if (shouldInsertBefore) {
                 right = mid;
             } else {
                 left = mid + 1;
