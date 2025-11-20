@@ -63,7 +63,7 @@ library LibOrderbook {
             if (
                 crossCurrencyConfig.exchangeRateType == LibDoefinStorage.ExchangeRateType.Dynamic && direction != LibDoefinStorage.OrderDirection.Sell
             ) {
-                revert Errors.DynamicRateNotAllowedForBuyOrders();
+                revert Errors.BuyOrdersMustUseFixedRate();
             }
 
             // Perform oracle validation for dynamic exchange rates

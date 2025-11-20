@@ -415,6 +415,8 @@ library LibSettlement {
         }
 
         // Calculate price in quote currency for cross-currency orders
+        // Note: At this point, makerOrder MUST be CrossCurrency type due to validation above
+        // Mixed order types were rejected at lines 408-415
         if (makerOrder.orderType == LibDoefinStorage.OrderType.CrossCurrency) {
             // Determine if we should use oracle rate or fixed rate
             bool useOracleRate = (makerOrder.crossCurrencyConfig.exchangeRateType == LibDoefinStorage.ExchangeRateType.Dynamic);
@@ -434,8 +436,9 @@ library LibSettlement {
                 price = (quoteCurrencyPrice * (10_000 - makerOrder.orderFeeConfig.takerFeeBps)) / 10_000;
             }
         } else {
-            // Standard collateral pricing
-            price = LibMatchEngine.effectiveTakerPrice(makerOrder, takerOrderCtx.direction, matchType);
+            // This should be unreachable - mixed order types were rejected above
+            // If we reach here, there's a logic error in the validation flow
+            revert Errors.InvalidOrderType();
         }
 
         // Check price crossing

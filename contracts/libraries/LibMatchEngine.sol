@@ -133,8 +133,7 @@ library LibMatchEngine {
             if (takerOrder.orderType == LibDoefinStorage.OrderType.CrossCurrency) {
                 if (!pickComp) {
                     // Skip mint/merge matches for cross-currency orders
-                    if (pickComp) i++;
-                    else j++;
+                    j++;
                     continue;
                 }
                 // Check cross-currency compatibility

@@ -37,15 +37,22 @@ library LibEscrowLogic {
                 uint256 quoteUnitPerPair = ds.adminConfigStorage.unitPerPair[quoteCurrency];
                 uint256 collateralUnitPerPair = ds.adminConfigStorage.unitPerPair[order.collateralToken];
 
+                // Validate unitPerPair values to prevent division by zero
+                if (collateralUnitPerPair == 0) revert Errors.InvalidUnitPerPair();
+                if (quoteUnitPerPair == 0) revert Errors.InvalidUnitPerPair();
+
                 uint256 collateralValue = (order.amount * order.pricePerToken) / collateralUnitPerPair;
                 uint256 quoteAmount;
 
                 if (order.crossCurrencyConfig.exchangeRateType == LibDoefinStorage.ExchangeRateType.Dynamic) {
                     (uint256 exchangeRate, bool isStale) = LibQuoteCurrency.getOracleExchangeRate(quoteCurrency, order.collateralToken);
                     if (isStale) revert Errors.OraclePriceStale();
+                    if (exchangeRate == 0) revert Errors.InvalidExchangeRate();
                     quoteAmount = (collateralValue * exchangeRate) / 1e18;
                 } else {
                     uint256 fixedRate = order.crossCurrencyConfig.exchangeRate;
+                    // Validate fixed exchange rate to prevent division by zero
+                    if (fixedRate == 0) revert Errors.InvalidExchangeRate();
                     quoteAmount = (collateralValue * fixedRate) / 1e18;
                 }
 
@@ -87,17 +94,25 @@ library LibEscrowLogic {
                 uint256 quoteUnitPerPair = ds.adminConfigStorage.unitPerPair[quoteCurrency];
                 uint256 collateralUnitPerPair = ds.adminConfigStorage.unitPerPair[order.collateralToken];
 
+                // Validate unitPerPair values to prevent division by zero
+                if (collateralUnitPerPair == 0) revert Errors.InvalidUnitPerPair();
+                if (quoteUnitPerPair == 0) revert Errors.InvalidUnitPerPair();
+
                 uint256 collateralValue = order.remainingAmount * order.pricePerToken;
                 uint256 quoteAmount;
 
                 if (order.crossCurrencyConfig.exchangeRateType == LibDoefinStorage.ExchangeRateType.Dynamic) {
                     (uint256 exchangeRate, bool isStale) = LibQuoteCurrency.getOracleExchangeRate(quoteCurrency, order.collateralToken);
                     if (isStale) revert Errors.OraclePriceStale();
+                    if (exchangeRate == 0) revert Errors.InvalidExchangeRate();
                     uint256 normalizedCollateralValue = collateralValue / collateralUnitPerPair;
                     quoteAmount = (normalizedCollateralValue * exchangeRate) / 1e18;
                 } else {
+                    uint256 fixedRate = order.crossCurrencyConfig.exchangeRate;
+                    // Validate fixed exchange rate to prevent division by zero
+                    if (fixedRate == 0) revert Errors.InvalidExchangeRate();
                     uint256 normalizedCollateralValue = collateralValue / collateralUnitPerPair;
-                    quoteAmount = (normalizedCollateralValue * order.crossCurrencyConfig.exchangeRate) / 1e18;
+                    quoteAmount = (normalizedCollateralValue * fixedRate) / 1e18;
                 }
 
                 uint256 quoteFee = (quoteAmount * order.orderFeeConfig.makerFeeBps) / 10000;

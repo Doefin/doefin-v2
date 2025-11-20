@@ -314,13 +314,9 @@ library LibTradeSettlement {
             // Taker pays: collect ERC20 from taker
             uint256 totalTakerPayment = cost + takerFee;
             LibReentrancyGuard._nonReentrantBefore();
-            if (IERC20(collateralToken).allowance(settlementExecCtx.takerOrder.taker, address(this)) < totalTakerPayment) {
-                revert Errors.InsufficientERC20Allowance(
-                    settlementExecCtx.takerOrder.taker,
-                    collateralToken,
-                    totalTakerPayment,
-                    IERC20(collateralToken).allowance(settlementExecCtx.takerOrder.taker, address(this))
-                );
+            uint256 currentAllowance = IERC20(collateralToken).allowance(settlementExecCtx.takerOrder.taker, address(this));
+            if (currentAllowance < totalTakerPayment) {
+                revert Errors.InsufficientERC20Allowance(settlementExecCtx.takerOrder.taker, collateralToken, totalTakerPayment, currentAllowance);
             }
             IERC20(collateralToken).safeTransferFrom(settlementExecCtx.takerOrder.taker, address(this), totalTakerPayment);
             LibReentrancyGuard._nonReentrantAfter();
@@ -554,20 +550,24 @@ library LibTradeSettlement {
         address collateralToken = makerOrder.collateralToken;
 
         bool useOracleRate = (makerOrder.crossCurrencyConfig.exchangeRateType == LibDoefinStorage.ExchangeRateType.Dynamic);
-        (uint256 exchangeRate, bool isStale) = LibQuoteCurrency.getOracleExchangeRate(quoteCurrencyToken, collateralToken);
+        uint256 exchangeRate;
 
-        if (!useOracleRate) {
+        if (useOracleRate) {
+            // Dynamic rate: fetch from oracle and check staleness
+            (uint256 oracleRate, bool isStale) = LibQuoteCurrency.getOracleExchangeRate(quoteCurrencyToken, collateralToken);
+            if (isStale) {
+                revert Errors.OraclePriceStale();
+            }
+            exchangeRate = oracleRate;
+        } else {
+            // Fixed rate: use the rate from order config
             exchangeRate = makerOrder.crossCurrencyConfig.exchangeRate;
-            isStale = false;
-        }
-
-        if (isStale) {
-            revert Errors.OraclePriceStale();
         }
 
         (uint256 makerQuoteFee, uint256 takerQuoteFee, uint256 makerQuotePayment, uint256 takerQuotePayment) = _computeCrossCurrencyFees(
             makerOrder,
-            fillAmount
+            fillAmount,
+            exchangeRate
         );
 
         if (makerOrder.direction == LibDoefinStorage.OrderDirection.Buy) {
@@ -630,17 +630,11 @@ library LibTradeSettlement {
      */
     function _computeCrossCurrencyFees(
         LibDoefinStorage.Order memory makerOrder,
-        uint256 fillAmount
+        uint256 fillAmount,
+        uint256 exchangeRate
     ) private view returns (uint256 makerQuoteFee, uint256 takerQuoteFee, uint256 makerQuotePayment, uint256 takerQuotePayment) {
         LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
         uint256 collateralUnitPerPair = ds.adminConfigStorage.unitPerPair[makerOrder.collateralToken];
-
-        uint256 exchangeRate;
-        if (makerOrder.crossCurrencyConfig.exchangeRateType == LibDoefinStorage.ExchangeRateType.Dynamic) {
-            (exchangeRate, ) = LibQuoteCurrency.getOracleExchangeRate(makerOrder.crossCurrencyConfig.quoteCurrencyToken, makerOrder.collateralToken);
-        } else {
-            exchangeRate = makerOrder.crossCurrencyConfig.exchangeRate;
-        }
 
         uint256 collateralValue = (fillAmount * makerOrder.pricePerToken) / collateralUnitPerPair;
         uint256 totalQuoteValue = (collateralValue * exchangeRate) / 1e18;
@@ -679,13 +673,9 @@ library LibTradeSettlement {
             // Market order: Direct transfers
             LibReentrancyGuard._nonReentrantBefore();
             // Maker (buyer) pays quote currency directly
-            if (IERC20(quoteCurrencyToken).allowance(makerOrder.maker, address(this)) < makerQuotePayment) {
-                revert Errors.InsufficientERC20Allowance(
-                    makerOrder.maker,
-                    quoteCurrencyToken,
-                    makerQuotePayment,
-                    IERC20(quoteCurrencyToken).allowance(makerOrder.maker, address(this))
-                );
+            uint256 makerAllowance = IERC20(quoteCurrencyToken).allowance(makerOrder.maker, address(this));
+            if (makerAllowance < makerQuotePayment) {
+                revert Errors.InsufficientERC20Allowance(makerOrder.maker, quoteCurrencyToken, makerQuotePayment, makerAllowance);
             }
             IERC20(quoteCurrencyToken).safeTransferFrom(makerOrder.maker, address(this), makerQuotePayment);
             // Taker (seller) receives quote currency
@@ -740,13 +730,9 @@ library LibTradeSettlement {
             // Market order: Direct transfers
             LibReentrancyGuard._nonReentrantBefore();
             // Taker (buyer) pays quote currency directly
-            if (IERC20(quoteCurrencyToken).allowance(takerOrder.taker, address(this)) < takerQuotePayment) {
-                revert Errors.InsufficientERC20Allowance(
-                    takerOrder.taker,
-                    quoteCurrencyToken,
-                    takerQuotePayment,
-                    IERC20(quoteCurrencyToken).allowance(takerOrder.taker, address(this))
-                );
+            uint256 takerAllowance = IERC20(quoteCurrencyToken).allowance(takerOrder.taker, address(this));
+            if (takerAllowance < takerQuotePayment) {
+                revert Errors.InsufficientERC20Allowance(takerOrder.taker, quoteCurrencyToken, takerQuotePayment, takerAllowance);
             }
             IERC20(quoteCurrencyToken).safeTransferFrom(takerOrder.taker, address(this), takerQuotePayment);
             // Maker (seller) receives quote currency
@@ -757,33 +743,39 @@ library LibTradeSettlement {
             LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
             LibDoefinStorage.Order storage takerOrderStorage = ds.orderbookStorage.orders[takerOrder.orderId];
 
+            // Determine if external transfer is needed
+            bool needsExternalTransfer = false;
+
             // For cross-currency buy orders (taker buying from sell maker), the locked collateral is quote currency
             if (
                 takerOrderStorage.orderType == LibDoefinStorage.OrderType.CrossCurrency &&
                 takerOrderStorage.direction == LibDoefinStorage.OrderDirection.Buy
             ) {
-                // Cross-currency buy order - locked collateral is quote currency
+                // Cross-currency buy order - locked collateral is quote currency (storage-only operation)
                 LibCollateralManager.consumeERC20Collateral(takerOrder.taker, quoteCurrencyToken, takerQuotePayment);
             } else if (takerOrderStorage.collateralToken == quoteCurrencyToken) {
-                // Standard order with same currency - use locked collateral
+                // Standard order with same currency - use locked collateral (storage-only operation)
                 LibCollateralManager.consumeERC20Collateral(takerOrder.taker, quoteCurrencyToken, takerQuotePayment);
             } else {
-                // Different currency - use direct transfer from taker's free balance
-                LibReentrancyGuard._nonReentrantBefore();
-                if (IERC20(quoteCurrencyToken).allowance(takerOrder.taker, address(this)) < takerQuotePayment) {
-                    revert Errors.InsufficientERC20Allowance(
-                        takerOrder.taker,
-                        quoteCurrencyToken,
-                        takerQuotePayment,
-                        IERC20(quoteCurrencyToken).allowance(takerOrder.taker, address(this))
-                    );
+                // Different currency - will need external transfer from taker's free balance
+                needsExternalTransfer = true;
+            }
+
+            // Single reentrancy guard for all external ERC20 calls
+            LibReentrancyGuard._nonReentrantBefore();
+
+            if (needsExternalTransfer) {
+                // Taker pays from free balance
+                uint256 takerAllowance = IERC20(quoteCurrencyToken).allowance(takerOrder.taker, address(this));
+                if (takerAllowance < takerQuotePayment) {
+                    revert Errors.InsufficientERC20Allowance(takerOrder.taker, quoteCurrencyToken, takerQuotePayment, takerAllowance);
                 }
                 IERC20(quoteCurrencyToken).safeTransferFrom(takerOrder.taker, address(this), takerQuotePayment);
-                LibReentrancyGuard._nonReentrantAfter();
             }
-            // Maker (seller) receives quote currency
-            LibReentrancyGuard._nonReentrantBefore();
+
+            // Maker (seller) receives quote currency (always external call)
             IERC20(quoteCurrencyToken).safeTransfer(makerOrder.maker, makerQuotePayment);
+
             LibReentrancyGuard._nonReentrantAfter();
         }
     }
