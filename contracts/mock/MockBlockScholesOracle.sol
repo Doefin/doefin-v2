@@ -2,6 +2,7 @@
 pragma solidity ^0.8.6;
 
 import {IOracleBS} from "../interfaces/IOracleBS.sol";
+import {Errors} from "../libraries/Errors.sol";
 
 /**
  * @title MockBlockScholesOracle
@@ -18,7 +19,7 @@ contract MockBlockScholesOracle is IOracleBS {
     event PriceSet(int64 price, uint256 timestamp);
 
     modifier onlyOwner() {
-        require(msg.sender == owner, "MockBlockScholesOracle: not owner");
+        if (msg.sender != owner) revert Errors.NotAuthorized();
         _;
     }
 
@@ -33,12 +34,7 @@ contract MockBlockScholesOracle is IOracleBS {
      * @param feed The feed configuration (ignored in mock)
      * @return feedData The mock price and timestamp
      */
-    function getLatestFeedData(Feed memory feed)
-        external
-        view
-        override
-        returns (FeedData memory feedData)
-    {
+    function getLatestFeedData(Feed memory feed) external view override returns (FeedData memory feedData) {
         feedData.value = mockPrice;
         feedData.timestamp = mockTimestamp;
     }

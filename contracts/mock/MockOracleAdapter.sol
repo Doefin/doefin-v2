@@ -2,7 +2,8 @@
 pragma solidity ^0.8.6;
 
 import {IBaseOracleAdapter} from "../interfaces/IBaseOracleAdapter.sol";
-import "../libraries/Errors.sol";
+import {Events} from "../libraries/Events.sol";
+import {Errors} from "../libraries/Errors.sol";
 
 /**
  * @title MockOracleAdapter
@@ -72,7 +73,7 @@ contract MockOracleAdapter is IBaseOracleAdapter {
     function getLatestPrice(bytes32 assetId) external view override returns (uint256 price, uint256 timestamp, bool isValid) {
         // Simulate failure if configured
         if (shouldFail[assetId]) {
-            revert("Mock adapter configured to fail");
+            revert Errors.MockAdapterConfiguredToFail();
         }
 
         price = prices[assetId];
@@ -181,7 +182,9 @@ contract MockOracleAdapter is IBaseOracleAdapter {
         if (newOwner == address(0)) {
             revert Errors.InvalidAddress();
         }
+        address previousOwner = owner;
         owner = newOwner;
+        emit Events.OwnershipTransferred(previousOwner, newOwner);
     }
 
     // View functions for debugging

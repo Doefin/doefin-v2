@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0
 pragma solidity ^0.8.6;
 
+import {Errors} from "../libraries/Errors.sol";
+
 /**
  * @title MockOracleManager
  * @notice Mock oracle manager for testing oracle adapter integration
@@ -20,7 +22,7 @@ contract MockOracleManager {
     event AdapterRegistered(bytes32 indexed adapterId, address indexed adapterAddress);
 
     modifier onlyOwner() {
-        require(msg.sender == owner, "MockOracleManager: not owner");
+        if (msg.sender != owner) revert Errors.NotAuthorized();
         _;
     }
 
@@ -28,26 +30,13 @@ contract MockOracleManager {
         owner = msg.sender;
     }
 
-    function registerAdapter(
-        bytes32 adapterId,
-        address adapterAddress,
-        uint256 maxStaleness
-    ) external onlyOwner {
-        adapters[adapterId] = AdapterConfig({
-            adapterAddress: adapterAddress,
-            maxStaleness: maxStaleness,
-            failureCount: 0,
-            enabled: true
-        });
+    function registerAdapter(bytes32 adapterId, address adapterAddress, uint256 maxStaleness) external onlyOwner {
+        adapters[adapterId] = AdapterConfig({adapterAddress: adapterAddress, maxStaleness: maxStaleness, failureCount: 0, enabled: true});
 
         emit AdapterRegistered(adapterId, adapterAddress);
     }
 
-    function getAdapterConfig(bytes32 adapterId)
-        external
-        view
-        returns (AdapterConfig memory)
-    {
+    function getAdapterConfig(bytes32 adapterId) external view returns (AdapterConfig memory) {
         return adapters[adapterId];
     }
 }
