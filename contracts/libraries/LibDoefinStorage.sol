@@ -37,6 +37,7 @@ library LibDoefinStorage {
     struct AdminConfigStorage {
         mapping(address => bool) isAllowed;
         mapping(address => uint256) unitPerPair; // token => unit amount (e.g., 1e6 USDC)
+        mapping(address => string) tokenSymbols; // token => symbol (e.g., "BTC", "USDC", "USDT")
         address feeReceiver;
         uint16 resolutionFeeBps;
         uint16 makerTradingFeeBps;
@@ -225,6 +226,36 @@ library LibDoefinStorage {
         uint256[10] __gap;
     }
 
+    struct AdapterConfig {
+        address adapterAddress;
+        uint256 maxStaleness;
+        uint256 failureCount;
+        bool enabled;
+    }
+
+    struct AssetConfig {
+        bytes32[] adapterPriority; // Ordered array of adapter IDs
+        uint256 maxStaleness;
+        bool tradingPaused;
+        uint256 lastUpdateTimestamp;
+    }
+
+    struct PriceData {
+        uint256 price;
+        uint256 timestamp;
+        bytes32 lastSuccessfulAdapterId;
+        bool isValid;
+    }
+
+    struct OracleStorage {
+        mapping(bytes32 => AdapterConfig) adapters;
+        mapping(bytes32 => AssetConfig) assetConfigs;
+        mapping(bytes32 => PriceData) priceData;
+        mapping(bytes32 => bool) usedNonces;
+        address authorizedSigner;
+        uint256[10] __gap;
+    }
+
     struct AppStorage {
         ConditionalTokensStorage conditionalTokens;
         AccessControlStorage accessControl;
@@ -234,6 +265,7 @@ library LibDoefinStorage {
         EscrowStorage escrowStorage;
         PositionRegistryStorage positionRegistry;
         ReentrancyStorage reentrancyStorage;
+        OracleStorage oracleStorage;
         uint256[50] __gap;
     }
 
