@@ -30,7 +30,12 @@ contract AdminConfigFacet is IAdminConfig {
 
         // Automatically fetch and store token symbol
         try IERC20Metadata(token).symbol() returns (string memory symbol) {
-            ds.adminConfigStorage.tokenSymbols[token] = symbol;
+            // Only store the symbol if it's non-empty, otherwise use fallback
+            if (bytes(symbol).length > 0) {
+                ds.adminConfigStorage.tokenSymbols[token] = symbol;
+            } else {
+                ds.adminConfigStorage.tokenSymbols[token] = "UNKNOWN";
+            }
         } catch {
             // Fallback for tokens without symbol() function
             ds.adminConfigStorage.tokenSymbols[token] = "UNKNOWN";
@@ -231,6 +236,7 @@ contract AdminConfigFacet is IAdminConfig {
 
         LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
         ds.adminConfigStorage.tokenSymbols[token] = symbol;
+        emit Events.TokenSymbolUpdated(token, symbol);
     }
 
     /**
@@ -241,5 +247,74 @@ contract AdminConfigFacet is IAdminConfig {
      */
     function getCrossCurrencyConversionPath(address fromToken, address toToken) external view override returns (bytes32[] memory assetIds) {
         return LibQuoteCurrency.getCrossCurrencyConversionPath(fromToken, toToken);
+    }
+
+    // ========================================
+    // CONVERSION PATH MANAGEMENT
+    // ========================================
+
+    /**
+     * @notice Set a custom conversion path between two tokens
+     * @param fromToken The source token address
+     * @param toToken The target token address
+     * @param assetIds Array of oracle asset IDs representing the conversion path
+     * @dev Enables adding new currency pairs without code changes or redeployment
+     */
+    function setConversionPath(address fromToken, address toToken, bytes32[] calldata assetIds) external override {
+        LibDiamond.enforceIsContractOwner();
+
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
+
+        // Validate both tokens are allowed
+        if (!ds.adminConfigStorage.isAllowed[fromToken] || !ds.adminConfigStorage.isAllowed[toToken]) {
+            revert Errors.TokenNotAllowed();
+        }
+
+        // Validate tokens are different
+        if (fromToken == toToken) {
+            revert Errors.InvalidConversionPath();
+        }
+
+        // Store the conversion path
+        bytes32 pathKey = keccak256(abi.encodePacked(fromToken, toToken));
+        ds.adminConfigStorage.conversionPaths[pathKey] = assetIds;
+
+        emit Events.ConversionPathSet(fromToken, toToken, assetIds);
+    }
+
+    /**
+     * @notice Remove a custom conversion path between two tokens
+     * @param fromToken The source token address
+     * @param toToken The target token address
+     * @dev Reverts to hardcoded fallback logic if available
+     */
+    function removeConversionPath(address fromToken, address toToken) external override {
+        LibDiamond.enforceIsContractOwner();
+
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
+        bytes32 pathKey = keccak256(abi.encodePacked(fromToken, toToken));
+
+        // Delete the conversion path
+        delete ds.adminConfigStorage.conversionPaths[pathKey];
+
+        emit Events.ConversionPathRemoved(fromToken, toToken);
+    }
+
+    /**
+     * @notice Get the configured conversion path for a token pair
+     * @param fromToken The source token address
+     * @param toToken The target token address
+     * @return assetIds The configured asset IDs, or empty array if not configured
+     */
+    function getConfiguredConversionPath(address fromToken, address toToken) external view override returns (bytes32[] memory assetIds) {
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
+        bytes32 pathKey = keccak256(abi.encodePacked(fromToken, toToken));
+
+        bytes32[] storage configuredPath = ds.adminConfigStorage.conversionPaths[pathKey];
+        assetIds = new bytes32[](configuredPath.length);
+
+        for (uint256 i = 0; i < configuredPath.length; i++) {
+            assetIds[i] = configuredPath[i];
+        }
     }
 }
