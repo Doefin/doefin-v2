@@ -3,7 +3,7 @@ pragma solidity ^0.8.6;
 
 import {IBaseOracleAdapter} from "../interfaces/IBaseOracleAdapter.sol";
 import {IOracleBS} from "../interfaces/IOracleBS.sol";
-import "../libraries/Errors.sol";
+import {Errors} from "../libraries/Errors.sol";
 
 /**
  * @title BlockScholesOracleAdapter
@@ -27,10 +27,10 @@ contract BlockScholesOracleAdapter is IBaseOracleAdapter {
 
     /// @dev Feed configuration for mapping assetId to Block Scholes Feed parameters
     struct BlockScholesFeedConfig {
-        uint8 feedId;      // Block Scholes Feed ID (typically 3 for spot prices)
-        uint8 exchange;    // Exchange enum (0 = BLOCKSCHOLES composite)
-        uint8 baseAsset;   // Base asset enum (1 = BTC, 2 = ETH)
-        uint8 decimals;    // Output decimals (8 for crypto, 6 for stablecoins)
+        uint8 feedId; // Block Scholes Feed ID (typically 3 for spot prices)
+        uint8 exchange; // Exchange enum (0 = BLOCKSCHOLES composite)
+        uint8 baseAsset; // Base asset enum (1 = BTC, 2 = ETH)
+        uint8 decimals; // Output decimals (8 for crypto, 6 for stablecoins)
     }
 
     // Block Scholes Feed constants
@@ -40,9 +40,9 @@ contract BlockScholesOracleAdapter is IBaseOracleAdapter {
     uint8 public constant BASE_ASSET_ETH = 2;
 
     // Decimal constants
-    uint8 public constant BLOCKSCHOLES_DECIMALS = 9;     // Block Scholes precision
-    uint8 public constant BTC_DECIMALS = 8;              // BTC price decimals
-    uint8 public constant STABLECOIN_DECIMALS = 6;       // Stablecoin price decimals
+    uint8 public constant BLOCKSCHOLES_DECIMALS = 9; // Block Scholes precision
+    uint8 public constant BTC_DECIMALS = 8; // BTC price decimals
+    uint8 public constant STABLECOIN_DECIMALS = 6; // Stablecoin price decimals
 
     // ============================================================
     // Storage
@@ -54,26 +54,29 @@ contract BlockScholesOracleAdapter is IBaseOracleAdapter {
     /// @dev Supported asset IDs (for getSupportedAssets())
     bytes32[] public supportedAssets;
 
+    /// @dev Mapping to track if an asset is already in supportedAssets array (O(1) lookup)
+    /// @notice Optimizes duplicate checking from O(n) to O(1) when configuring asset feeds
+    /// @notice Important: If asset removal functionality is added, must also set supportedAssetExists[assetId] = false
+    mapping(bytes32 => bool) private supportedAssetExists;
+
     /// @dev Block Scholes oracle contract address
     address public blockScholesOracle;
 
     /// @dev Owner for admin functions
     address public owner;
 
+    /// @dev Pending owner for two-step ownership transfer
+    address public pendingOwner;
+
     // ============================================================
     // Events
     // ============================================================
 
-    event FeedConfigured(
-        bytes32 indexed assetId,
-        uint8 feedId,
-        uint8 exchange,
-        uint8 baseAsset,
-        uint8 decimals
-    );
+    event FeedConfigured(bytes32 indexed assetId, uint8 feedId, uint8 exchange, uint8 baseAsset, uint8 decimals);
 
     event BlockScholesOracleSet(address indexed oracleAddress);
-    event OwnershipTransferred(address indexed newOwner);
+    event OwnershipProposed(address indexed currentOwner, address indexed proposedOwner);
+    event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
 
     // ============================================================
     // Modifiers
@@ -102,6 +105,7 @@ contract BlockScholesOracleAdapter is IBaseOracleAdapter {
         owner = msg.sender;
 
         emit BlockScholesOracleSet(_blockScholesOracle);
+        emit OwnershipTransferred(address(0), msg.sender);
     }
 
     // ============================================================
@@ -122,25 +126,17 @@ contract BlockScholesOracleAdapter is IBaseOracleAdapter {
      * 4. Convert from 9 decimals to output decimals
      * 5. Return price, timestamp, and validity flag
      */
-    function getLatestPrice(bytes32 assetId)
-        external
-        view
-        override
-        returns (uint256 price, uint256 timestamp, bool isValid)
-    {
+    function getLatestPrice(bytes32 assetId) external view override returns (uint256 price, uint256 timestamp, bool isValid) {
         // Look up Feed configuration
         BlockScholesFeedConfig memory config = feedConfigs[assetId];
         if (config.feedId == 0) {
-            revert("AssetNotConfigured");
+            revert Errors.AssetNotConfigured(assetId);
         }
 
         // Build Block Scholes Feed structure
         IOracleBS.Feed memory feed = IOracleBS.Feed({
             id: config.feedId,
-            parameters: IOracleBS.FeedParameters({
-                enumerable: new uint8[](2),
-                other: ""
-            })
+            parameters: IOracleBS.FeedParameters({enumerable: new uint8[](2), other: ""})
         });
 
         // Set enumerable parameters [Exchange, BaseAsset]
@@ -175,12 +171,7 @@ contract BlockScholesOracleAdapter is IBaseOracleAdapter {
      * @return name Human-readable name of the adapter
      * @return version Version string of the adapter
      */
-    function getAdapterMetadata()
-        external
-        pure
-        override
-        returns (string memory name, string memory version)
-    {
+    function getAdapterMetadata() external pure override returns (string memory name, string memory version) {
         return ("BlockScholesV1", "1.0.0");
     }
 
@@ -199,38 +190,21 @@ contract BlockScholesOracleAdapter is IBaseOracleAdapter {
      * @dev This is called during adapter setup to map your asset IDs to Block Scholes feeds.
      * Example: configureAssetFeed(keccak256("BTC-USD"), 3, 0, 1, 8)
      */
-    function configureAssetFeed(
-        bytes32 assetId,
-        uint8 feedId,
-        uint8 exchange,
-        uint8 baseAsset,
-        uint8 decimals
-    ) external onlyOwner {
+    function configureAssetFeed(bytes32 assetId, uint8 feedId, uint8 exchange, uint8 baseAsset, uint8 decimals) external onlyOwner {
         if (feedId == 0) {
-            revert("InvalidFeedId");
+            revert Errors.InvalidFeedId();
         }
         if (decimals == 0 || decimals > 18) {
-            revert("InvalidDecimals");
+            revert Errors.InvalidDecimals();
         }
 
         // Store configuration
-        feedConfigs[assetId] = BlockScholesFeedConfig({
-            feedId: feedId,
-            exchange: exchange,
-            baseAsset: baseAsset,
-            decimals: decimals
-        });
+        feedConfigs[assetId] = BlockScholesFeedConfig({feedId: feedId, exchange: exchange, baseAsset: baseAsset, decimals: decimals});
 
-        // Add to supported assets if not already present
-        bool found = false;
-        for (uint256 i = 0; i < supportedAssets.length; i++) {
-            if (supportedAssets[i] == assetId) {
-                found = true;
-                break;
-            }
-        }
-        if (!found) {
+        // Add to supported assets if not already present (O(1) check)
+        if (!supportedAssetExists[assetId]) {
             supportedAssets.push(assetId);
+            supportedAssetExists[assetId] = true;
         }
 
         emit FeedConfigured(assetId, feedId, exchange, baseAsset, decimals);
@@ -249,15 +223,30 @@ contract BlockScholesOracleAdapter is IBaseOracleAdapter {
     }
 
     /**
-     * @notice Transfer ownership to a new owner
-     * @param newOwner Address of the new owner
+     * @notice Propose a new owner (step 1 of 2-step ownership transfer)
+     * @param newOwner Address of the proposed new owner
+     * @dev Two-step ownership transfer prevents accidental transfer to wrong address
      */
-    function transferOwnership(address newOwner) external onlyOwner {
+    function proposeOwnership(address newOwner) external onlyOwner {
         if (newOwner == address(0)) {
             revert Errors.InvalidAddress();
         }
-        owner = newOwner;
-        emit OwnershipTransferred(newOwner);
+        pendingOwner = newOwner;
+        emit OwnershipProposed(owner, newOwner);
+    }
+
+    /**
+     * @notice Accept ownership transfer (step 2 of 2-step ownership transfer)
+     * @dev Must be called by the pending owner to complete ownership transfer
+     */
+    function acceptOwnership() external {
+        if (msg.sender != pendingOwner) {
+            revert Errors.NotPendingOwner();
+        }
+        address previousOwner = owner;
+        owner = pendingOwner;
+        pendingOwner = address(0);
+        emit OwnershipTransferred(previousOwner, owner);
     }
 
     // ============================================================
@@ -280,11 +269,7 @@ contract BlockScholesOracleAdapter is IBaseOracleAdapter {
      *   price = 1000000000 (9 decimals)
      *   result = 1000000 (6 decimals)
      */
-    function _convertPrice(
-        uint256 price,
-        uint8 fromDecimals,
-        uint8 toDecimals
-    ) internal pure returns (uint256) {
+    function _convertPrice(uint256 price, uint8 fromDecimals, uint8 toDecimals) internal pure returns (uint256) {
         if (fromDecimals == toDecimals) {
             return price;
         }

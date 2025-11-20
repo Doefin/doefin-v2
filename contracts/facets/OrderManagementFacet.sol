@@ -2,7 +2,6 @@
 pragma solidity ^0.8.6;
 
 import {LibOrderbook} from "../libraries/LibOrderbook.sol";
-import {LibDoefinStorage} from "../libraries/LibDoefinStorage.sol";
 import {IOrderManagement} from "../interfaces/IOrderManagement.sol";
 
 /**
@@ -13,8 +12,6 @@ import {IOrderManagement} from "../interfaces/IOrderManagement.sol";
  *      Split from ExchangeFacet to reduce contract size below 24KB limit
  */
 contract OrderManagementFacet is IOrderManagement {
-    using LibDoefinStorage for LibDoefinStorage.AppStorage;
-
     /**
      * @notice Cancel an existing order by its unique identifier
      * @dev Only the order creator can cancel their own orders
