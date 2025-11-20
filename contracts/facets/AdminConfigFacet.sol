@@ -3,10 +3,12 @@ pragma solidity ^0.8.6;
 
 import {LibDoefinStorage} from "../libraries/LibDoefinStorage.sol";
 import {LibFeeManager} from "../libraries/LibFeeManager.sol";
+import {LibQuoteCurrency} from "../libraries/LibQuoteCurrency.sol";
 import {IAdminConfig} from "../interfaces/IAdminConfig.sol";
 import {LibDiamond} from "../libraries/LibDiamond.sol";
 import {Errors} from "../libraries/Errors.sol";
 import {Events} from "../libraries/Events.sol";
+import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 
 /**
  * @title AdminConfigFacetV2
@@ -25,6 +27,14 @@ contract AdminConfigFacet is IAdminConfig {
 
         ds.adminConfigStorage.isAllowed[token] = true;
         ds.adminConfigStorage.unitPerPair[token] = unitPerPair;
+
+        // Automatically fetch and store token symbol
+        try IERC20Metadata(token).symbol() returns (string memory symbol) {
+            ds.adminConfigStorage.tokenSymbols[token] = symbol;
+        } catch {
+            // Fallback for tokens without symbol() function
+            ds.adminConfigStorage.tokenSymbols[token] = "UNKNOWN";
+        }
 
         emit Events.CollateralTokenAdded(token, unitPerPair);
     }
@@ -88,12 +98,7 @@ contract AdminConfigFacet is IAdminConfig {
         external
         view
         override
-        returns (
-            address feeReceiver,
-            uint16 resolutionFeeBps,
-            uint16 makerTradingFeeBps,
-            uint16 takerTradingFeeBps
-        )
+        returns (address feeReceiver, uint16 resolutionFeeBps, uint16 makerTradingFeeBps, uint16 takerTradingFeeBps)
     {
         LibDoefinStorage.AdminConfigStorage storage cfg = LibDoefinStorage.appStorage().adminConfigStorage;
         return (cfg.feeReceiver, cfg.resolutionFeeBps, cfg.makerTradingFeeBps, cfg.takerTradingFeeBps);
@@ -118,11 +123,7 @@ contract AdminConfigFacet is IAdminConfig {
      * @param amount The amount to withdraw (0 = withdraw all)
      * @param recipient The address to send fees to
      */
-    function withdrawProtocolFeesTo(
-        address token,
-        uint256 amount,
-        address recipient
-    ) external override {
+    function withdrawProtocolFeesTo(address token, uint256 amount, address recipient) external override {
         LibFeeManager.withdrawProtocolFees(token, amount, recipient);
     }
 
@@ -158,11 +159,7 @@ contract AdminConfigFacet is IAdminConfig {
      * @param amounts Array of amounts to withdraw (0 = withdraw all for that token)
      * @param recipient The address to send fees to
      */
-    function batchWithdrawProtocolFeesTo(
-        address[] calldata tokens,
-        uint256[] calldata amounts,
-        address recipient
-    ) external override {
+    function batchWithdrawProtocolFeesTo(address[] calldata tokens, uint256[] calldata amounts, address recipient) external override {
         LibFeeManager.batchWithdrawProtocolFees(tokens, amounts, recipient);
     }
 
@@ -205,5 +202,44 @@ contract AdminConfigFacet is IAdminConfig {
      */
     function getFeeStatistics(address token) external view override returns (uint256 available, address receiver) {
         return LibFeeManager.getFeeStatistics(token);
+    }
+
+    // ----------------------------------------
+    // Token Symbol Management
+    // ----------------------------------------
+
+    /**
+     * @notice Get token symbol for a given token address
+     * @param token The token address
+     * @return symbol The token symbol
+     */
+    function getTokenSymbol(address token) external view override returns (string memory symbol) {
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
+        return ds.adminConfigStorage.tokenSymbols[token];
+    }
+
+    /**
+     * @notice Update token symbol for a given token address
+     * @param token The token address
+     * @param symbol The new symbol
+     */
+    function setTokenSymbol(address token, string calldata symbol) external override {
+        LibDiamond.enforceIsContractOwner();
+        if (!LibDoefinStorage.appStorage().adminConfigStorage.isAllowed[token]) {
+            revert Errors.TokenNotAllowed();
+        }
+
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
+        ds.adminConfigStorage.tokenSymbols[token] = symbol;
+    }
+
+    /**
+     * @notice Get oracle asset ID path for cross-currency conversion
+     * @param fromToken The source token address
+     * @param toToken The target token address
+     * @return assetIds Array of oracle asset IDs needed for conversion
+     */
+    function getCrossCurrencyConversionPath(address fromToken, address toToken) external view override returns (bytes32[] memory assetIds) {
+        return LibQuoteCurrency.getCrossCurrencyConversionPath(fromToken, toToken);
     }
 }
