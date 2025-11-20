@@ -86,11 +86,15 @@ contract OracleManagerFacet is IOracleManager {
      * @param assetId Asset identifier (e.g., keccak256("BTC-USD"))
      * @param adapterPriority Ordered array of adapter IDs to try (first = highest priority)
      * @param maxStaleness Maximum time before this asset's price is considered stale
+     * @param decimals Number of decimals for oracle price (0-18, where 0 defaults to 18)
      */
-    function configureAsset(bytes32 assetId, bytes32[] calldata adapterPriority, uint256 maxStaleness) external override {
+    function configureAsset(bytes32 assetId, bytes32[] calldata adapterPriority, uint256 maxStaleness, uint8 decimals) external override {
         LibDiamond.enforceIsContractOwner();
         if (adapterPriority.length == 0) {
             revert Errors.EmptyAdapterPriority();
+        }
+        if (decimals > 18) {
+            revert Errors.InvalidOracleDecimals(assetId, decimals);
         }
 
         LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
@@ -106,10 +110,28 @@ contract OracleManagerFacet is IOracleManager {
             adapterPriority: adapterPriority,
             maxStaleness: maxStaleness,
             tradingPaused: false,
-            lastUpdateTimestamp: 0
+            lastUpdateTimestamp: 0,
+            decimals: decimals
         });
 
         emit Events.AssetConfigured(assetId, adapterPriority, maxStaleness);
+    }
+
+    /**
+     * @notice Set maximum age for manual price updates
+     * @param maxAge Maximum age in seconds (must be between 60 and 3600)
+     */
+    function setMaxManualUpdateAge(uint256 maxAge) external override {
+        LibDiamond.enforceIsContractOwner();
+
+        if (maxAge < 60 || maxAge > 3600) {
+            revert Errors.InvalidMaxManualUpdateAge();
+        }
+
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
+        ds.oracleStorage.maxManualUpdateAge = maxAge;
+
+        emit Events.MaxManualUpdateAgeSet(maxAge);
     }
 
     /**
@@ -209,7 +231,7 @@ contract OracleManagerFacet is IOracleManager {
         emit Events.AllAdaptersFailed(assetId, attemptedAdapters);
         emit Events.TradingPaused(assetId);
 
-        revert("All oracle adapters failed");
+        revert Errors.AllOracleAdaptersFailed(assetId);
     }
 
     /**
@@ -249,7 +271,12 @@ contract OracleManagerFacet is IOracleManager {
 
         if (price == 0) revert Errors.InvalidPrice();
         if (timestamp > block.timestamp) revert Errors.InvalidTimestamp();
-        if (block.timestamp - timestamp > 300) revert Errors.SignatureExpired(); // 5 minute max age
+
+        // Use configured maxManualUpdateAge, default to 300 seconds if not set
+        uint256 maxAge = ds.oracleStorage.maxManualUpdateAge;
+        if (maxAge == 0) maxAge = 300; // Fallback to default
+        if (block.timestamp - timestamp > maxAge) revert Errors.SignatureExpired();
+
         if (ds.oracleStorage.usedNonces[nonce]) revert Errors.NonceAlreadyUsed();
 
         // Verify EIP-712 signature
@@ -258,6 +285,7 @@ contract OracleManagerFacet is IOracleManager {
         );
 
         address recoveredSigner = _recoverSigner(digest, signature);
+        if (recoveredSigner == address(0)) revert Errors.InvalidSignature();
         if (recoveredSigner != ds.oracleStorage.authorizedSigner) {
             revert Errors.UnauthorizedSigner();
         }
@@ -354,8 +382,11 @@ contract OracleManagerFacet is IOracleManager {
      */
     function setAuthorizedSigner(address signer) external override {
         LibDiamond.enforceIsContractOwner();
+        if (signer == address(0)) revert Errors.ZeroAddress();
         LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
+        address oldSigner = ds.oracleStorage.authorizedSigner;
         ds.oracleStorage.authorizedSigner = signer;
+        emit Events.AuthorizedSignerUpdated(oldSigner, signer);
     }
 
     // Internal helper functions

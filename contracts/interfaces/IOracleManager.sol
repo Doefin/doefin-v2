@@ -16,7 +16,7 @@ interface IOracleManager {
     function removeAdapter(bytes32 adapterId) external;
 
     // Asset Configuration Functions
-    function configureAsset(bytes32 assetId, bytes32[] calldata adapterPriority, uint256 maxStaleness) external;
+    function configureAsset(bytes32 assetId, bytes32[] calldata adapterPriority, uint256 maxStaleness, uint8 decimals) external;
 
     function updateAssetAdapterPriority(bytes32 assetId, bytes32[] calldata newPriority) external;
 
@@ -38,4 +38,6 @@ interface IOracleManager {
 
     // Admin Functions
     function setAuthorizedSigner(address signer) external;
+
+    function setMaxManualUpdateAge(uint256 maxAge) external;
 }
