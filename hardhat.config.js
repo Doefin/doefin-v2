@@ -2,6 +2,7 @@
 require("@nomiclabs/hardhat-waffle");
 require("@nomicfoundation/hardhat-verify");
 require("solidity-coverage");
+require("hardhat-contract-sizer");
 require("dotenv").config();
 
 task("accounts", "Prints the list of accounts", async () => {
@@ -19,9 +20,12 @@ module.exports = {
     settings: {
       optimizer: {
         enabled: true,
-        runs: 200,
+        runs: 1, // Minimal runs for smallest bytecode size
       },
       viaIR: true, // Enable IR-based code generator to avoid "stack too deep" errors
+      metadata: {
+        bytecodeHash: "none" // Remove metadata hash to save bytecode space
+      }
     },
   solidity: {
     version: "0.8.20",
@@ -33,7 +37,16 @@ module.exports = {
       viaIR: true, // Enable IR-based code generator to avoid "stack too deep" errors
     },
   },
+  contractSizer: {
+    alphaSort: true,
+    runOnCompile: true,
+    disambiguatePaths: false,
+  },
   networks: {
+    hardhat: {
+      blockGasLimit: 50000000, // Increase from default 30M for large contracts
+      allowUnlimitedContractSize: true // Allow contracts larger than 24KB for testing
+    },
     localhost: {
       url: "http://127.0.0.1:8545",
       chainId: 31337,
