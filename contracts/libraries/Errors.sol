@@ -278,6 +278,53 @@ library Errors {
     error InvalidParentCollectionId();
 
     // ========================================
+    // ORACLE ERRORS
+    // ========================================
+
+    /// @notice Thrown when oracle adapter is not registered
+    error AdapterNotRegistered(bytes32 adapterId);
+
+    /// @notice Thrown when oracle adapter already exists
+    error AdapterAlreadyExists(bytes32 adapterId);
+
+    /// @notice Thrown when asset is not configured for oracle
+    error AssetNotConfigured(bytes32 assetId);
+
+    /// @notice Thrown when adapter priority array is empty
+    error EmptyAdapterPriority();
+
+    /// @notice Thrown when oracle timestamp is invalid
+    error InvalidTimestamp();
+
+    /// @notice Thrown when signature signer is not authorized
+    error UnauthorizedSigner();
+
+    /// @notice Thrown when nonce has already been used for replay protection
+    error NonceAlreadyUsed();
+
+    /// @notice Thrown when signature has expired
+    error SignatureExpired();
+
+    // ========================================
+    // CROSS-CURRENCY ERRORS
+    // ========================================
+
+    /// @notice Thrown when invalid order type is used for cross-currency operations
+    error InvalidOrderType();
+
+    /// @notice Thrown when buy orders attempt to use dynamic exchange rate (only fixed allowed)
+    error BuyOrdersMustUseFixedRate();
+
+    /// @notice Thrown when cross-currency orders have incompatible quote currencies
+    error IncompatibleQuoteCurrencies();
+
+    /// @notice Thrown when cross-currency order matching is attempted with non-complementary orders
+    error NonComplementaryCrossCurrencyMatch();
+
+    /// @notice Thrown when oracle price is stale for dynamic exchange rate calculation
+    error OraclePriceStale();
+
+    // ========================================
     // VALIDATION ERRORS
     // ========================================
 
