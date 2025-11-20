@@ -57,6 +57,9 @@ library Errors {
     /// @notice Thrown when no change is made for fees/receiver
     error NoChangeRequired();
 
+    /// @notice Thrown when conversion path is invalid (e.g., same from/to tokens)
+    error InvalidConversionPath();
+
     // ========================================
     // CONDITION MANAGER ERRORS
     // ========================================
@@ -199,8 +202,6 @@ library Errors {
     /// @notice Thrown when cross currency order has the same collateral and quote currency
     error SameCollateralAndQuoteCurrency();
 
-    /// @notice Thrown when dynamic exchange rate is used with buy orders (only allowed for sell orders)
-    error DynamicRateNotAllowedForBuyOrders();
     // ========================================
     // SETTLEMENT ERRORS
     // ========================================
@@ -293,6 +294,9 @@ library Errors {
     /// @notice Thrown when adapter priority array is empty
     error EmptyAdapterPriority();
 
+    /// @notice Thrown when all configured oracle adapters fail to provide a valid price
+    error AllOracleAdaptersFailed(bytes32 assetId);
+
     /// @notice Thrown when oracle timestamp is invalid
     error InvalidTimestamp();
 
@@ -304,6 +308,18 @@ library Errors {
 
     /// @notice Thrown when signature has expired
     error SignatureExpired();
+
+    /// @notice Thrown when signature is invalid or ecrecover fails
+    error InvalidSignature();
+
+    /// @notice Thrown when oracle decimals configuration is invalid (must be 0-18)
+    error InvalidOracleDecimals(bytes32 assetId, uint8 decimals);
+
+    /// @notice Thrown when feed ID is invalid (zero)
+    error InvalidFeedId();
+
+    /// @notice Thrown when decimals value is invalid (zero or greater than 18)
+    error InvalidDecimals();
 
     // ========================================
     // CROSS-CURRENCY ERRORS
@@ -342,4 +358,68 @@ library Errors {
 
     /// @notice Thrown when operation would cause underflow
     error ArithmeticUnderflow();
+
+    // ========================================
+    // INITIALIZATION ERRORS
+    // ========================================
+
+    /// @notice Thrown when contract is already initialized
+    error AlreadyInitialized();
+
+    // ========================================
+    // DIAMOND ERRORS
+    // ========================================
+
+    /// @notice Thrown when function does not exist in diamond
+    error FunctionDoesNotExist();
+
+    /// @notice Thrown when no function selectors provided for facet cut
+    error NoSelectorsInFacet();
+
+    /// @notice Thrown when facet address is zero for add operation
+    error AddFacetCannotBeZero();
+
+    /// @notice Thrown when trying to add function that already exists
+    error CannotAddExistingFunction();
+
+    /// @notice Thrown when trying to replace function with same function
+    error CannotReplaceWithSameFunction();
+
+    /// @notice Thrown when remove facet address is not zero
+    error RemoveFacetAddressMustBeZero();
+
+    /// @notice Thrown when trying to remove function that doesn't exist
+    error CannotRemoveNonExistentFunction();
+
+    /// @notice Thrown when trying to remove immutable function
+    error CannotRemoveImmutableFunction();
+
+    /// @notice Thrown when contract code size is zero during initialization
+    error ContractCodeSizeZero();
+
+    // ========================================
+    // SIGNATURE ERRORS
+    // ========================================
+
+    /// @notice Thrown when signature length is invalid
+    error InvalidSignatureLength();
+
+    // ========================================
+    // MOCK CONTRACT ERRORS
+    // ========================================
+
+    /// @notice Thrown when caller is not owner in mock contracts
+    error NotOwner();
+
+    /// @notice Thrown when trying to set owner to invalid address
+    error InvalidAddress();
+
+    /// @notice Thrown when mock adapter is configured to fail for testing
+    error MockAdapterConfiguredToFail();
+
+    /// @notice Thrown when caller is not the pending owner
+    error NotPendingOwner();
+
+    /// @notice Thrown when max manual update age is invalid (too short or too long)
+    error InvalidMaxManualUpdateAge();
 }
