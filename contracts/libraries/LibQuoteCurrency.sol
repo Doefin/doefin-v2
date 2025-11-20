@@ -53,7 +53,7 @@ library LibQuoteCurrency {
 
             // For inverse conversions (e.g., USD->USDC when we have USD-USDC rate)
             // We need to determine the direction based on asset ID and our conversion path
-            bool isInverse = _isInverseConversion(assetIds[i], baseCollateralToken, quoteCurrencyToken, i);
+            bool isInverse = _isInverseConversion(assetIds[i], quoteCurrencyToken);
 
             if (isInverse) {
                 // Inverse rate: 1 / price
@@ -194,22 +194,30 @@ library LibQuoteCurrency {
     /**
      * @notice Normalize oracle price to 1e18 scale
      * @param oraclePrice Raw price from oracle
-     * @param assetId Asset identifier to determine expected decimals
+     * @param assetId Asset identifier to read decimals configuration
      * @return normalizedPrice Price scaled to 1e18
      */
-    function _normalizeOraclePrice(uint256 oraclePrice, bytes32 assetId) internal pure returns (uint256 normalizedPrice) {
-        // BTC prices typically have 8 decimals
-        if (assetId == keccak256("BTC-USD")) {
-            return oraclePrice * 1e10; // Scale from 8 to 18 decimals
+    function _normalizeOraclePrice(uint256 oraclePrice, bytes32 assetId) internal view returns (uint256 normalizedPrice) {
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
+        uint8 decimals = ds.oracleStorage.assetConfigs[assetId].decimals;
+
+        // Default to 18 decimals if not configured
+        if (decimals == 0) {
+            decimals = 18;
         }
 
-        // USD stablecoin prices typically have 6 decimals
-        if (assetId == keccak256("USD-USDC") || assetId == keccak256("USD-USDT")) {
-            return oraclePrice * 1e12; // Scale from 6 to 18 decimals
+        // Ensure decimals is within valid range
+        if (decimals > 18) {
+            revert Errors.InvalidOracleDecimals(assetId, decimals);
         }
 
-        // Default: assume already at 1e18
-        return oraclePrice;
+        // Calculate scale factor: 10^(18 - decimals)
+        // If decimals == 18, scale factor is 1 (no scaling needed)
+        // If decimals < 18, we multiply to scale up to 18 decimals
+        uint256 scaleFactor = 10 ** (18 - decimals);
+
+        // Use checked arithmetic to prevent overflow
+        normalizedPrice = oraclePrice * scaleFactor;
     }
 
     /**
@@ -218,12 +226,7 @@ library LibQuoteCurrency {
      * @param quoteToken The quote token we're converting to
      * @return isInverse Whether to apply inverse calculation
      */
-    function _isInverseConversion(
-        bytes32 assetId,
-        address /* baseToken */,
-        address quoteToken,
-        uint256 /* stepIndex */
-    ) internal view returns (bool isInverse) {
+    function _isInverseConversion(bytes32 assetId, address quoteToken) internal view returns (bool isInverse) {
         LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
         string memory quoteSymbol = ds.adminConfigStorage.tokenSymbols[quoteToken];
 
@@ -278,15 +281,28 @@ library LibQuoteCurrency {
             revert Errors.TokenNotAllowed();
         }
 
-        string memory fromSymbol = ds.adminConfigStorage.tokenSymbols[fromToken];
-        string memory toSymbol = ds.adminConfigStorage.tokenSymbols[toToken];
-
         // Same token - no conversion needed
         if (fromToken == toToken) {
             assetIds = new bytes32[](0);
             return assetIds;
         }
 
+        // Check if a configured conversion path exists
+        bytes32 pathKey = keccak256(abi.encodePacked(fromToken, toToken));
+        bytes32[] storage configuredPath = ds.adminConfigStorage.conversionPaths[pathKey];
+
+        if (configuredPath.length > 0) {
+            // Return the configured path
+            assetIds = new bytes32[](configuredPath.length);
+            for (uint256 i = 0; i < configuredPath.length; i++) {
+                assetIds[i] = configuredPath[i];
+            }
+            return assetIds;
+        }
+
+        // Fallback to hardcoded logic for backward compatibility
+        string memory fromSymbol = ds.adminConfigStorage.tokenSymbols[fromToken];
+        string memory toSymbol = ds.adminConfigStorage.tokenSymbols[toToken];
         bytes32 fromHash = keccak256(bytes(fromSymbol));
         bytes32 toHash = keccak256(bytes(toSymbol));
 
