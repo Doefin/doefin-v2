@@ -25,6 +25,22 @@ library Events {
     /// @param token Address of the collateral token
     event CollateralTokenRemoved(address indexed token);
 
+    /// @notice Emitted when a token symbol is updated
+    /// @param token Address of the token
+    /// @param symbol New symbol for the token
+    event TokenSymbolUpdated(address indexed token, string symbol);
+
+    /// @notice Emitted when a conversion path is set between two tokens
+    /// @param fromToken Source token address
+    /// @param toToken Target token address
+    /// @param assetIds Array of oracle asset IDs representing the conversion path
+    event ConversionPathSet(address indexed fromToken, address indexed toToken, bytes32[] assetIds);
+
+    /// @notice Emitted when a conversion path is removed
+    /// @param fromToken Source token address
+    /// @param toToken Target token address
+    event ConversionPathRemoved(address indexed fromToken, address indexed toToken);
+
     /// @notice Emitted when the fee receiver address is updated
     /// @param oldReceiver Previous fee receiver address
     /// @param newReceiver New fee receiver address
@@ -500,6 +516,15 @@ library Events {
     /// @param price Emergency price
     /// @param justification Human-readable justification for the emergency update
     event EmergencyPriceUpdate(bytes32 indexed assetId, uint256 price, string justification);
+
+    /// @notice Emitted when the authorized signer for manual price updates is changed
+    /// @param oldSigner Previous authorized signer address
+    /// @param newSigner New authorized signer address
+    event AuthorizedSignerUpdated(address indexed oldSigner, address indexed newSigner);
+
+    /// @notice Emitted when max manual update age is configured
+    /// @param maxAge Maximum age in seconds for manual price updates
+    event MaxManualUpdateAgeSet(uint256 maxAge);
 
     // ========================================
     // POSITION REGISTRY EVENTS
