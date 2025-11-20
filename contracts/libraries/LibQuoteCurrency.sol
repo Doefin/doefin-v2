@@ -73,6 +73,12 @@ library LibQuoteCurrency {
      * @param useOracleRate Whether to use oracle rate (for dynamic) or order rate (for fixed)
      * @return quoteCurrencyPrice Price per token in quote currency (scaled by quote currency decimals)
      * @return isStale Whether the calculation used stale oracle data
+     * @dev Uses 1e36 scaling to prevent precision loss with large exchange rates:
+     *      quoteCurrencyPrice = (pricePerToken × quoteUnitPerPair × 1e36) ÷ (collateralUnitPerPair × exchangeRate)
+     *      This maintains 1e18 scaling in the result for accurate order matching comparisons.
+     * @dev Example: For exchangeRate = 96000e18 (BTC/USD), without 1e36 scaling:
+     *      (650000 × 1e6 × 1e18) ÷ (1e8 × 96000e18) ≈ 0 (underflow)
+     *      With 1e36: (650000 × 1e6 × 1e36) ÷ (1e8 × 96000e18) = proper result
      */
     function calculateQuoteCurrencyPrice(
         LibDoefinStorage.Order memory order,
@@ -85,40 +91,19 @@ library LibQuoteCurrency {
         uint256 exchangeRate;
 
         if (useOracleRate) {
-            // Use dynamic oracle rate
             (exchangeRate, isStale) = getOracleExchangeRate(order.crossCurrencyConfig.quoteCurrencyToken, order.collateralToken);
             if (isStale) {
                 return (0, true);
             }
         } else {
-            // Use fixed rate from order
             exchangeRate = order.crossCurrencyConfig.exchangeRate;
             isStale = false;
         }
 
-        // Calculate quote currency price per position token unit
-        // CRITICAL: We keep 1e18 scaling to avoid precision loss during matching
-        //
-        // Match the lockCollateral calculation pattern:
-        // lockCollateral does: quoteAmount = (collateralValue * quoteUnitPerPair * 1e18) / exchangeRate
-        // where collateralValue = (amount * pricePerToken) / collateralUnitPerPair
-        //
-        // For price per single token (amount=1):
-        // quotePriceScaled = (1 * pricePerToken * quoteUnitPerPair * 1e18) / (collateralUnitPerPair * exchangeRate)
-        //                  = (pricePerToken * quoteUnitPerPair * 1e18) / (collateralUnitPerPair * exchangeRate)
-        //
-        // But this causes underflow when exchangeRate is very large (e.g. 96000e18)
-        // Example: (650000 * 1e6 * 1e18) / (1e8 * 96000e18) = 6.5e29 / 9.6e30 ≈ 0
-        //
-        // Solution: Factor out 1e18 from both numerator and denominator first
-        // quotePriceScaled = (pricePerToken * quoteUnitPerPair * 1e18 * 1e18) / (collateralUnitPerPair * exchangeRate)
-        //                  = (pricePerToken * quoteUnitPerPair * 1e36) / (collateralUnitPerPair * exchangeRate)
-        // This keeps the result scaled by 1e18 for precision in matching comparisons
         LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
         uint256 collateralUnitPerPair = ds.adminConfigStorage.unitPerPair[order.collateralToken];
         uint256 quoteUnitPerPair = ds.adminConfigStorage.unitPerPair[order.crossCurrencyConfig.quoteCurrencyToken];
 
-        // Scale by 1e36 instead of 1e18 to preserve precision through the division
         quoteCurrencyPrice = (order.pricePerToken * quoteUnitPerPair * 1e36) / (collateralUnitPerPair * exchangeRate);
     }
 
