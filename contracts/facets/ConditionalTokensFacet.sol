@@ -38,7 +38,7 @@ contract ConditionalTokensFacet is IConditionalTokens {
         uint8 outcomeSlotCount = uint8(payouts.length);
 
         bytes32 conditionId = LibCTHelpers.getConditionId(msg.sender, questionId, outcomeSlotCount);
-        LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
         uint256[] storage numerators = ds.conditionalTokens.payoutNumerators[conditionId];
 
         if (numerators.length != outcomeSlotCount) {
@@ -96,7 +96,7 @@ contract ConditionalTokensFacet is IConditionalTokens {
         bytes32 conditionId,
         uint256[] calldata indexSets
     ) external override {
-        LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
         uint256 den = ds.conditionalTokens.payoutDenominator[conditionId];
         if (den == 0) revert Errors.ConditionNotResolved();
 
@@ -148,7 +148,7 @@ contract ConditionalTokensFacet is IConditionalTokens {
         address recipient,
         uint256 amount
     ) internal {
-        LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
 
         address feeReceiver = ds.adminConfigStorage.feeReceiver;
         uint16 feeBps = ds.adminConfigStorage.resolutionFeeBps;
@@ -205,6 +205,6 @@ contract ConditionalTokensFacet is IConditionalTokens {
     }
 
     function getPayoutNumerators(bytes32 conditionId) external view override returns (uint256[] memory) {
-        return LibDoefinStorage.diamondStorage().conditionalTokens.payoutNumerators[conditionId];
+        return LibDoefinStorage.appStorage().conditionalTokens.payoutNumerators[conditionId];
     }
 }

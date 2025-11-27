@@ -16,7 +16,7 @@ library LibAccessControl {
 
     // MarketMaker
     function isMarketMaker(address _account) internal view returns (bool) {
-        return LibDoefinStorage.diamondStorage().accessControl.marketMakers[_account];
+        return LibDoefinStorage.appStorage().accessControl.marketMakers[_account];
     }
 
     function enforceIsMarketMaker() internal view {
@@ -25,10 +25,14 @@ library LibAccessControl {
         }
     }
 
+    function isCollateralTokenAllowed(address _token) internal view returns (bool) {
+        return LibDoefinStorage.appStorage().adminConfigStorage.isAllowed[_token];
+    }
+
     function setMarketMaker(address _account, bool _status) internal {
         if (!isOwner(msg.sender)) {
             revert Errors.NotContractOwner();
         }
-        LibDoefinStorage.diamondStorage().accessControl.marketMakers[_account] = _status;
+        LibDoefinStorage.appStorage().accessControl.marketMakers[_account] = _status;
     }
 }

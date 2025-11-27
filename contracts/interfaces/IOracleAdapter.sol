@@ -5,8 +5,9 @@
 pragma solidity ^0.8.6;
 
 interface IOracleAdapter {
-    event OutcomeReported(bytes32 indexed conditionId, uint[] payouts);
+    event OutcomeReported(bytes32 indexed conditionId, uint256[] payouts);
 
-    function reportOutcome(bytes32 conditionId, uint[] calldata payouts) external;
+    function reportOutcome(bytes32 conditionId, uint256[] calldata payouts) external;
+
     function linkConditionToFeed(bytes32 conditionId, bytes32 externalFeedId) external;
 }

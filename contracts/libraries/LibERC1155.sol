@@ -12,7 +12,7 @@ import {Events} from "./Events.sol";
 library LibERC1155 {
     function balanceOf(address owner, uint256 id) internal view returns (uint256) {
         if (owner == address(0)) revert Errors.ZeroAddressQuery();
-        return LibDoefinStorage.diamondStorage().erc1155Storage.erc1155Balances[id][owner];
+        return LibDoefinStorage.appStorage().erc1155Storage.erc1155Balances[id][owner];
     }
 
     function balanceOfBatch(address[] memory owners, uint256[] memory ids) internal view returns (uint256[] memory batchBalances) {
@@ -23,7 +23,7 @@ library LibERC1155 {
         batchBalances = new uint256[](owners.length);
         for (uint256 i = 0; i < owners.length; ++i) {
             if (owners[i] == address(0)) revert Errors.ZeroAddressQuery();
-            batchBalances[i] = LibDoefinStorage.diamondStorage().erc1155Storage.erc1155Balances[ids[i]][owners[i]];
+            batchBalances[i] = LibDoefinStorage.appStorage().erc1155Storage.erc1155Balances[ids[i]][owners[i]];
         }
     }
 
@@ -32,12 +32,12 @@ library LibERC1155 {
         address operator,
         bool approved
     ) internal {
-        LibDoefinStorage.diamondStorage().erc1155Storage.erc1155OperatorApprovals[owner][operator] = approved;
+        LibDoefinStorage.appStorage().erc1155Storage.erc1155OperatorApprovals[owner][operator] = approved;
         emit Events.ApprovalForAll(owner, operator, approved);
     }
 
     function isApprovedForAll(address owner, address operator) internal view returns (bool) {
-        return LibDoefinStorage.diamondStorage().erc1155Storage.erc1155OperatorApprovals[owner][operator];
+        return LibDoefinStorage.appStorage().erc1155Storage.erc1155OperatorApprovals[owner][operator];
     }
 
     function safeTransferFrom(
@@ -50,7 +50,7 @@ library LibERC1155 {
     ) internal {
         if (from == address(0) || to == address(0)) revert Errors.TransferToZeroAddress();
 
-        LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
 
         if (from != operator && !ds.erc1155Storage.erc1155OperatorApprovals[from][operator]) {
             revert Errors.NotOwnerNorApproved();
@@ -76,7 +76,7 @@ library LibERC1155 {
         if (ids.length == 0 || values.length == 0) revert Errors.EmptyArray();
         if (ids.length != values.length) revert Errors.ArrayLengthMismatch();
 
-        LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
 
         if (from != operator && !ds.erc1155Storage.erc1155OperatorApprovals[from][operator]) revert Errors.NotOwnerNorApproved();
 
@@ -98,7 +98,7 @@ library LibERC1155 {
     ) internal {
         if (to == address(0)) revert Errors.MintToZeroAddress();
 
-        LibDoefinStorage.diamondStorage().erc1155Storage.erc1155Balances[id][to] += value;
+        LibDoefinStorage.appStorage().erc1155Storage.erc1155Balances[id][to] += value;
 
         emit Events.TransferSingle(msg.sender, address(0), to, id, value);
 
@@ -114,7 +114,7 @@ library LibERC1155 {
         if (to == address(0)) revert Errors.MintToZeroAddress();
         if (ids.length != values.length) revert Errors.ArrayLengthMismatch();
 
-        LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
 
         for (uint256 i = 0; i < ids.length; ++i) {
             ds.erc1155Storage.erc1155Balances[ids[i]][to] += values[i];
@@ -130,7 +130,7 @@ library LibERC1155 {
         uint256 id,
         uint256 value
     ) internal {
-        LibDoefinStorage.diamondStorage().erc1155Storage.erc1155Balances[id][from] -= value;
+        LibDoefinStorage.appStorage().erc1155Storage.erc1155Balances[id][from] -= value;
 
         emit Events.TransferSingle(msg.sender, from, address(0), id, value);
     }
@@ -142,7 +142,7 @@ library LibERC1155 {
     ) internal {
         if (ids.length != values.length) revert Errors.ArrayLengthMismatch();
 
-        LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
 
         for (uint256 i = 0; i < ids.length; ++i) {
             ds.erc1155Storage.erc1155Balances[ids[i]][from] -= values[i];
