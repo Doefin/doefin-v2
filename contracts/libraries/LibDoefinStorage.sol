@@ -11,6 +11,85 @@ library LibDoefinStorage {
     uint256 constant SETTLEMENT_DELAY = 6;
     uint256 constant NUM_OF_TIMESTAMPS = 11;
     uint256 constant NUM_OF_BLOCK_HEADERS = 17;
+    
+    // Oracle Adapter constants
+    uint256 constant TIMESTAMP_BUCKET = 600; // 10 minutes in seconds
+    uint256 constant MAX_BUCKETS = 10; // Maximum number of range buckets per question
+    uint256 constant MAX_BLOCK_COUNT = 2016; // Max blocks to measure (1 difficulty adjustment period)
+    uint256 constant MAX_DURATION = 30 days; // Max duration in seconds
+
+    /// @notice Enum for different question types
+    enum QuestionType {
+        DifficultyThreshold, // Binary: "Difficulty > X at block Y?"
+        DifficultyRange, // Multi-choice: "Difficulty in which range at block Y?"
+        BlockCount, // Multi-choice: "Blocks mined between timestamps X and Y?"
+        MiningDuration // Multi-choice: "Time to mine X blocks from block Y?"
+    }
+
+    /// @notice Binary difficulty threshold question
+    /// @dev "Bitcoin Difficulty Above X at block Y?"
+    struct DifficultyThresholdQuestion {
+        bytes32 questionId; // Deterministic hash of question params
+        bytes32 conditionId; // CTF condition ID
+        uint256 threshold; // Difficulty threshold value
+        uint256 targetBlockHeight; // Block height to check
+        // Outcomes: [0] = No (≤ threshold), [1] = Yes (> threshold)
+    }
+
+    /// @notice Multi-choice difficulty range question
+    /// @dev "Bitcoin difficulty in which range at block Y?"
+    struct DifficultyRangeQuestion {
+        bytes32 questionId;
+        bytes32 conditionId;
+        uint256 targetBlockHeight; // Block height to check
+        uint256[] buckets; // Range boundaries (sorted ascending)
+        // Example: buckets=[85T, 90T, 95T] creates 4 outcomes:
+        // [0] = <85T, [1] = 85-90T, [2] = 90-95T, [3] = ≥95T
+    }
+
+    /// @notice Block count question
+    /// @dev "Number of blocks mined between timestamps X and Y?"
+    struct BlockCountQuestion {
+        bytes32 questionId;
+        bytes32 conditionId;
+        uint256 startTimestamp; // Start of time window
+        uint256 endTimestamp; // End of time window
+        uint256[] countBuckets; // Block count range boundaries
+        // Example: countBuckets=[100, 150, 200] creates 4 outcomes:
+        // [0] = <100 blocks, [1] = 100-150, [2] = 150-200, [3] = ≥200
+    }
+
+    /// @notice Mining duration question
+    /// @dev "Time to mine X blocks from block Y?"
+    struct MiningDurationQuestion {
+        bytes32 questionId;
+        bytes32 conditionId;
+        uint256 startBlockHeight; // Starting block
+        uint256 blockCount; // Number of blocks to mine
+        uint256[] durationBuckets; // Duration boundaries in seconds
+        // Example: durationBuckets=[3600, 7200, 10800] creates 4 outcomes:
+        // [0] = <1hr, [1] = 1-2hr, [2] = 2-3hr, [3] = ≥3hr
+    }
+
+    /// @notice Storage for Oracle Adapter state
+    struct OracleAdapterStorage {
+        // Block-number based conditions (for O(1) lookup when block arrives)
+        // Key: blockHeight (already includes SETTLEMENT_DELAY offset)
+        mapping(uint256 => DifficultyThresholdQuestion[]) blockToThresholdQuestions;
+        mapping(uint256 => DifficultyRangeQuestion[]) blockToRangeQuestions;
+        mapping(uint256 => MiningDurationQuestion[]) blockToDurationQuestions;
+        // Timestamp-based conditions (using bucketing for O(1) lookup)
+        // Key: timestamp bucket (rounded to TIMESTAMP_BUCKET)
+        mapping(uint256 => BlockCountQuestion[]) timestampToBlockCountQuestions;
+        // Auxiliary mappings for timestamp <-> block height conversions
+        // These could potentially be shared with BlockHeaderOracleStorage
+        // but keeping separate for clarity and to avoid coupling
+        mapping(uint256 => uint256) timestampToBlockHeight;
+        mapping(uint256 => uint256) blockHeightToTimestamp;
+        // Tracking for resolved questions (optional, for queries/stats)
+        uint256 totalQuestionsCreated;
+        uint256 totalQuestionsResolved;
+    }
 
     struct ERC1155Storage {
         mapping(uint256 => mapping(address => uint256)) erc1155Balances;
@@ -277,6 +356,7 @@ library LibDoefinStorage {
         PositionRegistryStorage positionRegistry;
         ReentrancyStorage reentrancyStorage;
         BlockHeaderOracleStorage blockHeaderOracleStorage;
+        OracleAdapterStorage oracleAdapterStorage;
         uint256[50] __gap;
     }
 
