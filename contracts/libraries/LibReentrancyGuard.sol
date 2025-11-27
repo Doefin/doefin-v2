@@ -20,7 +20,7 @@ library LibReentrancyGuard {
      * @notice Initialize reentrancy guard if not already initialized
      */
     function _initReentrancyGuard() internal {
-        LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
         if (ds.reentrancyStorage._status == 0) {
             ds.reentrancyStorage._status = _NOT_ENTERED;
         }
@@ -31,7 +31,7 @@ library LibReentrancyGuard {
      * @dev Call this at the start of protected functions
      */
     function _nonReentrantBefore() internal {
-        LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
         
         // Initialize on first use
         if (ds.reentrancyStorage._status == 0) {
@@ -52,7 +52,7 @@ library LibReentrancyGuard {
      * @dev Call this at the end of protected functions
      */
     function _nonReentrantAfter() internal {
-        LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
         ds.reentrancyStorage._status = _NOT_ENTERED;
     }
 
@@ -60,7 +60,7 @@ library LibReentrancyGuard {
      * @notice Check if currently in a non-reentrant call
      */
     function _isEntered() internal view returns (bool) {
-        LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
         return ds.reentrancyStorage._status == _ENTERED;
     }
 

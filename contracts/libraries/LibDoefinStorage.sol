@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0
-// Based on Diamond Standard by Nick Mudge: https://github.com/mudgen/diamond-3-hardhat
-// Uses shared logic from Gnosis Conditional Tokens Framework: https://github.com/gnosis/conditional-tokens-contracts
-
 pragma solidity ^0.8.6;
 
 library LibDoefinStorage {
     bytes32 constant STORAGE_POSITION = keccak256("doefin.storage");
+
+    // Add initialization flag
+    bytes32 constant INITIALIZED_POSITION = keccak256("doefin.storage.initialized");
 
     struct ERC1155Storage {
         mapping(uint256 => mapping(address => uint256)) erc1155Balances;
@@ -16,7 +16,8 @@ library LibDoefinStorage {
     struct ConditionalTokensStorage {
         mapping(bytes32 => uint256[]) payoutNumerators; // conditionId => numerators
         mapping(bytes32 => uint256) payoutDenominator; // conditionId => denominator
-        uint256[10] __gap;
+        mapping(bytes32 => Condition) conditions; // conditionId => Condition
+        uint256[50] __gap;
     }
 
     struct Condition {
@@ -26,12 +27,6 @@ library LibDoefinStorage {
         string metadataURI;
         bool active;
         address creator;
-        uint256[10] __gap;
-    }
-
-    struct ConditionManagerStorage {
-        mapping(bytes32 => Condition) conditions; // conditionId => Condition
-        uint256[10] __gap;
     }
 
     struct AccessControlStorage {
@@ -109,6 +104,7 @@ library LibDoefinStorage {
     }
 
     struct TakerOrderContext {
+        uint256 orderId;
         address taker;
         uint256 positionId;
         uint256 amount;
@@ -127,7 +123,7 @@ library LibDoefinStorage {
 
     /// @notice Struct representing a single limit or market order
     /// @dev Each order maps to a specific ERC1155 position token and can be either a buy or a sell
-        struct Order {
+    struct Order {
         /// @notice Unique order identifier (incremental)
         uint256 orderId;
         /// @notice Creator of the order
@@ -150,7 +146,6 @@ library LibDoefinStorage {
         uint256 createdAt;
         /// @notice Maker and Taker Fees
         OrderFeeConfig orderFeeConfig;
-        
         // These 4 fields will be packed into a single slot (Slot 13):
         /// @notice Buy or Sell side of the order
         OrderDirection direction;
@@ -190,17 +185,23 @@ library LibDoefinStorage {
     }
 
     struct PositionRegistryStorage {
-        mapping(uint256 => bytes32) conditionIdByPositionId;
-        mapping(bytes32 => MarketMetadata) marketsByCondition;
+        // Unique market metadata by composite key
+        mapping(bytes32 => MarketMetadata) marketsByKey; // marketKey => metadata
+        // Track all market keys for a given conditionId
+        mapping(bytes32 => bytes32[]) marketKeysByCondition; // conditionId => marketKey[]
+        // Reverse lookups
+        mapping(uint256 => bytes32) conditionIdByPositionId; // positionId => conditionId
+        mapping(uint256 => bytes32) marketKeyByPositionId; // positionId => marketKey
         uint256[10] __gap;
     }
+
     struct ReentrancyStorage {
         uint256 _status;
         uint256[10] __gap;
     }
-    struct DiamondStorage {
+
+    struct AppStorage {
         ConditionalTokensStorage conditionalTokens;
-        ConditionManagerStorage conditionManager;
         AccessControlStorage accessControl;
         ERC1155Storage erc1155Storage;
         AdminConfigStorage adminConfigStorage;
@@ -211,10 +212,44 @@ library LibDoefinStorage {
         uint256[50] __gap;
     }
 
-    function diamondStorage() internal pure returns (DiamondStorage storage ds) {
+    function appStorage() internal pure returns (AppStorage storage ds) {
         bytes32 position = STORAGE_POSITION;
         assembly {
             ds.slot := position
+        }
+    }
+
+    /// @notice Initialize critical storage values (call once during deployment)
+    function initialize(address feeReceiver, uint16 resolutionFeeBps, uint16 makerFeeBps, uint16 takerFeeBps) internal {
+        require(!isInitialized(), "Already initialized");
+
+        AppStorage storage ds = appStorage();
+
+        ds.orderbookStorage.nextOrderId = 1;
+        ds.reentrancyStorage._status = 1;
+
+        // Set admin config during initialization
+        ds.adminConfigStorage.feeReceiver = feeReceiver;
+        ds.adminConfigStorage.resolutionFeeBps = resolutionFeeBps;
+        ds.adminConfigStorage.makerTradingFeeBps = makerFeeBps;
+        ds.adminConfigStorage.takerTradingFeeBps = takerFeeBps;
+
+        setInitialized();
+    }
+
+    /// @notice Check if storage has been initialized
+    function isInitialized() internal view returns (bool initialized) {
+        bytes32 position = INITIALIZED_POSITION;
+        assembly {
+            initialized := sload(position)
+        }
+    }
+
+    /// @notice Mark storage as initialized
+    function setInitialized() internal {
+        bytes32 position = INITIALIZED_POSITION;
+        assembly {
+            sstore(position, 1)
         }
     }
 }

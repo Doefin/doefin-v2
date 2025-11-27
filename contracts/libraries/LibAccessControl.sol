@@ -4,8 +4,9 @@
 
 pragma solidity ^0.8.6;
 
-import {LibDoefinStorage} from "../libraries/LibDoefinStorage.sol";
-import {LibDiamond} from "../libraries/LibDiamond.sol";
+import {LibDoefinStorage} from "./LibDoefinStorage.sol";
+import {LibDiamond} from "./LibDiamond.sol";
+import {Errors} from "./Errors.sol";
 
 library LibAccessControl {
     // Owner
@@ -15,15 +16,23 @@ library LibAccessControl {
 
     // MarketMaker
     function isMarketMaker(address _account) internal view returns (bool) {
-        return LibDoefinStorage.diamondStorage().accessControl.marketMakers[_account];
+        return LibDoefinStorage.appStorage().accessControl.marketMakers[_account];
     }
 
     function enforceIsMarketMaker() internal view {
-        require(isMarketMaker(msg.sender), "AccessControl: must be market maker");
+        if (!isMarketMaker(msg.sender)) {
+            revert Errors.NotMarketMaker();
+        }
+    }
+
+    function isCollateralTokenAllowed(address _token) internal view returns (bool) {
+        return LibDoefinStorage.appStorage().adminConfigStorage.isAllowed[_token];
     }
 
     function setMarketMaker(address _account, bool _status) internal {
-        require(isOwner(msg.sender), "AccessControl: must be owner");
-        LibDoefinStorage.diamondStorage().accessControl.marketMakers[_account] = _status;
+        if (!isOwner(msg.sender)) {
+            revert Errors.NotContractOwner();
+        }
+        LibDoefinStorage.appStorage().accessControl.marketMakers[_account] = _status;
     }
 }

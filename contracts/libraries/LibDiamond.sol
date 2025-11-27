@@ -8,7 +8,8 @@ pragma solidity ^0.8.0;
 * Author: Nick Mudge <nick@perfectabstractions.com> (https://twitter.com/mudgen)
 * EIP-2535 Diamonds: https://eips.ethereum.org/EIPS/eip-2535
 /******************************************************************************/
-import { IDiamondCut } from "../interfaces/IDiamondCut.sol";
+import {IDiamondCut} from "../interfaces/IDiamondCut.sol";
+import {Errors} from "./Errors.sol";
 
 // Remember to add the loupe functions from DiamondLoupeFacet to the diamond.
 // The loupe functions are required by the EIP2535 Diamonds standard
@@ -62,12 +63,17 @@ library LibDiamond {
     }
 
     function enforceIsContractOwner() internal view {
-        require(msg.sender == diamondStorage().contractOwner, "LibDiamond: Must be contract owner");
+        if(msg.sender != diamondStorage().contractOwner) {
+            revert Errors.NotContractOwner();
+        }
     }
 
-
     // Internal function version of diamondCut
-    function diamondCut(IDiamondCut.FacetCut[] memory _diamondCut, address _init, bytes memory _calldata) internal {
+    function diamondCut(
+        IDiamondCut.FacetCut[] memory _diamondCut,
+        address _init,
+        bytes memory _calldata
+    ) internal {
         for (uint256 facetIndex; facetIndex < _diamondCut.length; facetIndex++) {
             IDiamondCut.FacetCutAction action = _diamondCut[facetIndex].action;
             if (action == IDiamondCut.FacetCutAction.Add) {
@@ -138,13 +144,22 @@ library LibDiamond {
         ds.facetAddresses.push(_facetAddress);
     }
 
-    function addFunction(DiamondStorage storage ds, bytes4 _selector, uint96 _selectorPosition, address _facetAddress) internal {
+    function addFunction(
+        DiamondStorage storage ds,
+        bytes4 _selector,
+        uint96 _selectorPosition,
+        address _facetAddress
+    ) internal {
         ds.selectorToFacetAndPosition[_selector].functionSelectorPosition = _selectorPosition;
         ds.facetFunctionSelectors[_facetAddress].functionSelectors.push(_selector);
         ds.selectorToFacetAndPosition[_selector].facetAddress = _facetAddress;
     }
 
-    function removeFunction(DiamondStorage storage ds, address _facetAddress, bytes4 _selector) internal {
+    function removeFunction(
+        DiamondStorage storage ds,
+        address _facetAddress,
+        bytes4 _selector
+    ) internal {
         require(_facetAddress != address(0), "LibDiamondCut: Can't remove function that doesn't exist");
         // an immutable function is a function defined directly in a diamond
         require(_facetAddress != address(this), "LibDiamondCut: Can't remove immutable function");

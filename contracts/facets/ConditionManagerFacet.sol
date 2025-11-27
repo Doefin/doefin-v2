@@ -8,9 +8,11 @@ import {LibDoefinStorage} from "../libraries/LibDoefinStorage.sol";
 import {LibAccessControl} from "../libraries/LibAccessControl.sol";
 import {LibCTFCondition} from "../libraries/LibCTFCondition.sol";
 import {IConditionManager} from "../interfaces/IConditionManager.sol";
+import {Errors} from "../libraries/Errors.sol";
+import {Events} from "../libraries/Events.sol";
 
 contract ConditionManagerFacet is IConditionManager {
-    using LibDoefinStorage for LibDoefinStorage.DiamondStorage;
+    using LibDoefinStorage for LibDoefinStorage.AppStorage;
 
     function createCondition(
         address oracle,
@@ -19,38 +21,52 @@ contract ConditionManagerFacet is IConditionManager {
         string calldata metadataURI
     ) external override returns (bytes32 conditionId) {
         LibAccessControl.enforceIsMarketMaker();
-        LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
+        if (outcomeSlotCount <= 1) {
+            revert Errors.InvalidOutcomeSlotCount();
+        }
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
         conditionId = LibCTFCondition.prepareCondition(oracle, questionId, outcomeSlotCount);
 
-        ds.conditionManager.conditions[conditionId] = LibDoefinStorage.Condition({
+        ds.conditionalTokens.conditions[conditionId] = LibDoefinStorage.Condition({
             oracle: oracle,
             questionId: questionId,
             outcomeSlotCount: outcomeSlotCount,
             metadataURI: metadataURI,
             active: true,
-            creator: msg.sender,
-            __gap: [uint256(0), 0, 0, 0, 0, 0, 0, 0, 0, 0]
+            creator: msg.sender
         });
 
-        emit ConditionCreated(conditionId, oracle, questionId, outcomeSlotCount, metadataURI);
+        emit Events.ConditionCreated(conditionId, oracle, questionId, outcomeSlotCount, metadataURI, msg.sender);
     }
 
-    function getCondition(
-        bytes32 conditionId
-    ) external view override returns (address oracle, bytes32 questionId, uint8 outcomeSlotCount, string memory metadataURI) {
-        LibDoefinStorage.Condition storage cond = LibDoefinStorage.diamondStorage().conditionManager.conditions[conditionId];
-        return (cond.oracle, cond.questionId, cond.outcomeSlotCount, cond.metadataURI);
+    function getCondition(bytes32 conditionId)
+        external
+        view
+        override
+        returns (
+            LibDoefinStorage.Condition memory
+        )
+    {
+        LibDoefinStorage.Condition storage condition = LibDoefinStorage.appStorage().conditionalTokens.conditions[conditionId];
+        return condition;
     }
 
     function cancelCondition(bytes32 conditionId) external override {
-        LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
-        LibDoefinStorage.Condition storage cond = ds.conditionManager.conditions[conditionId];
-        require(cond.creator == msg.sender || LibAccessControl.isOwner(msg.sender), "ConditionalManager: Not authorized to cancel this condition");
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
+        LibDoefinStorage.Condition storage cond = ds.conditionalTokens.conditions[conditionId];
+        if (cond.creator == address(0)) {
+            revert Errors.ConditionDoesNotExist();
+        }
 
-        require(cond.oracle != address(0), "ConditionalManager: Condition does not exist");
-        require(cond.active, "ConditionalManager: Condition already inactive");
+        if (cond.creator != msg.sender && !LibAccessControl.isOwner(msg.sender)) {
+            revert Errors.NotAuthorizedToCancel();
+        }
+
+        if (cond.oracle == address(0)) revert Errors.InvalidOracleAddress();
+
+        if (!cond.active) revert Errors.ConditionAlreadyInactive();
 
         cond.active = false;
-        emit ConditionCancelled(conditionId);
+        emit Events.ConditionCancelled(conditionId, msg.sender);
     }
 }

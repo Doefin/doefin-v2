@@ -6,23 +6,184 @@ pragma solidity ^0.8.6;
 
 import {LibDoefinStorage} from "./LibDoefinStorage.sol";
 import {LibCTHelpers} from "./LibCTHelpers.sol";
+import {LibERC1155} from "./LibERC1155.sol";
+import {Errors} from "./Errors.sol";
+import {LibPositionRegistry} from "./LibPositionRegistry.sol";
+import {LibReentrancyGuard} from "./LibReentrancyGuard.sol";
+import {LibAccessControl} from "./LibAccessControl.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 library LibCTFCondition {
+    using SafeERC20 for IERC20;
+
     /// @dev Prepares a new condition by initializing payout numerators.
     /// Can be called from both low-level (CTF-compatible) and high-level (managed) flows.
-    function prepareCondition(address oracle, bytes32 questionId, uint8 outcomeSlotCount) internal returns (bytes32 conditionId) {
-        require(oracle != address(0), "Invalid oracle address");
+    function prepareCondition(
+        address oracle,
+        bytes32 questionId,
+        uint8 outcomeSlotCount
+    ) internal returns (bytes32 conditionId) {
+        if (oracle == address(0)) {
+            revert Errors.InvalidOracleAddress();
+        }
 
-        LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
         conditionId = LibCTHelpers.getConditionId(oracle, questionId, outcomeSlotCount);
 
-        require(ds.conditionalTokens.payoutNumerators[conditionId].length == 0, "ConditionalTokens: already prepared");
+        if (ds.conditionalTokens.payoutNumerators[conditionId].length > 0) {
+            revert Errors.ConditionAlreadyPrepared();
+        }
 
         ds.conditionalTokens.payoutNumerators[conditionId] = new uint256[](outcomeSlotCount);
     }
 
+    function _mergePositions(
+        address sender,
+        address collateralToken,
+        bytes32 parentCollectionId,
+        bytes32 conditionId,
+        uint256[] memory partition,
+        uint256 amount
+    ) internal {
+        (uint256 fullIndexSet, uint256 freeIndexSet, uint256[] memory positionIds, uint256[] memory amounts) = _validateAndBuildPartitionPositions(
+            collateralToken,
+            parentCollectionId,
+            conditionId,
+            partition,
+            amount
+        );
+
+        LibReentrancyGuard._nonReentrantBefore();
+        LibERC1155._batchBurn(sender, positionIds, amounts);
+
+        if (freeIndexSet == 0) {
+            if (parentCollectionId == bytes32(0)) {
+                /// @dev Skip token transfer when contract calls itself to avoid circular transfers
+                if (sender != address(this)) {
+                    IERC20(collateralToken).safeTransfer(sender, amount);
+                }
+            } else {
+                uint256 parentPosId = LibCTHelpers.getPositionId(collateralToken, parentCollectionId);
+                LibERC1155._mint(sender, parentPosId, amount, "");
+            }
+        } else {
+            uint256 mergedSet = fullIndexSet ^ freeIndexSet;
+            uint256 mergedPosId = _getPositionId(collateralToken, parentCollectionId, conditionId, mergedSet);
+            LibERC1155._mint(sender, mergedPosId, amount, "");
+        }
+        LibReentrancyGuard._nonReentrantAfter();
+    }
+
+    function _splitPosition(
+        address sender,
+        address collateralToken,
+        bytes32 parentCollectionId,
+        bytes32 conditionId,
+        uint256 amount,
+        uint256[] memory partition
+    ) internal {
+        _validateCollateral(collateralToken, amount);
+
+        (uint256 fullIndexSet, uint256 freeIndexSet, uint256[] memory positionIds, uint256[] memory amounts) = _validateAndBuildPartitionPositions(
+            collateralToken,
+            parentCollectionId,
+            conditionId,
+            partition,
+            amount
+        );
+
+        LibPositionRegistry.registerPositionPairs(positionIds, partition, conditionId, parentCollectionId, collateralToken);
+
+        LibReentrancyGuard._nonReentrantBefore();
+        if (freeIndexSet == 0) {
+            if (parentCollectionId == bytes32(0)) {
+                /// @dev Skip token transfer when contract calls itself to avoid circular transfers
+                if (sender != address(this)) {
+                    IERC20(collateralToken).safeTransferFrom(sender, address(this), amount);
+                }
+            } else {
+                uint256 parentPosId = LibCTHelpers.getPositionId(collateralToken, parentCollectionId);
+                LibERC1155._burn(sender, parentPosId, amount);
+            }
+        } else {
+            uint256 mergedSet = fullIndexSet ^ freeIndexSet;
+            uint256 mergedPosId = _getPositionId(collateralToken, parentCollectionId, conditionId, mergedSet);
+            LibERC1155._burn(sender, mergedPosId, amount);
+        }
+
+        LibERC1155._batchMint(sender, positionIds, amounts, "");
+
+        LibReentrancyGuard._nonReentrantAfter();
+    }
+
+    function _validateCollateral(address collateralToken, uint256 amount) internal view {
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
+        if (!LibAccessControl.isCollateralTokenAllowed(collateralToken)) {
+            revert Errors.TokenNotAllowed();
+        }
+
+        uint256 unit = ds.adminConfigStorage.unitPerPair[collateralToken];
+
+        if (amount % unit != 0) {
+            revert Errors.CollateralNotAligned();
+        }
+    }
+
+    function _validateAndBuildPartitionPositions(
+        address collateralToken,
+        bytes32 parentCollectionId,
+        bytes32 conditionId,
+        uint256[] memory partition,
+        uint256 amount
+    )
+        internal
+        view
+        returns (
+            uint256 fullIndexSet,
+            uint256 freeIndexSet,
+            uint256[] memory positionIds,
+            uint256[] memory amounts
+        )
+    {
+        if (partition.length <= 1) {
+            revert Errors.TrivialPartition();
+        }
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
+
+        uint8 outcomeSlotCount = uint8(ds.conditionalTokens.payoutNumerators[conditionId].length);
+        if (outcomeSlotCount == 0) revert Errors.ConditionNotPrepared();
+
+        fullIndexSet = (1 << outcomeSlotCount) - 1;
+        freeIndexSet = fullIndexSet;
+
+        positionIds = new uint256[](partition.length);
+        amounts = new uint256[](partition.length);
+
+        for (uint256 i = 0; i < partition.length; i++) {
+            uint256 indexSet = partition[i];
+            if (indexSet == 0 || indexSet >= fullIndexSet) revert Errors.InvalidIndexSet();
+            if ((indexSet & freeIndexSet) != indexSet) revert Errors.PartitionNotDisjoint();
+            freeIndexSet ^= indexSet;
+
+            positionIds[i] = _getPositionId(collateralToken, parentCollectionId, conditionId, indexSet);
+            amounts[i] = amount;
+        }
+    }
+
+    function _getPositionId(
+        address collateralToken,
+        bytes32 parentCollectionId,
+        bytes32 conditionId,
+        uint256 indexSet
+    ) internal view returns (uint256) {
+        bytes32 collId = LibCTHelpers.getCollectionId(parentCollectionId, conditionId, indexSet);
+        return LibCTHelpers.getPositionId(collateralToken, collId);
+    }
+
     function enforceConditionIsActive(bytes32 conditionId) internal view {
-        LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
-        require(ds.conditionManager.conditions[conditionId].active, "ConditionalTokens: condition inactive");
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
+        if (!ds.conditionalTokens.conditions[conditionId].active) {
+            revert Errors.ConditionNotActive();
+        }
     }
 }
