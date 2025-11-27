@@ -251,7 +251,7 @@ library LibOrderbook {
             bool shouldInsertBefore;
             if (price == existingPrice) {
                 // Price-time priority: earlier orders come first
-                shouldInsertBefore = order.createdAt >= existingOrder.createdAt;
+                shouldInsertBefore = order.createdAt < existingOrder.createdAt;
             } else {
                 shouldInsertBefore =
                     (order.direction == LibDoefinStorage.OrderDirection.Sell && price < existingPrice) ||
