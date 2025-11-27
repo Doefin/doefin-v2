@@ -53,7 +53,23 @@ async function deployDiamond() {
   // deploy facets
   console.log("");
   console.log("Deploying facets");
+  console.log("");
+  console.log("Deploying facets");
   const FacetNames = [
+    "DiamondLoupeFacet",
+    "OwnershipFacet",
+    "ERC1155Facet",
+    "ERC1155ReceiverFacet",
+    "ConditionalTokensFacet",
+    "ConditionManagerFacet",
+    "AccessControlFacet",
+    "AdminConfigFacet",
+    "ExchangeFacet",
+    "MarketExecutionFacet",
+    "RouteSimulationFacet",
+    "MarketDataFacet",
+  ];
+  const cut = [];
     "DiamondLoupeFacet",
     "OwnershipFacet",
     "ERC1155Facet",
@@ -79,9 +95,16 @@ async function deployDiamond() {
       action: FacetCutAction.Add,
       functionSelectors: getSelectors(facet),
     });
+      functionSelectors: getSelectors(facet),
+    });
   }
 
   // upgrade diamond with facets
+  console.log("");
+  console.log("Diamond Cut:", cut);
+  const diamondCut = await ethers.getContractAt("IDiamondCut", diamond.address);
+  let tx;
+  let receipt;
   console.log("");
   console.log("Diamond Cut:", cut);
   const diamondCut = await ethers.getContractAt("IDiamondCut", diamond.address);
@@ -130,6 +153,11 @@ if (require.main === module) {
       console.error(error);
       process.exit(1);
     });
+    .catch((error) => {
+      console.error(error);
+      process.exit(1);
+    });
 }
 
+exports.deployDiamond = deployDiamond;
 exports.deployDiamond = deployDiamond;
