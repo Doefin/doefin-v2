@@ -55,9 +55,30 @@ library LibDoefinStorage {
         Limit
     }
 
+    enum OrderType {
+        Standard, // Regular buy/sell in collateral token
+        CrossCurrency // Orders that use quote currency for pricing/settlement
+    }
+
     struct OrderFeeConfig {
         uint16 makerFeeBps;
         uint16 takerFeeBps;
+    }
+
+    enum ExchangeRateType {
+        Fixed, // Fixed exchange rate (allowed for both buy and sell orders)
+        Dynamic // Dynamic rate (only allowed for sell orders)
+    }
+
+    struct CrossCurrencyConfig {
+        /// @notice Quote currency token address (e.g., ETH, BTC, WETH)
+        address quoteCurrencyToken;
+        /// @notice Exchange rate type (fixed or dynamic)
+        ExchangeRateType exchangeRateType;
+        /// @notice Exchange rate (quote currency per collateral token)
+        /// @dev For Fixed: the fixed exchange rate to use
+        /// @dev For Dynamic: the target/reference exchange rate for dynamic pricing
+        uint256 exchangeRate;
     }
 
     struct SettlementExecutionContext {
@@ -144,9 +165,13 @@ library LibDoefinStorage {
         uint256 expiry;
         /// @notice Timestamp of the order creation time
         uint256 createdAt;
+        /// @notice Type of order (Standard or CrossCurrency)
+        OrderType orderType;
         /// @notice Maker and Taker Fees
         OrderFeeConfig orderFeeConfig;
-        // These 4 fields will be packed into a single slot (Slot 13):
+        /// @notice Cross currency configuration (only used for CrossCurrency orders)
+        CrossCurrencyConfig crossCurrencyConfig;
+        // These fields will be packed into a single slot:
         /// @notice Buy or Sell side of the order
         OrderDirection direction;
         /// @notice Type of order execution
