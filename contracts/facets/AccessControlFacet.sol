@@ -6,16 +6,27 @@ pragma solidity ^0.8.6;
 
 import {LibAccessControl} from "../libraries/LibAccessControl.sol";
 import {IAccessControl} from "../interfaces/IAccessControl.sol";
+import {Events} from "../libraries/Events.sol";
+import {Errors} from "../libraries/Errors.sol";
 
 contract AccessControlFacet is IAccessControl {
     function addMarketMaker(address account) external {
+        if (account == address(0)) {
+            revert Errors.InvalidMakerAddress();
+        }
+        if (LibAccessControl.isMarketMaker(account)) {
+            revert Errors.AlreadyMarketMaker();
+        }
         LibAccessControl.setMarketMaker(account, true);
-        emit MarketMakerUpdated(account, true);
+        emit Events.MarketMakerStatusUpdated(account, true);
     }
 
     function removeMarketMaker(address account) external {
+        if (account == address(0)) {
+            revert Errors.InvalidMakerAddress();
+        }
         LibAccessControl.setMarketMaker(account, false);
-        emit MarketMakerUpdated(account, false);
+        emit Events.MarketMakerStatusUpdated(account, false);
     }
 
     function isMarketMaker(address account) external view returns (bool) {

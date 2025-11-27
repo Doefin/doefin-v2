@@ -54,6 +54,9 @@ library Errors {
     /// @notice Thrown when fee percentage exceeds maximum (100%)
     error FeeTooHigh();
 
+    /// @notice Thrown when no change is made for fees/receiver
+    error NoChangeRequired();
+
     // ========================================
     // CONDITION MANAGER ERRORS
     // ========================================
