@@ -7,6 +7,7 @@ pragma solidity ^0.8.6;
 import {Errors} from "../libraries/Errors.sol";
 import {Events} from "../libraries/Events.sol";
 import {LibDoefinStorage} from "../libraries/LibDoefinStorage.sol";
+import {BlockHeaderUtils} from "../libraries/BlockHeaderUtils.sol";
 import {LibOracleAdapter} from "../libraries/LibOracleAdapter.sol";
 import {IDoefinBlockHeaderOracle} from "../interfaces/IDoefinBlockHeaderOracle.sol";
 
@@ -131,7 +132,9 @@ contract DoefinV1BlockHeaderOracle is IDoefinBlockHeaderOracle {
     /**
      * @dev Settle orders in the order book for every new bloc number
      */
-    function _settleCondition() internal {}
+    function _settleCondition() internal {
+        LibOracleAdapter.settleCondition();
+    }
 
     /**
      * @dev Apply a series of new block headers to the chain
