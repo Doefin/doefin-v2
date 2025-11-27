@@ -21,12 +21,13 @@ async function splitConditionAndGetPositionIds({
   conditionId,
   indexSets,
 }) {
+  // Note: splitPosition parameter order is: collateralToken, parentCollectionId, conditionId, partition, amount
   const tx = await conditionalFacet.connect(user).splitPosition(
     erc20.address,
     ethers.constants.HashZero, // Parent collectionId
     conditionId,
-    amount,
-    indexSets
+    indexSets, // partition (array of outcome indexes)
+    amount // amount comes AFTER partition
   );
 
   const receipt = await tx.wait();
