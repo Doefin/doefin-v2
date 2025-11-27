@@ -425,6 +425,12 @@ library Events {
     );
 
     // ========================================
+    // Block HEADER ORACLE EVENTS
+    // ========================================
+    event BlockReorged(bytes32 merkleRootHash);
+    event BlockSubmitted(bytes32 blockHash, uint32 timestamp);
+
+    // ========================================
     // ERC1155 EVENTS
     // ========================================
 

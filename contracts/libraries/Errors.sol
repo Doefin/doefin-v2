@@ -278,6 +278,21 @@ library Errors {
     error InvalidParentCollectionId();
 
     // ========================================
+    // BLOCK HEADER ORACLE ERRORS
+    // ========================================
+    error BlockHeaderOracle_NewChainNotLonger();
+
+    error BlockHeaderOracle_CannotFindForkPoint();
+
+    error BlockHeaderOracle_PrevBlockHashMismatch();
+
+    error BlockHeaderOracle_InvalidTimestamp();
+
+    error BlockHeaderOracle_InvalidBlockHash();
+
+    error BlockHeaderOracle_InvalidInitialHistoryLength();
+
+    // ========================================
     // VALIDATION ERRORS
     // ========================================
 
