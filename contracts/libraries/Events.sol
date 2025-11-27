@@ -431,6 +431,92 @@ library Events {
     event BlockSubmitted(bytes32 blockHash, uint32 timestamp);
 
     // ========================================
+    // ORACLE ADAPTER EVENTS
+    // ========================================
+
+    /// @notice Emitted when a new question is created
+    /// @param questionId Unique identifier for the question
+    /// @param conditionId Associated condition identifier
+    /// @param questionType Type of question (Threshold, Range, BlockCount, Duration)
+    /// @param settlementTrigger Block height or timestamp when condition can resolve
+    /// @param creator Address that created the question
+    event QuestionCreated(
+        bytes32 indexed questionId,
+        bytes32 indexed conditionId,
+        LibDoefinStorage.QuestionType questionType,
+        uint256 settlementTrigger,
+        address indexed creator
+    );
+
+    /// @notice Emitted when a difficulty threshold question is created
+    /// @param questionId Unique identifier for the question
+    /// @param conditionId Associated condition identifier
+    /// @param threshold Difficulty threshold value
+    /// @param targetBlockHeight Block height to measure difficulty at
+    /// @param settlementBlock Block height when question becomes resolvable (includes settlement delay)
+    /// @param creator Address that created the question
+    event DifficultyThresholdQuestionCreated(
+        bytes32 indexed questionId,
+        bytes32 indexed conditionId,
+        uint256 threshold,
+        uint256 targetBlockHeight,
+        uint256 settlementBlock,
+        address indexed creator
+    );
+
+    /// @notice Emitted when a difficulty range question is created
+    /// @param questionId Unique identifier for the question
+    /// @param conditionId Associated condition identifier
+    /// @param targetBlockHeight Block height to measure difficulty at
+    /// @param buckets Range boundaries (sorted ascending)
+    /// @param settlementBlock Block height when question becomes resolvable (includes settlement delay)
+    /// @param creator Address that created the question
+    event DifficultyRangeQuestionCreated(
+        bytes32 indexed questionId,
+        bytes32 indexed conditionId,
+        uint256 targetBlockHeight,
+        uint256[] buckets,
+        uint256 settlementBlock,
+        address indexed creator
+    );
+
+    /// @notice Emitted when a block count question is created
+    /// @param questionId Unique identifier for the question
+    /// @param conditionId Associated condition identifier
+    /// @param startTimestamp Start of time window
+    /// @param endTimestamp End of time window
+    /// @param countBuckets Block count range boundaries
+    /// @param settlementBucket Timestamp bucket when question becomes resolvable
+    /// @param creator Address that created the question
+    event BlockCountQuestionCreated(
+        bytes32 indexed questionId,
+        bytes32 indexed conditionId,
+        uint256 startTimestamp,
+        uint256 endTimestamp,
+        uint256[] countBuckets,
+        uint256 settlementBucket,
+        address indexed creator
+    );
+
+    /// @notice Emitted when a mining duration question is created
+    /// @param questionId Unique identifier for the question
+    /// @param conditionId Associated condition identifier
+    /// @param startBlockHeight Starting block height
+    /// @param blockCount Number of blocks to measure duration for
+    /// @param durationBuckets Duration range boundaries in seconds
+    /// @param settlementBlock Block height when question becomes resolvable (includes settlement delay)
+    /// @param creator Address that created the question
+    event MiningDurationQuestionCreated(
+        bytes32 indexed questionId,
+        bytes32 indexed conditionId,
+        uint256 startBlockHeight,
+        uint256 blockCount,
+        uint256[] durationBuckets,
+        uint256 settlementBlock,
+        address indexed creator
+    );
+
+    // ========================================
     // ERC1155 EVENTS
     // ========================================
 
