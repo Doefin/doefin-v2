@@ -7,14 +7,21 @@ const {
   takeSnapshot,
   revertToSnapshot,
 } = require("../../utils/snapshotUtils.js");
+const {
+  QuestionType,
+  encodeDifficultyThreshold,
+  encodeDifficultyRange,
+  encodeBlockCount,
+  encodeMiningDuration,
+} = require("../../utils/oracleAdapterUtils.js");
 
 describe("ConditionManagerFacet", function () {
-  let owner, oracle, oracle2, user1, user2, marketMaker;
-  let diamondAddress, conditionManagerFacet, accessControlFacet;
+  let owner, oracle, oracle2, user1, marketMaker;
+  let diamondAddress, conditionManagerFacet, accessControlFacet, blockHeaderOracle;
   let snapshotId;
 
   before(async function () {
-    [owner, oracle, oracle2, user1, user2, marketMaker] =
+    [owner, oracle, oracle2, user1, marketMaker] =
       await ethers.getSigners();
 
     diamondAddress = await deployDiamond();
@@ -24,6 +31,10 @@ describe("ConditionManagerFacet", function () {
     );
     accessControlFacet = await ethers.getContractAt(
       "AccessControlFacet",
+      diamondAddress
+    );
+    blockHeaderOracle = await ethers.getContractAt(
+      "IDoefinBlockHeaderOracle",
       diamondAddress
     );
 
@@ -242,6 +253,252 @@ describe("ConditionManagerFacet", function () {
             "ipfs://zero-oracle"
           )
       ).to.be.revertedWith("InvalidOracleAddress()");
+    });
+  });
+
+  describe("Create Condition With Metadata and Events", function () {
+    const SETTLEMENT_DELAY = 6;
+
+    it("should emit DifficultyThresholdQuestionCreated event with all parameters", async () => {
+      const currentHeight = await blockHeaderOracle.getCurrentBlockHeight();
+      const targetBlockHeight = currentHeight.add ? currentHeight.add(2) : ethers.BigNumber.from(currentHeight).add(2);
+      const settlementBlock = targetBlockHeight.add ? targetBlockHeight.add(SETTLEMENT_DELAY) : ethers.BigNumber.from(targetBlockHeight).add(SETTLEMENT_DELAY);
+      const threshold = ethers.utils.parseUnits("50", "gwei");
+      const metadata = encodeDifficultyThreshold(threshold, targetBlockHeight);
+
+      // Get return values
+      const [conditionId, questionId] = await conditionManagerFacet
+        .connect(marketMaker)
+        .callStatic.createConditionWithMetadata(
+          QuestionType.DifficultyThreshold,
+          metadata,
+          2,
+          "ipfs://test-threshold",
+          ethers.constants.HashZero
+        );
+
+      const tx = await conditionManagerFacet
+        .connect(marketMaker)
+        .createConditionWithMetadata(
+          QuestionType.DifficultyThreshold,
+          metadata,
+          2,
+          "ipfs://test-threshold",
+          ethers.constants.HashZero
+        );
+
+      // Verify the specialized event is emitted with all parameters
+      await expect(tx)
+        .to.emit(conditionManagerFacet, "DifficultyThresholdQuestionCreated")
+        .withArgs(
+          questionId,
+          conditionId,
+          threshold,
+          targetBlockHeight,
+          settlementBlock,
+          marketMaker.address
+        );
+
+      // Also verify QuestionCreated generic event
+      await expect(tx)
+        .to.emit(conditionManagerFacet, "QuestionCreated")
+        .withArgs(
+          questionId,
+          conditionId,
+          QuestionType.DifficultyThreshold,
+          settlementBlock,
+          marketMaker.address
+        );
+
+      // Verify ConditionCreated event
+      await expect(tx).to.emit(conditionManagerFacet, "ConditionCreated");
+    });
+
+    it("should emit DifficultyRangeQuestionCreated event with buckets", async () => {
+      const currentHeight = await blockHeaderOracle.getCurrentBlockHeight();
+      const targetBlockHeight = currentHeight.add ? currentHeight.add(2) : ethers.BigNumber.from(currentHeight).add(2);
+      const settlementBlock = targetBlockHeight.add ? targetBlockHeight.add(SETTLEMENT_DELAY) : ethers.BigNumber.from(targetBlockHeight).add(SETTLEMENT_DELAY);
+      const buckets = [
+        ethers.utils.parseUnits("40", "gwei"),
+        ethers.utils.parseUnits("50", "gwei"),
+        ethers.utils.parseUnits("60", "gwei"),
+      ];
+      const metadata = encodeDifficultyRange(targetBlockHeight, buckets);
+
+      const [conditionId, questionId] = await conditionManagerFacet
+        .connect(marketMaker)
+        .callStatic.createConditionWithMetadata(
+          QuestionType.DifficultyRange,
+          metadata,
+          4, // 3 buckets + 1 = 4 outcomes
+          "ipfs://test-range",
+          ethers.constants.HashZero
+        );
+
+      const tx = await conditionManagerFacet
+        .connect(marketMaker)
+        .createConditionWithMetadata(
+          QuestionType.DifficultyRange,
+          metadata,
+          4,
+          "ipfs://test-range",
+          ethers.constants.HashZero
+        );
+
+      await expect(tx)
+        .to.emit(conditionManagerFacet, "DifficultyRangeQuestionCreated")
+        .withArgs(
+          questionId,
+          conditionId,
+          targetBlockHeight,
+          buckets,
+          settlementBlock,
+          marketMaker.address
+        );
+    });
+
+    it("should emit BlockCountQuestionCreated event with timestamps", async () => {
+      const currentBlock = await ethers.provider.getBlock("latest");
+      const blockTimestamp = currentBlock.timestamp;
+      const startTimestamp = blockTimestamp + 1800; // 30 min from now
+      const endTimestamp = blockTimestamp + 7200; // 2 hours from now
+      const settlementBucket = Math.floor(endTimestamp / 600) * 600; // 10-minute bucket
+      const countBuckets = [100, 150, 200];
+      const metadata = encodeBlockCount(
+        startTimestamp,
+        endTimestamp,
+        countBuckets
+      );
+
+      const [conditionId, questionId] = await conditionManagerFacet
+        .connect(marketMaker)
+        .callStatic.createConditionWithMetadata(
+          QuestionType.BlockCount,
+          metadata,
+          4, // 3 buckets + 1 = 4 outcomes
+          "ipfs://test-blockcount",
+          ethers.constants.HashZero
+        );
+
+      const tx = await conditionManagerFacet
+        .connect(marketMaker)
+        .createConditionWithMetadata(
+          QuestionType.BlockCount,
+          metadata,
+          4,
+          "ipfs://test-blockcount",
+          ethers.constants.HashZero
+        );
+
+      await expect(tx)
+        .to.emit(conditionManagerFacet, "BlockCountQuestionCreated")
+        .withArgs(
+          questionId,
+          conditionId,
+          startTimestamp,
+          endTimestamp,
+          countBuckets,
+          settlementBucket,
+          marketMaker.address
+        );
+    });
+
+    it("should emit MiningDurationQuestionCreated event with duration buckets", async () => {
+      const currentHeight = await blockHeaderOracle.getCurrentBlockHeight();
+      const startBlockHeight = currentHeight.add ? currentHeight.add(1) : ethers.BigNumber.from(currentHeight).add(1);
+      const blockCount = 2;
+      const settlementBlock = startBlockHeight.add ? startBlockHeight.add(blockCount + SETTLEMENT_DELAY) : ethers.BigNumber.from(startBlockHeight).add(blockCount + SETTLEMENT_DELAY);
+      const durationBuckets = [600, 1200]; // 10, 20 minutes
+      const metadata = encodeMiningDuration(
+        startBlockHeight,
+        blockCount,
+        durationBuckets
+      );
+
+      const [conditionId, questionId] = await conditionManagerFacet
+        .connect(marketMaker)
+        .callStatic.createConditionWithMetadata(
+          QuestionType.MiningDuration,
+          metadata,
+          3, // 2 buckets + 1 = 3 outcomes
+          "ipfs://test-duration",
+          ethers.constants.HashZero
+        );
+
+      const tx = await conditionManagerFacet
+        .connect(marketMaker)
+        .createConditionWithMetadata(
+          QuestionType.MiningDuration,
+          metadata,
+          3,
+          "ipfs://test-duration",
+          ethers.constants.HashZero
+        );
+
+      await expect(tx)
+        .to.emit(conditionManagerFacet, "MiningDurationQuestionCreated")
+        .withArgs(
+          questionId,
+          conditionId,
+          startBlockHeight,
+          blockCount,
+          durationBuckets,
+          settlementBlock,
+          marketMaker.address
+        );
+    });
+
+    it("should emit both generic and specialized events", async () => {
+      const currentHeight = await blockHeaderOracle.getCurrentBlockHeight();
+      const targetBlockHeight = currentHeight.add ? currentHeight.add(2) : ethers.BigNumber.from(currentHeight).add(2);
+      const settlementBlock = targetBlockHeight.add ? targetBlockHeight.add(SETTLEMENT_DELAY) : ethers.BigNumber.from(targetBlockHeight).add(SETTLEMENT_DELAY);
+      const threshold = ethers.utils.parseUnits("50", "gwei");
+      const metadata = encodeDifficultyThreshold(threshold, targetBlockHeight);
+
+      const [conditionId, questionId] = await conditionManagerFacet
+        .connect(marketMaker)
+        .callStatic.createConditionWithMetadata(
+          QuestionType.DifficultyThreshold,
+          metadata,
+          2,
+          "ipfs://test-both-events",
+          ethers.constants.HashZero
+        );
+
+      const tx = await conditionManagerFacet
+        .connect(marketMaker)
+        .createConditionWithMetadata(
+          QuestionType.DifficultyThreshold,
+          metadata,
+          2,
+          "ipfs://test-both-events",
+          ethers.constants.HashZero
+        );
+
+      // Both events should be emitted
+      const receipt = await tx.wait();
+      expect(receipt.events.length).to.be.greaterThanOrEqual(3); // At least 3 events: ConditionCreated, QuestionCreated, DifficultyThresholdQuestionCreated
+
+      // Verify generic QuestionCreated
+      const genericEvent = receipt.events.find(
+        (e) => e.event === "QuestionCreated"
+      );
+      expect(genericEvent).to.exist;
+      expect(genericEvent.args.questionId).to.equal(questionId);
+      expect(genericEvent.args.conditionId).to.equal(conditionId);
+      expect(genericEvent.args.questionType).to.equal(
+        QuestionType.DifficultyThreshold
+      );
+      expect(genericEvent.args.settlementTrigger).to.equal(settlementBlock);
+
+      // Verify specialized event
+      const specializedEvent = receipt.events.find(
+        (e) => e.event === "DifficultyThresholdQuestionCreated"
+      );
+      expect(specializedEvent).to.exist;
+      expect(specializedEvent.args.questionId).to.equal(questionId);
+      expect(specializedEvent.args.threshold).to.equal(threshold);
+      expect(specializedEvent.args.targetBlockHeight).to.equal(targetBlockHeight);
     });
   });
 
