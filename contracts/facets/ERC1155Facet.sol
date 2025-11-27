@@ -27,11 +27,23 @@ contract ERC1155Facet is IERC1155Facet {
         return LibERC1155.isApprovedForAll(owner, operator);
     }
 
-    function safeTransferFrom(address from, address to, uint256 id, uint256 value, bytes calldata data) external override {
+    function safeTransferFrom(
+        address from,
+        address to,
+        uint256 id,
+        uint256 value,
+        bytes calldata data
+    ) external override {
         LibERC1155.safeTransferFrom(msg.sender, from, to, id, value, data);
     }
 
-    function safeBatchTransferFrom(address from, address to, uint256[] calldata ids, uint256[] calldata values, bytes calldata data) external override {
+    function safeBatchTransferFrom(
+        address from,
+        address to,
+        uint256[] calldata ids,
+        uint256[] calldata values,
+        bytes calldata data
+    ) external override {
         LibERC1155.safeBatchTransferFrom(msg.sender, from, to, ids, values, data);
     }
 }

@@ -20,8 +20,12 @@ import {IERC165} from "../interfaces/IERC165.sol";
 import {IConditionalTokens} from "../interfaces/IConditionalTokens.sol";
 import {IConditionManager} from "../interfaces/IConditionManager.sol";
 import {IERC1155Facet} from "../interfaces/IERC1155.sol";
+import {IERC1155TokenReceiver} from "../interfaces/IERC1155TokenReceiver.sol";
 import {IAccessControl} from "../interfaces/IAccessControl.sol";
 import {IAdminConfig} from "../interfaces/IAdminConfig.sol";
+import {IExchange} from "../interfaces/IExchange.sol";
+import {IMarketExecution} from "../interfaces/IMarketExecution.sol";
+import {IRouteSimulation} from "../interfaces/IRouteSimulation.sol";
 
 // It is expected that this contract is customized if you want to deploy your diamond
 // with data from a deployment script. Use the init function to initialize state variables
@@ -30,7 +34,17 @@ import {IAdminConfig} from "../interfaces/IAdminConfig.sol";
 contract DiamondInit {
     // You can add parameters to this function in order to pass in
     // data to set your own state variables
-    function init() external {
+    function init(address _owner) external {
+        LibDiamond.setContractOwner(_owner);
+
+        // Initialize Doefin storage with fee configuration
+        LibDoefinStorage.initialize(
+            _owner, // feeReceiver
+            500, // resolutionFeeBps (5%)
+            100, // makerTradingFeeBps (1%)
+            200 // takerTradingFeeBps (2%)
+        );
+
         // adding ERC165 data
         LibDiamond.DiamondStorage storage ds = LibDiamond.diamondStorage();
         ds.supportedInterfaces[type(IERC165).interfaceId] = true;
@@ -40,14 +54,12 @@ contract DiamondInit {
         ds.supportedInterfaces[type(IConditionalTokens).interfaceId] = true;
         ds.supportedInterfaces[type(IConditionManager).interfaceId] = true;
         ds.supportedInterfaces[type(IERC1155Facet).interfaceId] = true;
+        ds.supportedInterfaces[type(IERC1155TokenReceiver).interfaceId] = true;
         ds.supportedInterfaces[type(IAccessControl).interfaceId] = true;
         ds.supportedInterfaces[type(IAdminConfig).interfaceId] = true;
-
-        LibDoefinStorage.DiamondStorage storage dfs = LibDoefinStorage.diamondStorage();
-        dfs.adminConfigStorage.feeReceiver = msg.sender;
-        dfs.adminConfigStorage.resolutionFeeBps = 500;
-        dfs.adminConfigStorage.makerTradingFeeBps = 100;
-        dfs.adminConfigStorage.takerTradingFeeBps = 200;
+        ds.supportedInterfaces[type(IExchange).interfaceId] = true;
+        ds.supportedInterfaces[type(IMarketExecution).interfaceId] = true;
+        ds.supportedInterfaces[type(IRouteSimulation).interfaceId] = true;
 
         // add your own state variables
         // EIP-2535 specifies that the `diamondCut` function takes two optional

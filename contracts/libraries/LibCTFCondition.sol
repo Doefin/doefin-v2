@@ -10,6 +10,7 @@ import {LibERC1155} from "./LibERC1155.sol";
 import {Errors} from "./Errors.sol";
 import {LibPositionRegistry} from "./LibPositionRegistry.sol";
 import {LibReentrancyGuard} from "./LibReentrancyGuard.sol";
+import {LibAccessControl} from "./LibAccessControl.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 library LibCTFCondition {
@@ -26,7 +27,7 @@ library LibCTFCondition {
             revert Errors.InvalidOracleAddress();
         }
 
-        LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
         conditionId = LibCTHelpers.getConditionId(oracle, questionId, outcomeSlotCount);
 
         if (ds.conditionalTokens.payoutNumerators[conditionId].length > 0) {
@@ -116,8 +117,8 @@ library LibCTFCondition {
     }
 
     function _validateCollateral(address collateralToken, uint256 amount) internal view {
-        LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
-        if (!ds.adminConfigStorage.isAllowed[collateralToken]) {
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
+        if (!LibAccessControl.isCollateralTokenAllowed(collateralToken)) {
             revert Errors.TokenNotAllowed();
         }
 
@@ -147,7 +148,7 @@ library LibCTFCondition {
         if (partition.length <= 1) {
             revert Errors.TrivialPartition();
         }
-        LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
 
         uint8 outcomeSlotCount = uint8(ds.conditionalTokens.payoutNumerators[conditionId].length);
         if (outcomeSlotCount == 0) revert Errors.ConditionNotPrepared();
@@ -180,8 +181,8 @@ library LibCTFCondition {
     }
 
     function enforceConditionIsActive(bytes32 conditionId) internal view {
-        LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
-        if (!ds.conditionManager.conditions[conditionId].active) {
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
+        if (!ds.conditionalTokens.conditions[conditionId].active) {
             revert Errors.ConditionNotActive();
         }
     }
