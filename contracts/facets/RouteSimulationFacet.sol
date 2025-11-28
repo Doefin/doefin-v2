@@ -17,4 +17,22 @@ contract RouteSimulationFacet is IRouteSimulation {
     ) external view override returns (LibDoefinStorage.MatchOrderRoute memory) {
         return LibMatchEngine.simulateMarketOrder(positionId, amount, direction);
     }
+
+    /// @notice Simulate a cross-currency market order and return the best match route without executing it
+    /// @dev This function simulates matching against compatible cross-currency orders only
+    ///      Cross-currency orders can only match complementary orders (no mint/merge)
+    ///      Orders must have matching quote currencies and be on the same position
+    /// @param positionId The position ID to trade
+    /// @param amount The desired amount to trade
+    /// @param direction Buy or Sell direction
+    /// @param crossCurrencyConfig Cross-currency configuration (quote token, exchange rate, etc.)
+    /// @return The simulated match route with prices in quote currency
+    function simulateCrossCurrencyMarketOrder(
+        uint256 positionId,
+        uint256 amount,
+        LibDoefinStorage.OrderDirection direction,
+        LibDoefinStorage.CrossCurrencyConfig memory crossCurrencyConfig
+    ) external view override returns (LibDoefinStorage.MatchOrderRoute memory) {
+        return LibMatchEngine.simulateCrossCurrencyMarketOrder(positionId, amount, direction, crossCurrencyConfig);
+    }
 }
