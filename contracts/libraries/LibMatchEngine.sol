@@ -37,6 +37,49 @@ library LibMatchEngine {
         return _simulateWithContext(simCtx);
     }
 
+    /// @notice Simulate a cross-currency market order and return the best match route
+    /// @dev Cross-currency orders can only match complementary orders on the same position
+    ///      with the same quote currency. Mint/merge matches are excluded.
+    /// @param positionId The position ID to trade
+    /// @param desiredMarketAmount The desired amount to trade
+    /// @param direction Buy or Sell direction
+    /// @param crossCurrencyConfig Cross-currency configuration (quote token, exchange rate, etc.)
+    /// @return route The simulated match route with prices in quote currency
+    function simulateCrossCurrencyMarketOrder(
+        uint256 positionId,
+        uint256 desiredMarketAmount,
+        LibDoefinStorage.OrderDirection direction,
+        LibDoefinStorage.CrossCurrencyConfig memory crossCurrencyConfig
+    ) internal view returns (LibDoefinStorage.MatchOrderRoute memory route) {
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
+
+        // Validate cross-currency configuration
+        if (crossCurrencyConfig.quoteCurrencyToken == address(0)) {
+            revert Errors.InvalidQuoteCurrencyToken();
+        }
+
+        uint256 quoteUnitPerPair = ds.adminConfigStorage.unitPerPair[crossCurrencyConfig.quoteCurrencyToken];
+        if (quoteUnitPerPair == 0) {
+            revert Errors.TokenNotAllowed();
+        }
+
+        // Get complementary orders only (cross-currency can't use mint/merge)
+        uint256[] storage complementaryOrders;
+        bool isBuy = direction == LibDoefinStorage.OrderDirection.Buy;
+        complementaryOrders = isBuy ? ds.orderbookStorage.sellOrdersByPosition[positionId] : ds.orderbookStorage.buyOrdersByPosition[positionId];
+
+        // Filter to only compatible cross-currency orders
+        uint256[] memory compatibleOrderIds = _filterCrossCurrencyCompatibleOrders(
+            complementaryOrders,
+            crossCurrencyConfig.quoteCurrencyToken,
+            positionId,
+            direction
+        );
+
+        // Use quote currency unit for price calculations
+        return _simulateCrossCurrencyWithOrders(compatibleOrderIds, desiredMarketAmount, direction, quoteUnitPerPair, crossCurrencyConfig);
+    }
+
     function retrieveCollateralUnit(uint256 positionId) internal view returns (uint256) {
         LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
         address collateralToken = LibPositionRegistry.getCollateralToken(positionId);
@@ -442,5 +485,126 @@ library LibMatchEngine {
             // Seller receives less: base price - maker fee
             return (makerPrice * (10_000 - makerOrder.orderFeeConfig.makerFeeBps)) / 10_000;
         }
+    }
+
+    /**
+     * @notice Filter orders to find compatible cross-currency orders
+     * @dev Returns only orders that:
+     *      - Are cross-currency orders
+     *      - Have matching quote currency
+     *      - Are on the same position
+     *      - Have opposite direction
+     *      - Have remaining amount > 0
+     * @param orderIds Storage array of order IDs to filter
+     * @param quoteCurrencyToken The quote currency to match
+     * @param positionId The position ID to match
+     * @param direction The taker's direction (opposite of what we're looking for)
+     * @return compatibleIds Array of compatible order IDs
+     */
+    function _filterCrossCurrencyCompatibleOrders(
+        uint256[] storage orderIds,
+        address quoteCurrencyToken,
+        uint256 positionId,
+        LibDoefinStorage.OrderDirection direction
+    ) internal view returns (uint256[] memory compatibleIds) {
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
+        uint256[] memory tempIds = new uint256[](orderIds.length);
+        uint256 count = 0;
+
+        for (uint256 i = 0; i < orderIds.length; i++) {
+            LibDoefinStorage.Order storage order = ds.orderbookStorage.orders[orderIds[i]];
+
+            // Check if order is cross-currency
+            if (order.orderType != LibDoefinStorage.OrderType.CrossCurrency) {
+                continue;
+            }
+
+            // Check if it has remaining amount
+            if (order.remainingAmount == 0) {
+                continue;
+            }
+
+            // Check if quote currencies match
+            if (order.crossCurrencyConfig.quoteCurrencyToken != quoteCurrencyToken) {
+                continue;
+            }
+
+            // Position already matches (we got orders from this position's book)
+            // Direction already opposite (we got complementary orders)
+
+            tempIds[count] = orderIds[i];
+            count++;
+        }
+
+        // Resize to actual count
+        compatibleIds = new uint256[](count);
+        for (uint256 i = 0; i < count; i++) {
+            compatibleIds[i] = tempIds[i];
+        }
+    }
+
+    /**
+     * @notice Simulate cross-currency order matching with filtered compatible orders
+     * @param compatibleOrderIds Array of compatible cross-currency order IDs
+     * @param desiredAmount The amount the taker wants to trade
+     * @param direction The taker's direction
+     * @param quoteUnitPerPair Unit per pair for quote currency
+     * @param crossCurrencyConfig The taker's cross-currency configuration
+     * @return route The simulated match route
+     */
+    function _simulateCrossCurrencyWithOrders(
+        uint256[] memory compatibleOrderIds,
+        uint256 desiredAmount,
+        LibDoefinStorage.OrderDirection direction,
+        uint256 quoteUnitPerPair,
+        LibDoefinStorage.CrossCurrencyConfig memory crossCurrencyConfig
+    ) internal view returns (LibDoefinStorage.MatchOrderRoute memory route) {
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
+
+        if (compatibleOrderIds.length == 0) {
+            // Return empty route
+            route.matches = new LibDoefinStorage.Match[](0);
+            route.totalInputAmount = 0;
+            route.totalOutputAmount = 0;
+            return route;
+        }
+
+        LibDoefinStorage.Match[] memory tempMatches = new LibDoefinStorage.Match[](compatibleOrderIds.length);
+        uint256 remaining = desiredAmount;
+        uint256 matchCount = 0;
+        route.totalInputAmount = 0;
+        route.totalOutputAmount = 0;
+
+        // Iterate through compatible orders and simulate matches
+        for (uint256 i = 0; i < compatibleOrderIds.length && remaining > 0; i++) {
+            LibDoefinStorage.Order storage makerOrder = ds.orderbookStorage.orders[compatibleOrderIds[i]];
+
+            // Calculate effective price in quote currency
+            uint256 effectivePrice = _effectiveTakerPriceCrossCurrency(makerOrder, direction, LibDoefinStorage.MatchType.Complementary);
+
+            // Determine fill amount
+            uint256 fillAmount = remaining < makerOrder.remainingAmount ? remaining : makerOrder.remainingAmount;
+
+            // Create match
+            tempMatches[matchCount] = LibDoefinStorage.Match({
+                matchedOrderId: makerOrder.orderId,
+                matchType: LibDoefinStorage.MatchType.Complementary,
+                amount: fillAmount,
+                effectivePrice: effectivePrice
+            });
+
+            route.totalInputAmount += fillAmount;
+            route.totalOutputAmount += Math.mulDiv(fillAmount, effectivePrice, quoteUnitPerPair);
+            remaining -= fillAmount;
+            matchCount++;
+        }
+
+        // Resize matches array to actual count
+        route.matches = new LibDoefinStorage.Match[](matchCount);
+        for (uint256 i = 0; i < matchCount; i++) {
+            route.matches[i] = tempMatches[i];
+        }
+
+        return route;
     }
 }
