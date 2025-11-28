@@ -6,7 +6,6 @@ describe("RouteSimulationFacet - Cross-Currency", function () {
   let diamondAddress;
   let routeSimulationFacet;
   let adminConfigFacet;
-  let orderCreationFacet;
   let conditionalTokensFacet;
   let conditionManagerFacet;
   let owner;
@@ -27,7 +26,6 @@ describe("RouteSimulationFacet - Cross-Currency", function () {
     // Get facets
     routeSimulationFacet = await ethers.getContractAt("RouteSimulationFacet", diamondAddress);
     adminConfigFacet = await ethers.getContractAt("AdminConfigFacet", diamondAddress);
-    orderCreationFacet = await ethers.getContractAt("OrderCreationFacet", diamondAddress);
     conditionalTokensFacet = await ethers.getContractAt("ConditionalTokensFacet", diamondAddress);
     conditionManagerFacet = await ethers.getContractAt("ConditionManagerFacet", diamondAddress);
     const accessControlFacet = await ethers.getContractAt("AccessControlFacet", diamondAddress);
@@ -92,17 +90,11 @@ describe("RouteSimulationFacet - Cross-Currency", function () {
 
   describe("simulateCrossCurrencyMarketOrder", function () {
     it("should return empty route when no compatible orders exist", async function () {
-      const crossCurrencyConfig = {
-        quoteCurrencyToken: mockWETH.address,
-        exchangeRateType: 0, // Fixed
-        exchangeRate: ethers.utils.parseUnits("2000", 18), // 2000 USDC per WETH
-      };
-
       const route = await routeSimulationFacet.simulateCrossCurrencyMarketOrder(
         positionId,
         ethers.utils.parseUnits("100", 6),
         0, // Buy
-        crossCurrencyConfig
+        mockWETH.address
       );
 
       expect(route.matches.length).to.equal(0);
@@ -111,18 +103,12 @@ describe("RouteSimulationFacet - Cross-Currency", function () {
     });
 
     it("should validate quote currency token is not zero address", async function () {
-      const invalidConfig = {
-        quoteCurrencyToken: ethers.constants.AddressZero,
-        exchangeRateType: 0,
-        exchangeRate: ethers.utils.parseUnits("1", 18),
-      };
-
       try {
         await routeSimulationFacet.simulateCrossCurrencyMarketOrder(
           positionId,
           ethers.utils.parseUnits("100", 6),
           0, // Buy
-          invalidConfig
+          ethers.constants.AddressZero
         );
         expect.fail("Should have reverted with InvalidQuoteCurrencyToken");
       } catch (error) {
@@ -132,18 +118,13 @@ describe("RouteSimulationFacet - Cross-Currency", function () {
 
     it("should validate quote currency token is allowed", async function () {
       const unapprovedToken = ethers.Wallet.createRandom().address;
-      const invalidConfig = {
-        quoteCurrencyToken: unapprovedToken,
-        exchangeRateType: 0,
-        exchangeRate: ethers.utils.parseUnits("1", 18),
-      };
 
       try {
         await routeSimulationFacet.simulateCrossCurrencyMarketOrder(
           positionId,
           ethers.utils.parseUnits("100", 6),
           0, // Buy
-          invalidConfig
+          unapprovedToken
         );
         expect.fail("Should have reverted with TokenNotAllowed");
       } catch (error) {
