@@ -538,6 +538,7 @@ library LibMatchEngine {
 
     /**
      * @notice Simulate cross-currency order matching with filtered compatible orders
+     * @dev Implements price-time priority: at each step, selects the best-priced available order
      * @param compatibleOrderIds Array of compatible cross-currency order IDs
      * @param desiredAmount The amount the taker wants to trade
      * @param direction The taker's direction
@@ -566,28 +567,75 @@ library LibMatchEngine {
         route.totalInputAmount = 0;
         route.totalOutputAmount = 0;
 
-        // Iterate through compatible orders and simulate matches
-        for (uint256 i = 0; i < compatibleOrderIds.length && remaining > 0; i++) {
-            LibDoefinStorage.Order storage makerOrder = ds.orderbookStorage.orders[compatibleOrderIds[i]];
+        // Track which orders have been used to implement price-time priority
+        bool[] memory used = new bool[](compatibleOrderIds.length);
 
-            // Calculate effective price in quote currency
-            uint256 effectivePrice = _effectiveTakerPriceCrossCurrency(makerOrder, direction, LibDoefinStorage.MatchType.Complementary);
+        // Fill orders by price-time priority: at each step, pick the best-priced remaining order
+        while (remaining > 0 && matchCount < compatibleOrderIds.length) {
+            uint256 bestIndex = type(uint256).max;
+            uint256 bestPrice = type(uint256).max;
+            uint256 bestCreatedAt = type(uint256).max;
 
-            // Determine fill amount
-            uint256 fillAmount = remaining < makerOrder.remainingAmount ? remaining : makerOrder.remainingAmount;
+            // Find the best-priced available order
+            for (uint256 i = 0; i < compatibleOrderIds.length; i++) {
+                if (used[i]) continue;
 
-            // Create match
+                LibDoefinStorage.Order storage order = ds.orderbookStorage.orders[compatibleOrderIds[i]];
+                if (order.remainingAmount == 0) {
+                    used[i] = true;
+                    continue;
+                }
+
+                uint256 effectivePrice = _effectiveTakerPriceCrossCurrency(
+                    order,
+                    direction,
+                    LibDoefinStorage.MatchType.Complementary
+                );
+
+                // Select based on price (and time for tiebreaker)
+                bool isBetter = false;
+                if (direction == LibDoefinStorage.OrderDirection.Buy) {
+                    // For buys: lower price is better
+                    if (effectivePrice < bestPrice) {
+                        isBetter = true;
+                    } else if (effectivePrice == bestPrice && order.createdAt < bestCreatedAt) {
+                        isBetter = true;
+                    }
+                } else {
+                    // For sells: higher price is better
+                    if (effectivePrice > bestPrice) {
+                        isBetter = true;
+                    } else if (effectivePrice == bestPrice && order.createdAt < bestCreatedAt) {
+                        isBetter = true;
+                    }
+                }
+
+                if (isBetter) {
+                    bestIndex = i;
+                    bestPrice = effectivePrice;
+                    bestCreatedAt = order.createdAt;
+                }
+            }
+
+            // If no available order found, exit loop
+            if (bestIndex == type(uint256).max) break;
+
+            // Fill the best order
+            LibDoefinStorage.Order storage bestOrder = ds.orderbookStorage.orders[compatibleOrderIds[bestIndex]];
+            uint256 fillAmount = remaining < bestOrder.remainingAmount ? remaining : bestOrder.remainingAmount;
+
             tempMatches[matchCount] = LibDoefinStorage.Match({
-                matchedOrderId: makerOrder.orderId,
+                matchedOrderId: bestOrder.orderId,
                 matchType: LibDoefinStorage.MatchType.Complementary,
                 amount: fillAmount,
-                effectivePrice: effectivePrice
+                effectivePrice: bestPrice
             });
 
             route.totalInputAmount += fillAmount;
-            route.totalOutputAmount += Math.mulDiv(fillAmount, effectivePrice, quoteUnitPerPair);
+            route.totalOutputAmount += Math.mulDiv(fillAmount, bestPrice, quoteUnitPerPair);
             remaining -= fillAmount;
             matchCount++;
+            used[bestIndex] = true;
         }
 
         // Resize matches array to actual count
