@@ -215,6 +215,10 @@ contract OracleManagerFacet is IOracleManager {
 
                         emit Events.PriceUpdated(assetId, price, timestamp, adapterId);
                         return;
+                    } else {
+                        // Price is valid but stale - don't count as adapter failure
+                        emit Events.PriceStale(assetId, timestamp, block.timestamp);
+                        continue;
                     }
                 }
             } catch {

@@ -51,6 +51,11 @@ library LibQuoteCurrency {
             // Normalize price and apply to cumulative rate
             uint256 normalizedPrice = _normalizeOraclePrice(price, assetIds[i]);
 
+            // Guard against zero price to prevent division-by-zero
+            if (normalizedPrice == 0) {
+                return (0, true);
+            }
+
             // For inverse conversions (e.g., USD->USDC when we have USD-USDC rate)
             // We need to determine the direction based on asset ID and our conversion path
             bool isInverse = _isInverseConversion(assetIds[i], quoteCurrencyToken);
@@ -103,6 +108,10 @@ library LibQuoteCurrency {
         LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
         uint256 collateralUnitPerPair = ds.adminConfigStorage.unitPerPair[order.collateralToken];
         uint256 quoteUnitPerPair = ds.adminConfigStorage.unitPerPair[order.crossCurrencyConfig.quoteCurrencyToken];
+
+        // Validate unitPerPair values to prevent division by zero
+        if (collateralUnitPerPair == 0 || quoteUnitPerPair == 0) revert Errors.InvalidUnitPerPair();
+        if (exchangeRate == 0) revert Errors.InvalidExchangeRate();
 
         quoteCurrencyPrice = (order.pricePerToken * quoteUnitPerPair * 1e36) / (collateralUnitPerPair * exchangeRate);
     }

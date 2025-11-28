@@ -81,10 +81,9 @@ library LibEscrowLogic {
      *      - Cross-currency orders release quote currency based on remainingAmount
      *      - Standard orders release collateral token directly
      *      For sell orders: Always release position tokens (ERC1155)
-     * @dev Cross-currency release calculation:
-     *      collateralValue = remainingAmount × pricePerToken
-     *      normalizedValue = collateralValue ÷ collateralUnitPerPair
-     *      quoteAmount = (normalizedValue × exchangeRate) ÷ 1e18
+     * @dev Cross-currency release calculation (matches lockCollateral pattern):
+     *      collateralValue = (remainingAmount × pricePerToken) ÷ collateralUnitPerPair
+     *      quoteAmount = (collateralValue × exchangeRate) ÷ 1e18
      */
     function releaseCollateral(LibDoefinStorage.Order memory order) internal {
         if (order.direction == LibDoefinStorage.OrderDirection.Buy) {
@@ -98,21 +97,19 @@ library LibEscrowLogic {
                 if (collateralUnitPerPair == 0) revert Errors.InvalidUnitPerPair();
                 if (quoteUnitPerPair == 0) revert Errors.InvalidUnitPerPair();
 
-                uint256 collateralValue = order.remainingAmount * order.pricePerToken;
+                uint256 collateralValue = (order.remainingAmount * order.pricePerToken) / collateralUnitPerPair;
                 uint256 quoteAmount;
 
                 if (order.crossCurrencyConfig.exchangeRateType == LibDoefinStorage.ExchangeRateType.Dynamic) {
                     (uint256 exchangeRate, bool isStale) = LibQuoteCurrency.getOracleExchangeRate(quoteCurrency, order.collateralToken);
                     if (isStale) revert Errors.OraclePriceStale();
                     if (exchangeRate == 0) revert Errors.InvalidExchangeRate();
-                    uint256 normalizedCollateralValue = collateralValue / collateralUnitPerPair;
-                    quoteAmount = (normalizedCollateralValue * exchangeRate) / 1e18;
+                    quoteAmount = (collateralValue * exchangeRate) / 1e18;
                 } else {
                     uint256 fixedRate = order.crossCurrencyConfig.exchangeRate;
                     // Validate fixed exchange rate to prevent division by zero
                     if (fixedRate == 0) revert Errors.InvalidExchangeRate();
-                    uint256 normalizedCollateralValue = collateralValue / collateralUnitPerPair;
-                    quoteAmount = (normalizedCollateralValue * fixedRate) / 1e18;
+                    quoteAmount = (collateralValue * fixedRate) / 1e18;
                 }
 
                 uint256 quoteFee = (quoteAmount * order.orderFeeConfig.makerFeeBps) / 10000;

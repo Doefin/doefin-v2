@@ -606,8 +606,9 @@ library LibTradeSettlement {
             revert Errors.TokenNotAllowed();
         }
 
-        // Validate exchange rate
-        if (makerOrder.crossCurrencyConfig.exchangeRate == 0) {
+        // Validate exchange rate (only required for fixed-rate orders; dynamic-rate orders use oracle)
+        if (makerOrder.crossCurrencyConfig.exchangeRateType == LibDoefinStorage.ExchangeRateType.Fixed &&
+            makerOrder.crossCurrencyConfig.exchangeRate == 0) {
             revert Errors.InvalidExchangeRate();
         }
     }
@@ -696,7 +697,14 @@ library LibTradeSettlement {
             LibERC1155.safeTransferFrom(address(this), takerOrder.taker, makerOrder.maker, makerOrder.positionId, fillAmount, "");
         } else {
             LibCollateralManager.consumeERC1155Collateral(takerOrder.taker, makerOrder.positionId, fillAmount);
-            LibERC1155._mint(makerOrder.maker, makerOrder.positionId, fillAmount, "");
+            LibERC1155.safeTransferFrom(
+                address(this),
+                address(this),
+                makerOrder.maker,
+                makerOrder.positionId,
+                fillAmount,
+                ""
+            );
         }
     }
 
@@ -722,7 +730,14 @@ library LibTradeSettlement {
             LibERC1155.safeTransferFrom(address(this), makerOrder.maker, takerOrder.taker, makerOrder.positionId, fillAmount, "");
         } else {
             LibCollateralManager.consumeERC1155Collateral(makerOrder.maker, makerOrder.positionId, fillAmount);
-            LibERC1155._mint(takerOrder.taker, makerOrder.positionId, fillAmount, "");
+            LibERC1155.safeTransferFrom(
+                address(this),
+                address(this),
+                takerOrder.taker,
+                makerOrder.positionId,
+                fillAmount,
+                ""
+            );
         }
 
         // Handle quote currency transfers based on execution type
