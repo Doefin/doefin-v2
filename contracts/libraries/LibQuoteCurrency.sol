@@ -173,8 +173,9 @@ library LibQuoteCurrency {
             revert Errors.BuyOrdersMustUseFixedRate();
         }
 
-        // Validate exchange rate is reasonable (non-zero)
-        if (order.crossCurrencyConfig.exchangeRate == 0) {
+        // Validate exchange rate for fixed-rate orders (dynamic rates use oracle)
+        if (order.crossCurrencyConfig.exchangeRateType == LibDoefinStorage.ExchangeRateType.Fixed &&
+            order.crossCurrencyConfig.exchangeRate == 0) {
             revert Errors.InvalidExchangeRate();
         }
     }

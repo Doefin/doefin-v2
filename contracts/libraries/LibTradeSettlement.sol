@@ -637,6 +637,8 @@ library LibTradeSettlement {
         LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
         uint256 collateralUnitPerPair = ds.adminConfigStorage.unitPerPair[makerOrder.collateralToken];
 
+        if (collateralUnitPerPair == 0) revert Errors.InvalidUnitPerPair();
+
         uint256 collateralValue = (fillAmount * makerOrder.pricePerToken) / collateralUnitPerPair;
         uint256 totalQuoteValue = (collateralValue * exchangeRate) / 1e18;
 
