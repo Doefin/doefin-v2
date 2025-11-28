@@ -25,14 +25,14 @@ contract RouteSimulationFacet is IRouteSimulation {
     /// @param positionId The position ID to trade
     /// @param amount The desired amount to trade
     /// @param direction Buy or Sell direction
-    /// @param crossCurrencyConfig Cross-currency configuration (quote token, exchange rate, etc.)
+    /// @param quoteCurrencyToken The quote currency token to match orders against
     /// @return The simulated match route with prices in quote currency
     function simulateCrossCurrencyMarketOrder(
         uint256 positionId,
         uint256 amount,
         LibDoefinStorage.OrderDirection direction,
-        LibDoefinStorage.CrossCurrencyConfig memory crossCurrencyConfig
+        address quoteCurrencyToken
     ) external view override returns (LibDoefinStorage.MatchOrderRoute memory) {
-        return LibMatchEngine.simulateCrossCurrencyMarketOrder(positionId, amount, direction, crossCurrencyConfig);
+        return LibMatchEngine.simulateCrossCurrencyMarketOrder(positionId, amount, direction, quoteCurrencyToken);
     }
 }

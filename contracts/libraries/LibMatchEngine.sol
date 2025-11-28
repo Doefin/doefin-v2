@@ -43,22 +43,22 @@ library LibMatchEngine {
     /// @param positionId The position ID to trade
     /// @param desiredMarketAmount The desired amount to trade
     /// @param direction Buy or Sell direction
-    /// @param crossCurrencyConfig Cross-currency configuration (quote token, exchange rate, etc.)
+    /// @param quoteCurrencyToken The quote currency token to match orders against
     /// @return route The simulated match route with prices in quote currency
     function simulateCrossCurrencyMarketOrder(
         uint256 positionId,
         uint256 desiredMarketAmount,
         LibDoefinStorage.OrderDirection direction,
-        LibDoefinStorage.CrossCurrencyConfig memory crossCurrencyConfig
+        address quoteCurrencyToken
     ) internal view returns (LibDoefinStorage.MatchOrderRoute memory route) {
         LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
 
-        // Validate cross-currency configuration
-        if (crossCurrencyConfig.quoteCurrencyToken == address(0)) {
+        // Validate quote currency token
+        if (quoteCurrencyToken == address(0)) {
             revert Errors.InvalidQuoteCurrencyToken();
         }
 
-        uint256 quoteUnitPerPair = ds.adminConfigStorage.unitPerPair[crossCurrencyConfig.quoteCurrencyToken];
+        uint256 quoteUnitPerPair = ds.adminConfigStorage.unitPerPair[quoteCurrencyToken];
         if (quoteUnitPerPair == 0) {
             revert Errors.TokenNotAllowed();
         }
@@ -71,13 +71,11 @@ library LibMatchEngine {
         // Filter to only compatible cross-currency orders
         uint256[] memory compatibleOrderIds = _filterCrossCurrencyCompatibleOrders(
             complementaryOrders,
-            crossCurrencyConfig.quoteCurrencyToken,
-            positionId,
-            direction
+            quoteCurrencyToken
         );
 
         // Use quote currency unit for price calculations
-        return _simulateCrossCurrencyWithOrders(compatibleOrderIds, desiredMarketAmount, direction, quoteUnitPerPair, crossCurrencyConfig);
+        return _simulateCrossCurrencyWithOrders(compatibleOrderIds, desiredMarketAmount, direction, quoteUnitPerPair);
     }
 
     function retrieveCollateralUnit(uint256 positionId) internal view returns (uint256) {
@@ -492,20 +490,15 @@ library LibMatchEngine {
      * @dev Returns only orders that:
      *      - Are cross-currency orders
      *      - Have matching quote currency
-     *      - Are on the same position
-     *      - Have opposite direction
      *      - Have remaining amount > 0
-     * @param orderIds Storage array of order IDs to filter
+     *      Note: Position and direction are already guaranteed by the orderIds source
+     * @param orderIds Storage array of order IDs to filter (already complementary orders for the position)
      * @param quoteCurrencyToken The quote currency to match
-     * @param positionId The position ID to match
-     * @param direction The taker's direction (opposite of what we're looking for)
      * @return compatibleIds Array of compatible order IDs
      */
     function _filterCrossCurrencyCompatibleOrders(
         uint256[] storage orderIds,
-        address quoteCurrencyToken,
-        uint256 positionId,
-        LibDoefinStorage.OrderDirection direction
+        address quoteCurrencyToken
     ) internal view returns (uint256[] memory compatibleIds) {
         LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
         uint256[] memory tempIds = new uint256[](orderIds.length);
@@ -549,15 +542,13 @@ library LibMatchEngine {
      * @param desiredAmount The amount the taker wants to trade
      * @param direction The taker's direction
      * @param quoteUnitPerPair Unit per pair for quote currency
-     * @param crossCurrencyConfig The taker's cross-currency configuration
      * @return route The simulated match route
      */
     function _simulateCrossCurrencyWithOrders(
         uint256[] memory compatibleOrderIds,
         uint256 desiredAmount,
         LibDoefinStorage.OrderDirection direction,
-        uint256 quoteUnitPerPair,
-        LibDoefinStorage.CrossCurrencyConfig memory crossCurrencyConfig
+        uint256 quoteUnitPerPair
     ) internal view returns (LibDoefinStorage.MatchOrderRoute memory route) {
         LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
 
