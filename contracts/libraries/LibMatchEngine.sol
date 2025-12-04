@@ -339,13 +339,19 @@ library LibMatchEngine {
                 uint256 affordableAmount = Math.mulDiv(lc.remaining, ctx.collateralUnit, execution.effectivePrice);
 
                 if (affordableAmount > 0) {
-                    execution.amount = affordableAmount;
-                    uint256 actualCost = Math.mulDiv(affordableAmount, execution.effectivePrice, ctx.collateralUnit);
+                    // Get maker order to check minFillAmount constraint
+                    LibDoefinStorage.Order memory makerOrder = ds.orderbookStorage.orders[execution.matchedOrderId];
 
-                    tempMatches[lc.matchCount] = execution;
-                    route.totalInputAmount += affordableAmount; // Shares received
-                    route.totalOutputAmount += actualCost; // Collateral spent
-                    lc.matchCount++;
+                    if (affordableAmount >= makerOrder.minFillAmount) {
+                        execution.amount = affordableAmount;
+                        uint256 actualCost = Math.mulDiv(affordableAmount, execution.effectivePrice, ctx.collateralUnit);
+
+                        tempMatches[lc.matchCount] = execution;
+                        route.totalInputAmount += affordableAmount; // Shares received
+                        route.totalOutputAmount += actualCost; // Collateral spent
+                        lc.matchCount++;
+                    }
+                    // else: affordableAmount doesn't meet minFillAmount, skip this order
                 }
 
                 // Budget exhausted
