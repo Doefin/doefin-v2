@@ -107,7 +107,7 @@ library LibDoefinStorage {
         LibDoefinStorage.MatchType siblingMatchType;
         LibDoefinStorage.OrderDirection direction;
         uint256 collateralUnit;
-        uint256 desiredMarketAmount;
+        uint256 sharesOrBudgetAmount;
         uint256 matchCount;
     }
 
