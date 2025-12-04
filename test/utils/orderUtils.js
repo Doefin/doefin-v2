@@ -1,5 +1,21 @@
 const { expect } = require("chai");
 
+const ExecutionType = {
+  Market: 0,
+  Limit: 1
+};
+
+const OrderType = {
+  Standard: 0,
+  CrossCurrency: 1
+};
+
+const EMPTY_CROSS_CURRENCY_CONFIG = {
+  quoteCurrencyToken: "0x0000000000000000000000000000000000000000",
+  exchangeRateType: 0,
+  exchangeRate: 0
+};
+
 async function createLimitOrder(
   facet,
   maker,
@@ -14,9 +30,10 @@ async function createLimitOrder(
     fillOrKill = false,
   }
 ) {
+  
   return facet
     .connect(maker)
-    .createLimitOrder(
+    .createOrder(
       positionId,
       collateralToken,
       amount,
@@ -25,7 +42,9 @@ async function createLimitOrder(
       expiry,
       fillOrKill,
       direction,
-      1 // 1 is for limit orders
+      ExecutionType.Limit,
+      OrderType.Standard,
+      EMPTY_CROSS_CURRENCY_CONFIG
     );
 }
 
@@ -45,7 +64,7 @@ async function createMarketOrder(
 ) {
   return facet
     .connect(maker)
-    .createLimitOrder(
+    .createOrder(
       positionId,
       collateralToken,
       amount,
@@ -54,7 +73,9 @@ async function createMarketOrder(
       expiry,
       fillOrKill,
       direction,
-      0 // 0 is for market order
+      ExecutionType.Market,
+      OrderType.Standard,
+      EMPTY_CROSS_CURRENCY_CONFIG
     );
 }
 
@@ -70,4 +91,6 @@ module.exports = {
   createLimitOrder,
   createMarketOrder,
   validateOrderState,
+  ExecutionType,
+  OrderType,
 };
