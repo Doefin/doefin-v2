@@ -133,7 +133,8 @@ describe("RouteSimulationFacet", function () {
   it("should prioritize best-priced SELL orders even when BUY orders exist", async () => {
     const sellPrice1 = ethers.utils.parseEther("0.65"); // Better
     const sellPrice2 = ethers.utils.parseEther("0.7");
-    const buyPrice = ethers.utils.parseEther("0.8"); // Should be ignored
+    // Note: BUY orders on same position are not matchable against BUY market orders
+    // so they are naturally excluded from the routing algorithm
 
     const amount = ethers.utils.parseEther("5");
     

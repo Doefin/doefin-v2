@@ -166,7 +166,7 @@ describe("RouteSimulationFacet - Advanced Test Cases", function () {
           collateralToken: erc20.address,
           amount: amounts[i],
           pricePerToken: prices[i],
-          minFillAmount: amounts[i],
+          minFillAmount: ethers.utils.parseEther("1"), // Allow partial fills
           expiry: 0,
           direction: sellDir,
         });
@@ -926,7 +926,7 @@ describe("RouteSimulationFacet - Advanced Test Cases", function () {
           collateralToken: erc20.address,
           amount: order.amount,
           pricePerToken: order.price,
-          minFillAmount: order.amount,
+          minFillAmount: ethers.utils.parseEther("1"), // Allow partial fills
           expiry: 0,
           direction: sellDir,
         });
