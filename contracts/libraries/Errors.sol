@@ -339,6 +339,46 @@ library Errors {
 
     /// @notice Thrown when oracle price is stale for dynamic exchange rate calculation
     error OraclePriceStale();
+    
+    // ========================================
+    // BLOCK HEADER ORACLE ERRORS
+    // ========================================
+    error BlockHeaderOracle_NewChainNotLonger();
+
+    error BlockHeaderOracle_CannotFindForkPoint();
+
+    error BlockHeaderOracle_PrevBlockHashMismatch();
+
+    error BlockHeaderOracle_InvalidTimestamp();
+
+    error BlockHeaderOracle_InvalidBlockHash();
+
+    error BlockHeaderOracle_InvalidInitialHistoryLength();
+
+    // ========================================
+    // ORACLE ADAPTER ERRORS
+    // ========================================
+    
+    /// @notice Thrown when bucket configuration is invalid
+    error OracleAdapter_InvalidBucketConfiguration();
+    
+    /// @notice Thrown when block not found for timestamp
+    error OracleAdapter_BlockNotFoundForTimestamp();
+    
+    /// @notice Thrown when block is not in buffer
+    error OracleAdapter_BlockNotInBuffer();
+
+    /// @notice Thrown when question already exists with same parameters
+    error OracleAdapter_QuestionAlreadyExists();
+
+    /// @notice Thrown when question type is invalid
+    error OracleAdapter_InvalidQuestionType();
+
+    /// @notice Thrown when bucket values are not sorted in ascending order
+    error OracleAdapter_BucketsNotSorted();
+
+    /// @notice Thrown when duplicate bucket values are provided
+    error OracleAdapter_DuplicateBucketValue();
 
     // ========================================
     // VALIDATION ERRORS
