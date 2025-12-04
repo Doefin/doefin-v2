@@ -172,11 +172,25 @@ describe("RouteSimulationFacet - Advanced Test Cases", function () {
         });
       }
 
-      // Simulate BUY order that spans multiple price levels
+      // Calculate budget for BUY order that spans multiple price levels
+      // Need to calculate weighted average effective price based on filling in order
+      let remainingAmount = totalAmount;
+      let totalBudget = ethers.constants.Zero;
+      
+      for (let i = 0; i < prices.length && remainingAmount.gt(0); i++) {
+        const fillAmount = remainingAmount.gte(amounts[i]) ? amounts[i] : remainingAmount;
+        const takerFee = prices[i].mul(feeConfig.takerBps).div(10000);
+        const effectivePrice = prices[i].add(takerFee);
+        const cost = fillAmount.mul(effectivePrice).div(ercUnit);
+        totalBudget = totalBudget.add(cost);
+        remainingAmount = remainingAmount.sub(fillAmount);
+      }
+
+      // Simulate BUY order with budget
       const route = await simulateAndParseMatchRoute({
         routeSimFacet,
         positionId: yesId,
-        amount: totalAmount,
+        amount: totalBudget,
         direction: buyDir,
       });
 
@@ -203,6 +217,8 @@ describe("RouteSimulationFacet - Advanced Test Cases", function () {
         ethers.constants.Zero
       );
       expect(totalMatched).to.equal(totalAmount);
+      expect(route.totalInputAmount).to.equal(totalAmount);
+      expect(route.totalOutputAmount).to.equal(totalBudget);
     });
 
     it("should optimize route selection for partial fills", async () => {
@@ -244,10 +260,23 @@ describe("RouteSimulationFacet - Advanced Test Cases", function () {
         });
       }
 
+      // Calculate budget for requested amount across available orders
+      let remainingAmount = requestedAmount;
+      let totalBudget = ethers.constants.Zero;
+      
+      for (let i = 0; i < prices.length && remainingAmount.gt(0); i++) {
+        const fillAmount = remainingAmount.gte(availableAmounts[i]) ? availableAmounts[i] : remainingAmount;
+        const takerFee = prices[i].mul(feeConfig.takerBps).div(10000);
+        const effectivePrice = prices[i].add(takerFee);
+        const cost = fillAmount.mul(effectivePrice).div(ercUnit);
+        totalBudget = totalBudget.add(cost);
+        remainingAmount = remainingAmount.sub(fillAmount);
+      }
+
       const route = await simulateAndParseMatchRoute({
         routeSimFacet,
         positionId: yesId,
-        amount: requestedAmount,
+        amount: totalBudget,
         direction: buyDir,
       });
 
@@ -259,6 +288,8 @@ describe("RouteSimulationFacet - Advanced Test Cases", function () {
         ethers.constants.Zero
       );
       expect(totalMatched).to.equal(requestedAmount);
+      expect(route.totalInputAmount).to.equal(requestedAmount);
+      expect(route.totalOutputAmount).to.equal(totalBudget);
 
       // First match should be at best price
       const firstComplementaryMatch = route.matches.find(
@@ -396,28 +427,43 @@ describe("RouteSimulationFacet - Advanced Test Cases", function () {
         });
       }
 
+      // Calculate budget for BUY order across multiple price levels
+      let remainingAmount = amount;
+      let totalBudget = ethers.constants.Zero;
+      
+      // Sort configs by price to match in best-price order
+      const sortedConfigs = [...orderConfigs].sort((a, b) => 
+        a.price.lt(b.price) ? -1 : (a.price.gt(b.price) ? 1 : 0)
+      );
+      
+      for (const config of sortedConfigs) {
+        if (remainingAmount.lte(0)) break;
+        const fillAmount = remainingAmount.gte(config.amount) ? config.amount : remainingAmount;
+        const takerFee = config.price.mul(feeConfig.takerBps).div(10000);
+        const effectivePrice = config.price.add(takerFee);
+        const cost = fillAmount.mul(effectivePrice).div(ercUnit);
+        totalBudget = totalBudget.add(cost);
+        remainingAmount = remainingAmount.sub(fillAmount);
+      }
+
       const route = await simulateAndParseMatchRoute({
         routeSimFacet,
         positionId: yesId,
-        amount,
+        amount: totalBudget,
         direction: buyDir,
       });
 
-      // Calculate expected average price (should use cheapest orders first)
-      const expectedCost = orderConfigs[0].amount
-        .mul(orderConfigs[0].price)
-        .add(orderConfigs[1].amount.mul(orderConfigs[1].price))
-        .add(ethers.utils.parseEther("7").mul(orderConfigs[2].price)); // Partial fill of third order
-
-      const expectedAvgPrice = expectedCost.div(amount);
+      // Verify total amounts
+      expect(route.totalInputAmount).to.equal(amount);
+      expect(route.totalOutputAmount).to.equal(totalBudget);
+      
+      // Calculate actual average price
       const actualAvgPrice = route.totalOutputAmount
         .mul(ercUnit)
         .div(route.totalInputAmount);
 
-      // Should be close to expected (accounting for fees)
-      const tolerance = ethers.utils.parseEther("0.05"); // 5% tolerance
-      expect(actualAvgPrice.sub(expectedAvgPrice).abs().lt(tolerance)).to.be
-        .true;
+      // Should match orders in ascending price order for best execution
+      expect(route.matches.length).to.be.greaterThan(1);
     });
 
     it("should optimize for SELL orders (maximize received amount)", async () => {
@@ -524,18 +570,25 @@ describe("RouteSimulationFacet - Advanced Test Cases", function () {
         direction: sellDir,
       });
 
+      // Calculate budget for small amount
+      const takerFee = price.mul(feeConfig.takerBps).div(10000);
+      const effectivePrice = price.add(takerFee);
+      const budget = smallAmount.mul(effectivePrice).div(ercUnit);
+
       const route = await simulateAndParseMatchRoute({
         routeSimFacet,
         positionId: yesId,
-        amount: smallAmount,
+        amount: budget,
         direction: buyDir,
       });
 
       console.log("Small amount:", smallAmount);
+      console.log("Budget:", budget);
       console.log("Route:", route);
 
       expect(route.matches.length).to.be.greaterThan(0);
       expect(route.totalInputAmount).to.equal(smallAmount);
+      expect(route.totalOutputAmount).to.equal(budget);
     });
 
     it("should handle maximum order amounts", async () => {
@@ -739,10 +792,30 @@ describe("RouteSimulationFacet - Advanced Test Cases", function () {
         });
       }
 
+      // Calculate budget - only 23 ETH available total
+      const availableAmount = ethers.utils.parseEther("23"); // 5+8+6+4 = 23 ETH available
+      let remainingAmount = availableAmount; // Can only buy what's available
+      let totalBudget = ethers.constants.Zero;
+      
+      // Sort configs by price to match in best-price order
+      const sortedConfigs = [...configs].sort((a, b) => 
+        a.price.lt(b.price) ? -1 : (a.price.gt(b.price) ? 1 : 0)
+      );
+      
+      for (const config of sortedConfigs) {
+        if (remainingAmount.lte(0)) break;
+        const fillAmount = remainingAmount.gte(config.amount) ? config.amount : remainingAmount;
+        const takerFee = config.price.mul(feeConfig.takerBps).div(10000);
+        const effectivePrice = config.price.add(takerFee);
+        const cost = fillAmount.mul(effectivePrice).div(ercUnit);
+        totalBudget = totalBudget.add(cost);
+        remainingAmount = remainingAmount.sub(fillAmount);
+      }
+
       const route = await simulateAndParseMatchRoute({
         routeSimFacet,
         positionId: yesId,
-        amount,
+        amount: totalBudget,
         direction: buyDir,
       });
 
@@ -754,8 +827,9 @@ describe("RouteSimulationFacet - Advanced Test Cases", function () {
         (sum, match) => sum.add(match.amount),
         ethers.constants.Zero
       );
-      const availableAmount = ethers.utils.parseEther("23"); // 5+8+6+4 = 23 ETH available
       expect(totalMatched).to.equal(availableAmount);
+      expect(route.totalInputAmount).to.equal(availableAmount);
+      expect(route.totalOutputAmount).to.equal(totalBudget);
     });
   });
 
@@ -780,25 +854,30 @@ describe("RouteSimulationFacet - Advanced Test Cases", function () {
         direction: sellDir,
       });
 
+      // Calculate budget for consistent queries
+      const takerFee = price.mul(feeConfig.takerBps).div(10000);
+      const effectivePrice = price.add(takerFee);
+      const budget = amount.mul(effectivePrice).div(ercUnit);
+
       // Query multiple times
       const route1 = await simulateAndParseMatchRoute({
         routeSimFacet,
         positionId: yesId,
-        amount,
+        amount: budget,
         direction: buyDir,
       });
 
       const route2 = await simulateAndParseMatchRoute({
         routeSimFacet,
         positionId: yesId,
-        amount,
+        amount: budget,
         direction: buyDir,
       });
 
       const route3 = await simulateAndParseMatchRoute({
         routeSimFacet,
         positionId: yesId,
-        amount,
+        amount: budget,
         direction: buyDir,
       });
 
@@ -853,10 +932,29 @@ describe("RouteSimulationFacet - Advanced Test Cases", function () {
         });
       }
 
+      // Calculate budget for BUY order
+      let remainingAmount = amount;
+      let totalBudget = ethers.constants.Zero;
+      
+      // Sort orders by price to match in best-price order
+      const sortedOrders = [...orders].sort((a, b) => 
+        a.price.lt(b.price) ? -1 : (a.price.gt(b.price) ? 1 : 0)
+      );
+      
+      for (const order of sortedOrders) {
+        if (remainingAmount.lte(0)) break;
+        const fillAmount = remainingAmount.gte(order.amount) ? order.amount : remainingAmount;
+        const takerFee = order.price.mul(feeConfig.takerBps).div(10000);
+        const effectivePrice = order.price.add(takerFee);
+        const cost = fillAmount.mul(effectivePrice).div(ercUnit);
+        totalBudget = totalBudget.add(cost);
+        remainingAmount = remainingAmount.sub(fillAmount);
+      }
+
       const route = await simulateAndParseMatchRoute({
         routeSimFacet,
         positionId: yesId,
-        amount,
+        amount: totalBudget,
         direction: buyDir,
       });
 
@@ -865,6 +963,9 @@ describe("RouteSimulationFacet - Advanced Test Cases", function () {
         (sum, match) => sum.add(match.amount),
         ethers.constants.Zero
       );
+      
+      expect(route.totalInputAmount).to.equal(amount);
+      expect(route.totalOutputAmount).to.equal(totalBudget);
       expect(totalInputAmount).to.equal(route.totalInputAmount);
       expect(totalInputAmount).to.equal(amount);
 

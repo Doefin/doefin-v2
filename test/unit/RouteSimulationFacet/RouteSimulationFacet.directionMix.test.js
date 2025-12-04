@@ -136,6 +136,11 @@ describe("RouteSimulationFacet", function () {
     const buyPrice = ethers.utils.parseEther("0.8"); // Should be ignored
 
     const amount = ethers.utils.parseEther("5");
+    
+    // For BUY: Calculate budget needed to buy desired amount at best effective price
+    const takerFee = sellPrice1.mul(feeConfig.takerBps).div(10000);
+    const effectivePrice = sellPrice1.add(takerFee);
+    const budget = amount.mul(effectivePrice).div(ercUnit);
 
     await mintAndApproveERC20({
       to: maker,
@@ -180,19 +185,18 @@ describe("RouteSimulationFacet", function () {
     const route = await simulateAndParseMatchRoute({
       routeSimFacet,
       positionId: yesId,
-      amount,
+      amount: budget,
       direction: buyDir,
     });
 
     console.log("Match Route:", route);
 
     expect(route.totalInputAmount).to.equal(amount);
+    expect(route.totalOutputAmount).to.equal(budget);
     expect(route.matches.length).to.equal(1);
 
     const [match] = route.matches;
     expect(match.matchTypeLabel).to.equal("Complementary");
-    expect(match.effectivePrice).to.equal(
-      sellPrice1.add(sellPrice1.mul(feeConfig.takerBps).div(10000))
-    );
+    expect(match.effectivePrice).to.equal(effectivePrice);
   });
 });
