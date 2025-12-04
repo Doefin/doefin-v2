@@ -61,10 +61,12 @@ async function deployDiamond() {
     "ConditionManagerFacet",
     "AccessControlFacet",
     "AdminConfigFacet",
-    "ExchangeFacet",
+    "OrderCreationFacet", // Split from ExchangeFacet to reduce size
+    "OrderManagementFacet", // Split from ExchangeFacet to reduce size
     "MarketExecutionFacet",
     "RouteSimulationFacet",
     "MarketDataFacet",
+    "OracleManagerFacet",
   ];
   const cut = [];
   for (const FacetName of FacetNames) {
