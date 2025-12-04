@@ -13,4 +13,17 @@ interface IRouteSimulation {
         uint256 amount,
         LibDoefinStorage.OrderDirection direction
     ) external view returns (LibDoefinStorage.MatchOrderRoute memory);
+
+    /// @notice Simulate a cross-currency market order and return the best match route without executing it
+    /// @param positionId The position ID to trade
+    /// @param amount The desired amount to trade
+    /// @param direction Buy or Sell direction
+    /// @param quoteCurrencyToken The quote currency token to match orders against
+    /// @return route The simulated match route with compatible cross-currency orders
+    function simulateCrossCurrencyMarketOrder(
+        uint256 positionId,
+        uint256 amount,
+        LibDoefinStorage.OrderDirection direction,
+        address quoteCurrencyToken
+    ) external view returns (LibDoefinStorage.MatchOrderRoute memory);
 }
