@@ -25,6 +25,22 @@ library Events {
     /// @param token Address of the collateral token
     event CollateralTokenRemoved(address indexed token);
 
+    /// @notice Emitted when a token symbol is updated
+    /// @param token Address of the token
+    /// @param symbol New symbol for the token
+    event TokenSymbolUpdated(address indexed token, string symbol);
+
+    /// @notice Emitted when a conversion path is set between two tokens
+    /// @param fromToken Source token address
+    /// @param toToken Target token address
+    /// @param assetIds Array of oracle asset IDs representing the conversion path
+    event ConversionPathSet(address indexed fromToken, address indexed toToken, bytes32[] assetIds);
+
+    /// @notice Emitted when a conversion path is removed
+    /// @param fromToken Source token address
+    /// @param toToken Target token address
+    event ConversionPathRemoved(address indexed fromToken, address indexed toToken);
+
     /// @notice Emitted when the fee receiver address is updated
     /// @param oldReceiver Previous fee receiver address
     /// @param newReceiver New fee receiver address
@@ -405,6 +421,110 @@ library Events {
     /// @param amount Amount withdrawn
     /// @param remainingFees Remaining fees after withdrawal
     event ProtocolFeesWithdrawn(address indexed token, address indexed recipient, uint256 amount, uint256 remainingFees);
+
+    // ========================================
+    // ORACLE MANAGEMENT EVENTS
+    // ========================================
+
+    /// @notice Emitted when a new oracle adapter is registered
+    /// @param adapterId Unique identifier for the adapter
+    /// @param adapterAddress Contract address of the adapter
+    /// @param maxStaleness Maximum staleness time for this adapter
+    event AdapterRegistered(bytes32 indexed adapterId, address adapterAddress, uint256 maxStaleness);
+
+    /// @notice Emitted when an oracle adapter configuration is updated
+    /// @param adapterId Adapter identifier
+    /// @param config New adapter configuration
+    event AdapterConfigUpdated(bytes32 indexed adapterId, LibDoefinStorage.AdapterConfig config);
+
+    /// @notice Emitted when an oracle adapter is removed
+    /// @param adapterId Adapter identifier
+    event AdapterRemoved(bytes32 indexed adapterId);
+
+    /// @notice Emitted when an asset's oracle configuration is set
+    /// @param assetId Asset identifier
+    /// @param adapterPriority Array of adapter IDs in priority order
+    /// @param maxStaleness Maximum staleness time for this asset
+    event AssetConfigured(bytes32 indexed assetId, bytes32[] adapterPriority, uint256 maxStaleness);
+
+    /// @notice Emitted when an asset's adapter priority is updated
+    /// @param assetId Asset identifier
+    /// @param newPriority New priority order
+    event AssetAdapterPriorityUpdated(bytes32 indexed assetId, bytes32[] newPriority);
+
+    /// @notice Emitted when a price is successfully updated
+    /// @param assetId Asset identifier
+    /// @param price New price
+    /// @param timestamp Price timestamp
+    /// @param adapterId Adapter that provided the price
+    event PriceUpdated(bytes32 indexed assetId, uint256 price, uint256 timestamp, bytes32 adapterId);
+
+    /// @notice Emitted when an oracle adapter fails to provide a price
+    /// @param adapterId Adapter identifier that failed
+    /// @param assetId Asset identifier
+    /// @param failureCount Total failure count for this adapter
+    event AdapterFailed(bytes32 indexed adapterId, bytes32 indexed assetId, uint256 failureCount);
+
+    /// @notice Event emitted when a cross-currency order is settled
+    /// @param taker The address of the taker
+    /// @param maker The address of the maker
+    /// @param orderId The maker order ID
+    /// @param quoteCurrencyToken The quote currency token used
+    /// @param fillAmount The amount of position tokens traded
+    /// @param exchangeRate The exchange rate used (1e18 scale)
+    /// @param totalFees The total fees paid in quote currency
+    event CrossCurrencySettlement(
+        address indexed taker,
+        address indexed maker,
+        uint256 indexed orderId,
+        address quoteCurrencyToken,
+        uint256 fillAmount,
+        uint256 exchangeRate,
+        uint256 totalFees
+    );
+
+    /// @notice Emitted when all configured adapters fail for an asset
+    /// @param assetId Asset identifier
+    /// @param attemptedAdapters Array of adapter IDs that were attempted
+    event AllAdaptersFailed(bytes32 indexed assetId, bytes32[] attemptedAdapters);
+
+    /// @notice Emitted when a price becomes stale
+    /// @param assetId Asset identifier
+    /// @param lastUpdateTimestamp When the price was last updated
+    /// @param currentTimestamp Current block timestamp
+    event PriceStale(bytes32 indexed assetId, uint256 lastUpdateTimestamp, uint256 currentTimestamp);
+
+    /// @notice Emitted when trading is paused due to oracle issues
+    /// @param assetId Asset identifier
+    event TradingPaused(bytes32 indexed assetId);
+
+    /// @notice Emitted when trading is resumed after price update
+    /// @param assetId Asset identifier
+    /// @param newPrice Price that resumed trading
+    /// @param timestamp Price timestamp
+    event TradingResumed(bytes32 indexed assetId, uint256 newPrice, uint256 timestamp);
+
+    /// @notice Emitted when a price is manually updated with signature
+    /// @param assetId Asset identifier
+    /// @param price Manually set price
+    /// @param timestamp Price timestamp
+    /// @param signer Address that signed the price data
+    event ManualPriceUpdate(bytes32 indexed assetId, uint256 price, uint256 timestamp, address signer);
+
+    /// @notice Emitted when an emergency price update is performed
+    /// @param assetId Asset identifier
+    /// @param price Emergency price
+    /// @param justification Human-readable justification for the emergency update
+    event EmergencyPriceUpdate(bytes32 indexed assetId, uint256 price, string justification);
+
+    /// @notice Emitted when the authorized signer for manual price updates is changed
+    /// @param oldSigner Previous authorized signer address
+    /// @param newSigner New authorized signer address
+    event AuthorizedSignerUpdated(address indexed oldSigner, address indexed newSigner);
+
+    /// @notice Emitted when max manual update age is configured
+    /// @param maxAge Maximum age in seconds for manual price updates
+    event MaxManualUpdateAgeSet(uint256 maxAge);
 
     // ========================================
     // POSITION REGISTRY EVENTS

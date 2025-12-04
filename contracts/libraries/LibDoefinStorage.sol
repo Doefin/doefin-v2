@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0
 pragma solidity ^0.8.6;
 
+import {Errors} from "./Errors.sol";
+
 library LibDoefinStorage {
     bytes32 constant STORAGE_POSITION = keccak256("doefin.storage");
 
@@ -37,6 +39,8 @@ library LibDoefinStorage {
     struct AdminConfigStorage {
         mapping(address => bool) isAllowed;
         mapping(address => uint256) unitPerPair; // token => unit amount (e.g., 1e6 USDC)
+        mapping(address => string) tokenSymbols; // token => symbol (e.g., "BTC", "USDC", "USDT")
+        mapping(bytes32 => bytes32[]) conversionPaths; // keccak256(abi.encodePacked(fromToken, toToken)) => oracle asset IDs
         address feeReceiver;
         uint16 resolutionFeeBps;
         uint16 makerTradingFeeBps;
@@ -225,6 +229,38 @@ library LibDoefinStorage {
         uint256[10] __gap;
     }
 
+    struct AdapterConfig {
+        address adapterAddress;
+        uint256 maxStaleness;
+        uint256 failureCount;
+        bool enabled;
+    }
+
+    struct AssetConfig {
+        bytes32[] adapterPriority; // Ordered array of adapter IDs
+        uint256 maxStaleness;
+        bool tradingPaused;
+        uint256 lastUpdateTimestamp;
+        uint8 decimals; // Number of decimals for the oracle price (0-18, 0 defaults to 18)
+    }
+
+    struct PriceData {
+        uint256 price;
+        uint256 timestamp;
+        bytes32 lastSuccessfulAdapterId;
+        bool isValid;
+    }
+
+    struct OracleStorage {
+        mapping(bytes32 => AdapterConfig) adapters;
+        mapping(bytes32 => AssetConfig) assetConfigs;
+        mapping(bytes32 => PriceData) priceData;
+        mapping(bytes32 => bool) usedNonces;
+        address authorizedSigner;
+        uint256 maxManualUpdateAge; // Maximum age in seconds for manual price updates (default: 300)
+        uint256[9] __gap; // Reduced gap by 1 to accommodate new field
+    }
+
     struct AppStorage {
         ConditionalTokensStorage conditionalTokens;
         AccessControlStorage accessControl;
@@ -234,6 +270,7 @@ library LibDoefinStorage {
         EscrowStorage escrowStorage;
         PositionRegistryStorage positionRegistry;
         ReentrancyStorage reentrancyStorage;
+        OracleStorage oracleStorage;
         uint256[50] __gap;
     }
 
@@ -246,7 +283,7 @@ library LibDoefinStorage {
 
     /// @notice Initialize critical storage values (call once during deployment)
     function initialize(address feeReceiver, uint16 resolutionFeeBps, uint16 makerFeeBps, uint16 takerFeeBps) internal {
-        require(!isInitialized(), "Already initialized");
+        if (isInitialized()) revert Errors.AlreadyInitialized();
 
         AppStorage storage ds = appStorage();
 

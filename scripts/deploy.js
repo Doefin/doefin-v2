@@ -29,7 +29,6 @@ async function deployDiamond() {
   console.log("DiamondCutFacet deployed:", diamondCutFacet.address);
   await verifyContract(diamondCutFacet.address);
 
-
   // deploy Diamond
   const Diamond = await ethers.getContractFactory("Diamond");
   const diamond = await Diamond.deploy(

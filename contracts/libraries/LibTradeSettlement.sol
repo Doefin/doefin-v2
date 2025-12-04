@@ -8,6 +8,7 @@ import {LibPositionRegistry} from "./LibPositionRegistry.sol";
 import {LibCTFCondition} from "./LibCTFCondition.sol";
 import {LibERC1155} from "./LibERC1155.sol";
 import {LibMatchEngine} from "./LibMatchEngine.sol";
+import {LibQuoteCurrency} from "./LibQuoteCurrency.sol";
 import {LibReentrancyGuard} from "./LibReentrancyGuard.sol";
 import {SafeERC20, IERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Errors} from "./Errors.sol";
@@ -41,6 +42,13 @@ library LibTradeSettlement {
      * @param settlementExecCtx The settlement execution context
      */
     function executeSettlement(LibDoefinStorage.SettlementExecutionContext memory settlementExecCtx) private {
+        // Check if this is a cross-currency trade
+        if (_isCrossCurrencySettlement(settlementExecCtx)) {
+            _handleCrossCurrencySettlement(settlementExecCtx);
+            return;
+        }
+
+        // Standard settlement logic (unchanged)
         if (settlementExecCtx.matchType == LibDoefinStorage.MatchType.Complementary) {
             _handleComplementaryMatch(settlementExecCtx);
         } else if (settlementExecCtx.matchType == LibDoefinStorage.MatchType.Mint) {
@@ -96,8 +104,8 @@ library LibTradeSettlement {
 
         // Consume maker's ERC20 collateral
         LibCollateralManager.consumeERC20Collateral(settlementExecCtx.makerOrder.maker, collateralToken, makerContribution + makerFee);
-        
-        if (settlementExecCtx.executionType == LibDoefinStorage.ExecutionType.Market){
+
+        if (settlementExecCtx.executionType == LibDoefinStorage.ExecutionType.Market) {
             // Validate taker has sufficient allowance
             uint256 allowance = IERC20(collateralToken).allowance(settlementExecCtx.takerOrder.taker, address(this));
             if (allowance < takerTotalPayment) {
@@ -107,10 +115,8 @@ library LibTradeSettlement {
             // Collect taker's ERC20 contribution
             IERC20(collateralToken).safeTransferFrom(settlementExecCtx.takerOrder.taker, address(this), takerTotalPayment);
             LibReentrancyGuard._nonReentrantAfter();
-
         } else {
-
-            // If it's a limit order check for refund, and consume from the taker's locked collateral 
+            // If it's a limit order check for refund, and consume from the taker's locked collateral
             _manageRefund(settlementExecCtx);
 
             // Consume the rest to pay for mint operation
@@ -143,7 +149,7 @@ library LibTradeSettlement {
 
         // Accrue protocol fees
         LibFeeManager.accrueFees(makerFee, takerFee, settlementExecCtx);
-        
+
         // Consume maker's ERC1155 tokens
         LibCollateralManager.consumeERC1155Collateral(
             settlementExecCtx.makerOrder.maker,
@@ -264,10 +270,21 @@ library LibTradeSettlement {
         uint256 takerFeePaid = (settlementExecCtx.takerOrder.takerPaidFeeBps * settlementExecCtx.takerOrder.targetAvgPrice) / 10_000;
         uint256 takerPaidPerToken = settlementExecCtx.takerOrder.targetAvgPrice + takerFeePaid;
 
-        uint256 tradeEffectivePricePerToken = LibMatchEngine.effectiveTakerPrice(settlementExecCtx.makerOrder, settlementExecCtx.takerOrder.direction, settlementExecCtx.matchType);
+        uint256 tradeEffectivePricePerToken = LibMatchEngine.effectiveTakerPrice(
+            settlementExecCtx.makerOrder,
+            settlementExecCtx.takerOrder.direction,
+            settlementExecCtx.matchType
+        );
 
-        LibCollateralManager.refundSurplus(takerPaidPerToken, tradeEffectivePricePerToken, settlementExecCtx.fillableAmount, settlementExecCtx.takerOrder.taker, settlementExecCtx.makerOrder.collateralToken);
+        LibCollateralManager.refundSurplus(
+            takerPaidPerToken,
+            tradeEffectivePricePerToken,
+            settlementExecCtx.fillableAmount,
+            settlementExecCtx.takerOrder.taker,
+            settlementExecCtx.makerOrder.collateralToken
+        );
     }
+
     /**
      * @notice Execute complementary match when taker is buying
      * @param settlementExecCtx The settlement execution context
@@ -297,12 +314,12 @@ library LibTradeSettlement {
             // Taker pays: collect ERC20 from taker
             uint256 totalTakerPayment = cost + takerFee;
             LibReentrancyGuard._nonReentrantBefore();
-            if(IERC20(collateralToken).allowance(settlementExecCtx.takerOrder.taker, address(this)) < totalTakerPayment) {
-                revert Errors.InsufficientERC20Allowance(settlementExecCtx.takerOrder.taker, collateralToken, totalTakerPayment, IERC20(collateralToken).allowance(settlementExecCtx.takerOrder.taker, address(this)));
+            uint256 currentAllowance = IERC20(collateralToken).allowance(settlementExecCtx.takerOrder.taker, address(this));
+            if (currentAllowance < totalTakerPayment) {
+                revert Errors.InsufficientERC20Allowance(settlementExecCtx.takerOrder.taker, collateralToken, totalTakerPayment, currentAllowance);
             }
             IERC20(collateralToken).safeTransferFrom(settlementExecCtx.takerOrder.taker, address(this), totalTakerPayment);
             LibReentrancyGuard._nonReentrantAfter();
-
         } else {
             // Check for refund and consume from taker's locked collateral
             _manageRefund(settlementExecCtx);
@@ -379,7 +396,6 @@ library LibTradeSettlement {
      * @param settlementExecCtx The settlement execution context
      */
     function _distributePositionTokens(LibDoefinStorage.SettlementExecutionContext memory settlementExecCtx) internal {
-
         LibReentrancyGuard._nonReentrantBefore();
         // Transfer maker's desired position tokens
         LibERC1155.safeTransferFrom(
@@ -487,5 +503,297 @@ library LibTradeSettlement {
 
         // Positions must be complements
         LibPositionRegistry.validateComplement(settlementExecCtx.takerOrder.positionId, settlementExecCtx.makerOrder.positionId);
+    }
+
+    // ========================================
+    // CROSS-CURRENCY SETTLEMENT
+    // ========================================
+
+    /**
+     * @notice Check if this settlement involves cross-currency orders
+     * @param settlementExecCtx The settlement execution context
+     * @return isCrossCurrency Whether this is a cross-currency settlement
+     */
+    function _isCrossCurrencySettlement(
+        LibDoefinStorage.SettlementExecutionContext memory settlementExecCtx
+    ) private pure returns (bool isCrossCurrency) {
+        return (settlementExecCtx.makerOrder.orderType == LibDoefinStorage.OrderType.CrossCurrency);
+    }
+
+    /**
+     * @notice Handle settlement for cross-currency orders
+     * @param settlementExecCtx The settlement execution context
+     */
+    function _handleCrossCurrencySettlement(LibDoefinStorage.SettlementExecutionContext memory settlementExecCtx) private {
+        // Cross-currency orders only support complementary matching
+        if (settlementExecCtx.matchType != LibDoefinStorage.MatchType.Complementary) {
+            revert Errors.NonComplementaryCrossCurrencyMatch();
+        }
+
+        // Validate cross-currency settlement requirements
+        _validateCrossCurrencySettlement(settlementExecCtx);
+
+        // Execute cross-currency complementary settlement with quote currency transfers
+        _executeCrossCurrencyComplementaryMatch(settlementExecCtx);
+    }
+
+    /**
+     * @notice Execute cross-currency complementary settlement
+     * @param settlementExecCtx The settlement execution context
+     */
+    function _executeCrossCurrencyComplementaryMatch(LibDoefinStorage.SettlementExecutionContext memory settlementExecCtx) private {
+        LibDoefinStorage.Order memory makerOrder = settlementExecCtx.makerOrder;
+        LibDoefinStorage.TakerOrderContext memory takerOrder = settlementExecCtx.takerOrder;
+        uint256 fillAmount = settlementExecCtx.fillableAmount;
+
+        address quoteCurrencyToken = makerOrder.crossCurrencyConfig.quoteCurrencyToken;
+        address collateralToken = makerOrder.collateralToken;
+
+        bool useOracleRate = (makerOrder.crossCurrencyConfig.exchangeRateType == LibDoefinStorage.ExchangeRateType.Dynamic);
+        uint256 exchangeRate;
+
+        if (useOracleRate) {
+            // Dynamic rate: fetch from oracle and check staleness
+            (uint256 oracleRate, bool isStale) = LibQuoteCurrency.getOracleExchangeRate(quoteCurrencyToken, collateralToken);
+            if (isStale) {
+                revert Errors.OraclePriceStale();
+            }
+            exchangeRate = oracleRate;
+        } else {
+            // Fixed rate: use the rate from order config
+            exchangeRate = makerOrder.crossCurrencyConfig.exchangeRate;
+        }
+
+        (uint256 makerQuoteFee, uint256 takerQuoteFee, uint256 makerQuotePayment, uint256 takerQuotePayment) = _computeCrossCurrencyFees(
+            makerOrder,
+            fillAmount,
+            exchangeRate
+        );
+
+        if (makerOrder.direction == LibDoefinStorage.OrderDirection.Buy) {
+            _settleCrossCurrencyBuyMaker(settlementExecCtx, quoteCurrencyToken, makerQuotePayment, takerQuotePayment);
+        } else {
+            _settleCrossCurrencySellMaker(settlementExecCtx, quoteCurrencyToken, makerQuotePayment, takerQuotePayment);
+        }
+
+        LibFeeManager.accrueFees(makerQuoteFee, takerQuoteFee, settlementExecCtx);
+
+        emit Events.CrossCurrencySettlement(
+            takerOrder.taker,
+            makerOrder.maker,
+            makerOrder.orderId,
+            quoteCurrencyToken,
+            fillAmount,
+            exchangeRate,
+            makerQuoteFee + takerQuoteFee
+        );
+    }
+
+    /**
+     * @notice Validate cross-currency settlement requirements
+     * @param settlementExecCtx The settlement execution context
+     */
+    function _validateCrossCurrencySettlement(LibDoefinStorage.SettlementExecutionContext memory settlementExecCtx) private view {
+        // Same validation as complementary match
+        _validateComplementaryMatch(settlementExecCtx);
+
+        // Additional cross-currency validations
+        LibDoefinStorage.Order memory makerOrder = settlementExecCtx.makerOrder;
+
+        // Validate quote currency is allowed
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
+        if (!ds.adminConfigStorage.isAllowed[makerOrder.crossCurrencyConfig.quoteCurrencyToken]) {
+            revert Errors.TokenNotAllowed();
+        }
+
+        // Validate exchange rate (only required for fixed-rate orders; dynamic-rate orders use oracle)
+        if (makerOrder.crossCurrencyConfig.exchangeRateType == LibDoefinStorage.ExchangeRateType.Fixed &&
+            makerOrder.crossCurrencyConfig.exchangeRate == 0) {
+            revert Errors.InvalidExchangeRate();
+        }
+    }
+
+    /**
+     * @notice Compute fees for cross-currency settlement
+     * @param makerOrder The maker order
+     * @param fillAmount The fill amount
+     * @return makerQuoteFee Maker fee in quote currency units
+     * @return takerQuoteFee Taker fee in quote currency units
+     * @return makerQuotePayment Maker payment in quote currency units
+     * @return takerQuotePayment Taker payment in quote currency units
+     * @dev Uses the same conversion formula as lockCollateral to avoid precision loss:
+     *      collateralValue = (fillAmount × pricePerToken) ÷ collateralUnitPerPair
+     *      totalQuoteValue = (collateralValue × exchangeRate) ÷ 1e18
+     * @dev Payment direction:
+     *      Buy maker: pays totalQuoteValue + fee
+     *      Sell maker: receives totalQuoteValue - fee
+     *      Taker receives/pays inverse amounts
+     */
+    function _computeCrossCurrencyFees(
+        LibDoefinStorage.Order memory makerOrder,
+        uint256 fillAmount,
+        uint256 exchangeRate
+    ) private view returns (uint256 makerQuoteFee, uint256 takerQuoteFee, uint256 makerQuotePayment, uint256 takerQuotePayment) {
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
+        uint256 collateralUnitPerPair = ds.adminConfigStorage.unitPerPair[makerOrder.collateralToken];
+
+        if (collateralUnitPerPair == 0) revert Errors.InvalidUnitPerPair();
+
+        uint256 collateralValue = (fillAmount * makerOrder.pricePerToken) / collateralUnitPerPair;
+        uint256 totalQuoteValue = (collateralValue * exchangeRate) / 1e18;
+
+        makerQuoteFee = (totalQuoteValue * makerOrder.orderFeeConfig.makerFeeBps) / 10_000;
+        takerQuoteFee = (totalQuoteValue * makerOrder.orderFeeConfig.takerFeeBps) / 10_000;
+
+        if (makerOrder.direction == LibDoefinStorage.OrderDirection.Buy) {
+            makerQuotePayment = totalQuoteValue + makerQuoteFee;
+            takerQuotePayment = totalQuoteValue - takerQuoteFee;
+        } else {
+            makerQuotePayment = totalQuoteValue - makerQuoteFee;
+            takerQuotePayment = totalQuoteValue + takerQuoteFee;
+        }
+    }
+
+    /**
+     * @notice Settle cross-currency trade with buy maker
+     * @param settlementExecCtx The settlement context
+     * @param quoteCurrencyToken The quote currency token
+     * @param makerQuotePayment Maker's quote currency payment
+     * @param takerQuotePayment Taker's quote currency payment
+     */
+    function _settleCrossCurrencyBuyMaker(
+        LibDoefinStorage.SettlementExecutionContext memory settlementExecCtx,
+        address quoteCurrencyToken,
+        uint256 makerQuotePayment,
+        uint256 takerQuotePayment
+    ) private {
+        uint256 fillAmount = settlementExecCtx.fillableAmount;
+        LibDoefinStorage.TakerOrderContext memory takerOrder = settlementExecCtx.takerOrder;
+        LibDoefinStorage.Order memory makerOrder = settlementExecCtx.makerOrder;
+
+        // Handle quote currency transfers based on execution type
+        if (settlementExecCtx.executionType == LibDoefinStorage.ExecutionType.Market) {
+            // Market order: Direct transfers
+            LibReentrancyGuard._nonReentrantBefore();
+            // Maker (buyer) pays quote currency directly
+            uint256 makerAllowance = IERC20(quoteCurrencyToken).allowance(makerOrder.maker, address(this));
+            if (makerAllowance < makerQuotePayment) {
+                revert Errors.InsufficientERC20Allowance(makerOrder.maker, quoteCurrencyToken, makerQuotePayment, makerAllowance);
+            }
+            IERC20(quoteCurrencyToken).safeTransferFrom(makerOrder.maker, address(this), makerQuotePayment);
+            // Taker (seller) receives quote currency
+            IERC20(quoteCurrencyToken).safeTransfer(takerOrder.taker, takerQuotePayment);
+            LibReentrancyGuard._nonReentrantAfter();
+        } else {
+            // Limit order: For cross-currency buy orders, the locked collateral is actually the quote currency
+            // (even though makerOrder.collateralToken points to a different token)
+            LibCollateralManager.consumeERC20Collateral(makerOrder.maker, quoteCurrencyToken, makerQuotePayment);
+            // Taker (seller) receives quote currency
+            LibReentrancyGuard._nonReentrantBefore();
+            IERC20(quoteCurrencyToken).safeTransfer(takerOrder.taker, takerQuotePayment);
+            LibReentrancyGuard._nonReentrantAfter();
+        }
+
+        // Transfer position tokens from taker to maker
+        if (settlementExecCtx.executionType == LibDoefinStorage.ExecutionType.Market) {
+            LibERC1155.safeTransferFrom(address(this), takerOrder.taker, makerOrder.maker, makerOrder.positionId, fillAmount, "");
+        } else {
+            LibCollateralManager.consumeERC1155Collateral(takerOrder.taker, makerOrder.positionId, fillAmount);
+            LibERC1155.safeTransferFrom(
+                address(this),
+                address(this),
+                makerOrder.maker,
+                makerOrder.positionId,
+                fillAmount,
+                ""
+            );
+        }
+    }
+
+    /**
+     * @notice Settle cross-currency trade with sell maker
+     * @param settlementExecCtx The settlement context
+     * @param quoteCurrencyToken The quote currency token
+     * @param makerQuotePayment Maker's quote currency payment
+     * @param takerQuotePayment Taker's quote currency payment
+     */
+    function _settleCrossCurrencySellMaker(
+        LibDoefinStorage.SettlementExecutionContext memory settlementExecCtx,
+        address quoteCurrencyToken,
+        uint256 makerQuotePayment,
+        uint256 takerQuotePayment
+    ) private {
+        uint256 fillAmount = settlementExecCtx.fillableAmount;
+        LibDoefinStorage.TakerOrderContext memory takerOrder = settlementExecCtx.takerOrder;
+        LibDoefinStorage.Order memory makerOrder = settlementExecCtx.makerOrder;
+
+        // Transfer position tokens from maker to taker
+        if (settlementExecCtx.executionType == LibDoefinStorage.ExecutionType.Market) {
+            LibERC1155.safeTransferFrom(address(this), makerOrder.maker, takerOrder.taker, makerOrder.positionId, fillAmount, "");
+        } else {
+            LibCollateralManager.consumeERC1155Collateral(makerOrder.maker, makerOrder.positionId, fillAmount);
+            LibERC1155.safeTransferFrom(
+                address(this),
+                address(this),
+                takerOrder.taker,
+                makerOrder.positionId,
+                fillAmount,
+                ""
+            );
+        }
+
+        // Handle quote currency transfers based on execution type
+        if (settlementExecCtx.executionType == LibDoefinStorage.ExecutionType.Market) {
+            // Market order: Direct transfers
+            LibReentrancyGuard._nonReentrantBefore();
+            // Taker (buyer) pays quote currency directly
+            uint256 takerAllowance = IERC20(quoteCurrencyToken).allowance(takerOrder.taker, address(this));
+            if (takerAllowance < takerQuotePayment) {
+                revert Errors.InsufficientERC20Allowance(takerOrder.taker, quoteCurrencyToken, takerQuotePayment, takerAllowance);
+            }
+            IERC20(quoteCurrencyToken).safeTransferFrom(takerOrder.taker, address(this), takerQuotePayment);
+            // Maker (seller) receives quote currency
+            IERC20(quoteCurrencyToken).safeTransfer(makerOrder.maker, makerQuotePayment);
+            LibReentrancyGuard._nonReentrantAfter();
+        } else {
+            // Limit order: For cross-currency orders, taker buy orders lock quote currency as collateral
+            LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
+            LibDoefinStorage.Order storage takerOrderStorage = ds.orderbookStorage.orders[takerOrder.orderId];
+
+            // Determine if external transfer is needed
+            bool needsExternalTransfer = false;
+
+            // For cross-currency buy orders (taker buying from sell maker), the locked collateral is quote currency
+            if (
+                takerOrderStorage.orderType == LibDoefinStorage.OrderType.CrossCurrency &&
+                takerOrderStorage.direction == LibDoefinStorage.OrderDirection.Buy
+            ) {
+                // Cross-currency buy order - locked collateral is quote currency (storage-only operation)
+                LibCollateralManager.consumeERC20Collateral(takerOrder.taker, quoteCurrencyToken, takerQuotePayment);
+            } else if (takerOrderStorage.collateralToken == quoteCurrencyToken) {
+                // Standard order with same currency - use locked collateral (storage-only operation)
+                LibCollateralManager.consumeERC20Collateral(takerOrder.taker, quoteCurrencyToken, takerQuotePayment);
+            } else {
+                // Different currency - will need external transfer from taker's free balance
+                needsExternalTransfer = true;
+            }
+
+            // Single reentrancy guard for all external ERC20 calls
+            LibReentrancyGuard._nonReentrantBefore();
+
+            if (needsExternalTransfer) {
+                // Taker pays from free balance
+                uint256 takerAllowance = IERC20(quoteCurrencyToken).allowance(takerOrder.taker, address(this));
+                if (takerAllowance < takerQuotePayment) {
+                    revert Errors.InsufficientERC20Allowance(takerOrder.taker, quoteCurrencyToken, takerQuotePayment, takerAllowance);
+                }
+                IERC20(quoteCurrencyToken).safeTransferFrom(takerOrder.taker, address(this), takerQuotePayment);
+            }
+
+            // Maker (seller) receives quote currency (always external call)
+            IERC20(quoteCurrencyToken).safeTransfer(makerOrder.maker, makerQuotePayment);
+
+            LibReentrancyGuard._nonReentrantAfter();
+        }
     }
 }
