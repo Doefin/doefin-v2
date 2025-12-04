@@ -1,5 +1,20 @@
 const { expect } = require("chai");
-const { ethers } = require("hardhat");
+
+const ExecutionType = {
+  Market: 0,
+  Limit: 1
+};
+
+const OrderType = {
+  Standard: 0,
+  CrossCurrency: 1
+};
+
+const EMPTY_CROSS_CURRENCY_CONFIG = {
+  quoteCurrencyToken: "0x0000000000000000000000000000000000000000",
+  exchangeRateType: 0,
+  exchangeRate: 0
+};
 
 async function createLimitOrder(
   facet,
@@ -15,13 +30,6 @@ async function createLimitOrder(
     fillOrKill = false,
   }
 ) {
-  const ExecutionType = { Market: 0, Limit: 1 };
-  const OrderType = { Standard: 0, CrossCurrency: 1 };
-  const emptyCrossCurrencyConfig = {
-    quoteCurrencyToken: ethers.constants.AddressZero,
-    exchangeRateType: 0,
-    exchangeRate: 0,
-  };
   
   return facet
     .connect(maker)
@@ -36,7 +44,7 @@ async function createLimitOrder(
       direction,
       ExecutionType.Limit,
       OrderType.Standard,
-      emptyCrossCurrencyConfig
+      EMPTY_CROSS_CURRENCY_CONFIG
     );
 }
 
@@ -108,52 +116,9 @@ async function createCrossCurrencyLimitOrder(
       expiry,
       fillOrKill,
       direction,
-      ExecutionType.Limit,
-      OrderType.CrossCurrency,
-      {
-        quoteCurrencyToken,
-        exchangeRateType,
-        exchangeRate,
-      }
-    );
-}
-
-async function createCrossCurrencyMarketOrder(
-  facet,
-  taker,
-  {
-    positionId,
-    collateralToken,
-    amount,
-    pricePerToken = 0, // Market orders typically use 0 or max price
-    minFillAmount = 0,
-    expiry = 0,
-    direction,
-    fillOrKill = false,
-    quoteCurrencyToken,
-    exchangeRateType,
-    exchangeRate,
-  }
-) {
-  // Pass CrossCurrencyConfig as object struct
-  return facet
-    .connect(taker)
-    .createOrder(
-      positionId,
-      collateralToken,
-      amount,
-      pricePerToken,
-      minFillAmount,
-      expiry,
-      fillOrKill,
-      direction,
       ExecutionType.Market,
-      OrderType.CrossCurrency,
-      {
-        quoteCurrencyToken,
-        exchangeRateType,
-        exchangeRate,
-      }
+      OrderType.Standard,
+      EMPTY_CROSS_CURRENCY_CONFIG
     );
 }
 
@@ -192,8 +157,6 @@ module.exports = {
   createCrossCurrencyLimitOrder,
   createCrossCurrencyMarketOrder,
   validateOrderState,
-  OrderDirection,
   ExecutionType,
   OrderType,
-  ExchangeRateType,
 };

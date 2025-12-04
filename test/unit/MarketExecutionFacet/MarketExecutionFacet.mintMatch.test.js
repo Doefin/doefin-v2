@@ -198,7 +198,7 @@ describe("Market Execution Facet", function () {
     const route = await simulateAndParseMatchRoute({
       routeSimFacet,
       positionId: yesId,
-      amount,
+      amount: takerTotal,
       direction: buyDir,
     });
 
@@ -318,11 +318,18 @@ describe("Market Execution Facet", function () {
       direction: buyDir,
     });
 
+    // Calculate budget for taker BUY NO order
+    // Best match will be with secondBuyPrice (0.4 for YES), so NO complement = 0.6
+    const noPrice = ethers.utils.parseUnits("1", erc20Decimals).sub(secondBuyPrice);
+    const takerBudgetBase = marketFillAmount.mul(noPrice).div(ercUnit);
+    const takerBudgetFee = takerBudgetBase.mul(feeConfig.takerBps).div(10_000);
+    const takerBudget = takerBudgetBase.add(takerBudgetFee);
+
     // Simulate taker Buy NO (should match with YES buy via mint)
     const route = await simulateAndParseMatchRoute({
       routeSimFacet,
       positionId: noId,
-      amount: marketFillAmount,
+      amount: takerBudget,
       direction: buyDir,
     });
 

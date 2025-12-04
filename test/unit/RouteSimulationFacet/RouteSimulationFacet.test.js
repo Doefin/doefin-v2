@@ -132,10 +132,13 @@ describe("RouteSimulationFacet", function () {
 
   it("should simulate a BUY market order and return a match route", async () => {
     const price = ethers.utils.parseEther("0.7");
-    const amount = ethers.utils.parseEther("5");
+    const amount = ethers.utils.parseEther("5"); // Desired shares to buy
 
     const takerFee = price.mul(feeConfig.takerBps).div(10000);
     const expectedEffectivePrice = price.add(takerFee);
+    
+    // For BUY: Calculate budget needed to buy the desired amount at effective price
+    const takerBudget = amount.mul(expectedEffectivePrice).div(ercUnit);
 
     await mintAndApproveERC20({
       to: maker,
@@ -163,10 +166,11 @@ describe("RouteSimulationFacet", function () {
     const expectedOrderId =
       (await exchangeFacet.callStatic.getNextOrderId()) - 1;
 
+    // Simulate with taker's budget (calculated from desired shares * effective price)
     const parsedRoute = await simulateAndParseMatchRoute({
       routeSimFacet,
       positionId: yesId,
-      amount,
+      amount: takerBudget, // BUY: pass collateral budget
       direction: buyDir,
     });
 
@@ -174,9 +178,14 @@ describe("RouteSimulationFacet", function () {
 
     const match = parsedRoute.matches[0];
 
+    // For BUY orders: totalInputAmount = shares received, totalOutputAmount = collateral spent
     expect(match.matchedOrderId).to.equal(expectedOrderId);
-    expect(match.amount).to.equal(amount);
+    expect(match.amount).to.equal(amount); // Should get the desired amount of shares
     expect(match.effectivePrice).to.equal(expectedEffectivePrice);
     expect(match.matchType).to.equal(0);
+    
+    // Verify route totals
+    expect(parsedRoute.totalInputAmount).to.equal(amount); // shares received
+    expect(parsedRoute.totalOutputAmount).to.equal(takerBudget); // collateral spent
   });
 });

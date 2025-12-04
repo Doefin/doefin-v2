@@ -147,18 +147,23 @@ describe("Market Order Execution - Comparison of Methods", function () {
             });
           }
     
+          // Calculate budget for taker
+          const takerBaseCost = takerAmount.mul(priceBuy).div(ercUnit);
+          const takerFee = takerBaseCost.mul(feeConfig.takerBps).div(10_000);
+          const takerBudget = takerBaseCost.add(takerFee);
+
           // Approach 1: Simulation+Execution
           const route = await simulateAndParseMatchRoute({
             routeSimFacet,
             positionId: yesId,
-            amount: takerAmount,
+            amount: takerBudget,
             direction: buyDir
           });
           await mintAndApproveERC20({
             token: erc20,
             minter: taker1,
             to: taker1,
-            amount: takerAmount,
+            amount: takerBudget,
             spender: diamondAddress,
           });
           const tx1 = await marketExecutionFacet.connect(taker1).fillMarketOrderWithRoute(
@@ -303,11 +308,16 @@ describe("Market Order Execution - Comparison of Methods", function () {
             await erc1155.balanceOf(maker1.address, yesId)
           );
 
+          // Calculate budget for large amount
+          const largeBaseCost = largeAmount.mul(priceBuy).div(ercUnit);
+          const largeFee = largeBaseCost.mul(feeConfig.takerBps).div(10_000);
+          const largeBudget = largeBaseCost.add(largeFee);
+
           // Approach 1
           const route = await simulateAndParseMatchRoute({
             routeSimFacet,
             positionId: yesId,
-            amount: largeAmount,
+            amount: largeBudget,
             direction: buyDir
           });
           console.log("Routes:", route);
@@ -410,7 +420,7 @@ describe("Market Order Execution - Comparison of Methods", function () {
     const route = await simulateAndParseMatchRoute({
       routeSimFacet,
       positionId: yesId,
-      amount,
+      amount: totalCost,
       direction: buyDir,
     });
 

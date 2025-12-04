@@ -14,9 +14,19 @@ import {Events} from "./Events.sol";
 library LibMatchEngine {
     using LibDoefinStorage for LibDoefinStorage.AppStorage;
 
+    /// @notice Simulate a market order and return the best match route
+    /// @dev Two distinct paths:
+    ///      1. SELL: Specify shares to sell → get collateral revenue
+    ///      2. BUY: Specify collateral budget → get shares received
+    /// @param positionId The position token ID to trade
+    /// @param sharesOrBudgetAmount For BUY: collateral budget to spend. For SELL: token shares to sell
+    /// @param direction The order direction (Buy or Sell)
+    /// @return route The match route with totalInputAmount and totalOutputAmount
+    ///         - For BUY: totalInputAmount = shares received, totalOutputAmount = collateral spent
+    ///         - For SELL: totalInputAmount = shares sold, totalOutputAmount = collateral received
     function simulateMarketOrder(
         uint256 positionId,
-        uint256 desiredMarketAmount,
+        uint256 sharesOrBudgetAmount,
         LibDoefinStorage.OrderDirection direction
     ) internal view returns (LibDoefinStorage.MatchOrderRoute memory route) {
         uint256[] storage mintOrMergeOrders;
@@ -30,7 +40,7 @@ library LibMatchEngine {
             siblingMatchType: siblingMatchType,
             direction: direction,
             collateralUnit: collateralUnit,
-            desiredMarketAmount: desiredMarketAmount,
+            sharesOrBudgetAmount: sharesOrBudgetAmount,
             matchCount: 0
         });
 
@@ -349,26 +359,101 @@ library LibMatchEngine {
     function _simulateWithContext(
         LibDoefinStorage.SimulationContext memory ctx
     ) internal view returns (LibDoefinStorage.MatchOrderRoute memory route) {
-        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
+        if (ctx.direction == LibDoefinStorage.OrderDirection.Buy) {
+            return _simulateBuyWithBudget(ctx);
+        } else {
+            return _simulateSellWithShares(ctx);
+        }
+    }
 
+    /// @notice Simulate SELL order: user specifies shares to sell, get collateral revenue
+    function _simulateSellWithShares(
+        LibDoefinStorage.SimulationContext memory ctx
+    ) internal view returns (LibDoefinStorage.MatchOrderRoute memory route) {
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
         LibDoefinStorage.Match[] memory tempMatches = new LibDoefinStorage.Match[](ctx.complementaryOrders.length + ctx.mintOrMergeOrders.length);
 
-        route.totalInputAmount = 0;
-        route.totalOutputAmount = 0;
+        route.totalInputAmount = 0; // Shares sold
+        route.totalOutputAmount = 0; // Collateral received
 
-        LoopContext memory lc = LoopContext({i: 0, j: 0, remaining: ctx.desiredMarketAmount, matchCount: 0});
+        LoopContext memory lc = LoopContext({i: 0, j: 0, remaining: ctx.sharesOrBudgetAmount, matchCount: 0});
 
         while (lc.remaining > 0 && (lc.i < ctx.complementaryOrders.length || lc.j < ctx.mintOrMergeOrders.length)) {
             (LibDoefinStorage.Match memory execution, bool pickComp) = _selectBestMatch(ds, ctx, lc.i, lc.j, lc.remaining);
 
             tempMatches[lc.matchCount] = execution;
-            route.totalInputAmount += execution.amount;
-            route.totalOutputAmount += Math.mulDiv(execution.amount, execution.effectivePrice, ctx.collateralUnit);
+            route.totalInputAmount += execution.amount; // Shares sold
+            route.totalOutputAmount += Math.mulDiv(execution.amount, execution.effectivePrice, ctx.collateralUnit); // Collateral received
             lc.remaining -= execution.amount;
             lc.matchCount++;
 
             if (pickComp) lc.i++;
             else lc.j++;
+        }
+
+        // Shrink match array
+        route.matches = new LibDoefinStorage.Match[](lc.matchCount);
+        for (uint256 k = 0; k < lc.matchCount; k++) {
+            route.matches[k] = tempMatches[k];
+        }
+
+        return route;
+    }
+
+    /// @notice Simulate BUY order: user specifies collateral budget, get shares received
+    function _simulateBuyWithBudget(
+        LibDoefinStorage.SimulationContext memory ctx
+    ) internal view returns (LibDoefinStorage.MatchOrderRoute memory route) {
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
+        LibDoefinStorage.Match[] memory tempMatches = new LibDoefinStorage.Match[](ctx.complementaryOrders.length + ctx.mintOrMergeOrders.length);
+
+        route.totalInputAmount = 0; // Shares received
+        route.totalOutputAmount = 0; // Collateral spent
+
+        uint256 remainingBudget = ctx.sharesOrBudgetAmount; // This is collateral budget
+        LoopContext memory lc = LoopContext({i: 0, j: 0, remaining: remainingBudget, matchCount: 0});
+
+        while (lc.remaining > 0 && (lc.i < ctx.complementaryOrders.length || lc.j < ctx.mintOrMergeOrders.length)) {
+            // Get best order with max possible token amount
+            (LibDoefinStorage.Match memory execution, bool pickComp) = _selectBestMatch(ds, ctx, lc.i, lc.j, type(uint256).max);
+
+            // Calculate collateral cost for this match
+            uint256 collateralCost = Math.mulDiv(execution.amount, execution.effectivePrice, ctx.collateralUnit);
+
+            // Check if we have enough budget for full amount
+            if (collateralCost <= lc.remaining) {
+                // Can afford full amount
+                tempMatches[lc.matchCount] = execution;
+                route.totalInputAmount += execution.amount; // Shares received
+                route.totalOutputAmount += collateralCost; // Collateral spent
+                lc.remaining -= collateralCost;
+                lc.matchCount++;
+
+                if (pickComp) lc.i++;
+                else lc.j++;
+            } else {
+                // Can only afford partial amount
+                uint256 affordableAmount = Math.mulDiv(lc.remaining, ctx.collateralUnit, execution.effectivePrice);
+
+                if (affordableAmount > 0) {
+                    // Get maker order to check minFillAmount constraint
+                    LibDoefinStorage.Order memory makerOrder = ds.orderbookStorage.orders[execution.matchedOrderId];
+
+                    if (affordableAmount >= makerOrder.minFillAmount) {
+                        execution.amount = affordableAmount;
+                        uint256 actualCost = Math.mulDiv(affordableAmount, execution.effectivePrice, ctx.collateralUnit);
+
+                        tempMatches[lc.matchCount] = execution;
+                        route.totalInputAmount += affordableAmount; // Shares received
+                        route.totalOutputAmount += actualCost; // Collateral spent
+                        lc.matchCount++;
+                    }
+                    // else: affordableAmount doesn't meet minFillAmount, skip this order
+                }
+
+                // Budget exhausted
+                break;
+            }
         }
 
         // Shrink match array

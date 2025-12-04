@@ -72,8 +72,8 @@ async function createAndSplitCondition({
       erc20.address,
       ethers.constants.HashZero,
       conditionId,
-      splitAmount,
-      [1, 2]
+      [1, 2], // partition comes before amount
+      splitAmount
     );
 
   const receipt = await splitTx.wait();
