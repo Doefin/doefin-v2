@@ -10,11 +10,12 @@ import {LibMatchEngine} from "../libraries/LibMatchEngine.sol";
 
 contract RouteSimulationFacet is IRouteSimulation {
     /// @notice Simulate a market order and return the best match route without executing it
+    /// @dev SELL path: shares → collateral revenue | BUY path: budget → shares received
     function simulateMarketOrder(
         uint256 positionId,
-        uint256 amount,
+        uint256 sharesOrBudgetAmount,
         LibDoefinStorage.OrderDirection direction
     ) external view override returns (LibDoefinStorage.MatchOrderRoute memory) {
-        return LibMatchEngine.simulateMarketOrder(positionId, amount, direction);
+        return LibMatchEngine.simulateMarketOrder(positionId, sharesOrBudgetAmount, direction);
     }
 }
