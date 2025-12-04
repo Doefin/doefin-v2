@@ -337,7 +337,7 @@ describe("MarketExecutionFacet - fillLimitOrders Advanced Tests", function () {
       await expect(
         marketExecutionFacet
           .connect(taker1)
-          .fillLimitOrders(takerOrderId, [makerOrderId])
+          .fillOrders(takerOrderId, [makerOrderId])
       ).to.be.reverted;
     });
   });
@@ -647,7 +647,7 @@ describe("MarketExecutionFacet - fillLimitOrders Advanced Tests", function () {
       await expect(
         marketExecutionFacet
           .connect(taker1)
-          .fillLimitOrders(takerOrderId, [makerOrderId])
+          .fillOrders(takerOrderId, [makerOrderId])
       ).to.be.reverted;
     });
 
@@ -683,7 +683,7 @@ describe("MarketExecutionFacet - fillLimitOrders Advanced Tests", function () {
       await expect(
         marketExecutionFacet
           .connect(taker1)
-          .fillLimitOrders(maxPriceTakerOrderId, [maxPriceMakerOrderId])
+          .fillOrders(maxPriceTakerOrderId, [maxPriceMakerOrderId])
       ).to.not.be.revertedWith();
 
       // Test minimum price
@@ -712,7 +712,7 @@ describe("MarketExecutionFacet - fillLimitOrders Advanced Tests", function () {
       await expect(
         marketExecutionFacet
           .connect(taker2)
-          .fillLimitOrders(minPriceTakerOrderId, [minPriceMakerOrderId])
+          .fillOrders(minPriceTakerOrderId, [minPriceMakerOrderId])
       ).to.be.reverted;
     });
 
@@ -749,7 +749,7 @@ describe("MarketExecutionFacet - fillLimitOrders Advanced Tests", function () {
       await expect(
         marketExecutionFacet
           .connect(taker1)
-          .fillLimitOrders(takerOrderId, [exactExpiryOrderId])
+          .fillOrders(takerOrderId, [exactExpiryOrderId])
       ).to.be.reverted;
     });
   });
@@ -811,7 +811,7 @@ describe("MarketExecutionFacet - fillLimitOrders Advanced Tests", function () {
       await expect(
         marketExecutionFacet
           .connect(taker1)
-          .fillLimitOrders(takerOrderId, [
+          .fillOrders(takerOrderId, [
             validMakerOrderId,
             insufficientMakerOrderId,
           ])
@@ -849,7 +849,7 @@ describe("MarketExecutionFacet - fillLimitOrders Advanced Tests", function () {
       try {
         await marketExecutionFacet
           .connect(maker1)
-          .fillLimitOrders(takerOrderId, [999999]);
+          .fillOrders(takerOrderId, [999999]);
       } catch (error) {
         // Expected to fail
       }

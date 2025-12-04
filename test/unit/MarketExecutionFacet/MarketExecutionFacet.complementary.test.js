@@ -216,7 +216,7 @@ describe("Market Execution Facet", function () {
     const route = await simulateAndParseMatchRoute({
       routeSimFacet,
       positionId: yesId,
-      amount,
+      amount: totalCost,
       direction: buyDir,
     });
 

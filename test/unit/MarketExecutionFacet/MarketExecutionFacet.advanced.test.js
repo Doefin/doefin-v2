@@ -186,7 +186,7 @@ describe("Market Execution Facet - Advanced Test Cases", function () {
       const route = await simulateAndParseMatchRoute({
         routeSimFacet,
         positionId: yesId,
-        amount,
+        amount: totalCost,
         direction: buyDir,
       });
       console.log("Mint match route:", route);
@@ -237,13 +237,15 @@ describe("Market Execution Facet - Advanced Test Cases", function () {
 
     it("should handle case when no orders exist", async () => {
       const amount = ethers.utils.parseUnits("8", erc20Decimals);
+      const price = ethers.utils.parseUnits("1.0", erc20Decimals);
+      const budget = amount.mul(price).div(ercUnit);
 
       // Try to simulate when no orders exist - may return empty route or revert
       try {
         const route = await simulateAndParseMatchRoute({
           routeSimFacet,
           positionId: yesId,
-          amount,
+          amount: budget,
           direction: buyDir,
         });
         // If it doesn't revert, it should return empty matches
@@ -491,7 +493,7 @@ describe("Market Execution Facet - Advanced Test Cases", function () {
       const route = await simulateAndParseMatchRoute({
         routeSimFacet,
         positionId: yesId,
-        amount,
+        amount: totalCost,
         direction: buyDir,
       });
 
@@ -556,7 +558,7 @@ describe("Market Execution Facet - Advanced Test Cases", function () {
       const route = await simulateAndParseMatchRoute({
         routeSimFacet,
         positionId: yesId,
-        amount: requestedAmount,
+        amount: totalCost,
         direction: buyDir,
       });
 
@@ -601,18 +603,19 @@ describe("Market Execution Facet - Advanced Test Cases", function () {
         direction: sellDir,
       });
 
-      const route = await simulateAndParseMatchRoute({
-        routeSimFacet,
-        positionId: yesId,
-        amount,
-        direction: buyDir,
-      });
-
-      // Fund taker
+      // Calculate budget for taker
       const baseCost = amount.mul(orderPrice).div(ercUnit);
       const takerFee = baseCost.mul(feeConfig.takerBps).div(10_000);
       const totalCost = baseCost.add(takerFee);
 
+      const route = await simulateAndParseMatchRoute({
+        routeSimFacet,
+        positionId: yesId,
+        amount: totalCost,
+        direction: buyDir,
+      });
+
+      // Fund taker
       await mintAndApproveERC20({
         token: erc20,
         minter: owner,
@@ -774,6 +777,11 @@ describe("Market Execution Facet - Advanced Test Cases", function () {
       const amount = ethers.utils.parseUnits("10", erc20Decimals);
       const price = ethers.utils.parseUnits("0.5", erc20Decimals);
 
+      // Calculate budget
+      const baseCost = amount.mul(price).div(ercUnit);
+      const takerFee = baseCost.mul(feeConfig.takerBps).div(10_000);
+      const totalCost = baseCost.add(takerFee);
+
       // Create matching order
       await erc1155
         .connect(owner)
@@ -794,7 +802,7 @@ describe("Market Execution Facet - Advanced Test Cases", function () {
         const route = await simulateAndParseMatchRoute({
           routeSimFacet,
           positionId: yesId,
-          amount,
+          amount: totalCost,
           direction: buyDir,
         });
 
@@ -839,15 +847,15 @@ describe("Market Execution Facet - Advanced Test Cases", function () {
         spender: diamondAddress,
       });
 
+      const startTime = Date.now();
+      
       // Simulate route for large order (should be mint match)
       const route = await simulateAndParseMatchRoute({
         routeSimFacet,
         positionId: yesId,
-        amount: largeAmount,
+        amount: totalCost,
         direction: buyDir,
       });
-
-      const startTime = Date.now();
 
       // Execute large order
       const tx = await marketExecutionFacet
@@ -923,11 +931,16 @@ describe("Market Execution Facet - Advanced Test Cases", function () {
 
       const startTime = Date.now();
 
+      // Calculate budget per order
+      const orderCost = orderAmount.mul(price).div(ercUnit);
+      const orderFee = orderCost.mul(feeConfig.takerBps).div(10_000);
+      const orderBudget = orderCost.add(orderFee);
+
       for (let i = 0; i < numOrders; i++) {
         const route = await simulateAndParseMatchRoute({
           routeSimFacet,
           positionId: yesId,
-          amount: orderAmount,
+          amount: orderBudget,
           direction: buyDir,
         });
 
@@ -993,7 +1006,7 @@ describe("Market Execution Facet - Advanced Test Cases", function () {
       const route = await simulateAndParseMatchRoute({
         routeSimFacet,
         positionId: yesId,
-        amount,
+        amount: totalCost,
         direction: buyDir,
       });
 
