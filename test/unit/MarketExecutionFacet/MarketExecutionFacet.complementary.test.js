@@ -26,7 +26,7 @@ describe("Market Execution Facet", function () {
   let diamondAddress,
     matchExecutionFacet,
     routeSimFacet,
-    exchangeFacet,
+    orderCreationFacet,
     erc20,
     ercUnit,
     erc1155,
@@ -50,7 +50,10 @@ describe("Market Execution Facet", function () {
 
     diamondAddress = await deployDiamond();
 
-    exchangeFacet = await ethers.getContractAt("ExchangeFacet", diamondAddress);
+    orderCreationFacet = await ethers.getContractAt(
+      "OrderCreationFacet",
+      diamondAddress
+    );
     erc1155 = await ethers.getContractAt("ERC1155Facet", diamondAddress);
     conditionalFacet = await ethers.getContractAt(
       "ConditionalTokensFacet",
@@ -202,7 +205,7 @@ describe("Market Execution Facet", function () {
     );
 
     // Maker creates SELL order for YES (complementary)
-    await createLimitOrder(exchangeFacet, maker, {
+    await createLimitOrder(orderCreationFacet, maker, {
       positionId: yesId,
       collateralToken: erc20.address,
       amount,
@@ -311,7 +314,7 @@ describe("Market Execution Facet", function () {
     const makerERC20Before = await erc20.balanceOf(maker.address);
 
     // Maker places BUY order for YES (complementary)
-    await createLimitOrder(exchangeFacet, maker, {
+    await createLimitOrder(orderCreationFacet, maker, {
       positionId: yesId,
       collateralToken: erc20.address,
       amount,

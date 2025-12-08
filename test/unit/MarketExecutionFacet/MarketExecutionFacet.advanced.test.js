@@ -26,7 +26,7 @@ describe("Market Execution Facet - Advanced Test Cases", function () {
   let diamondAddress,
     marketExecutionFacet,
     routeSimFacet,
-    exchangeFacet,
+    orderCreationFacet,
     erc20,
     ercUnit,
     erc1155,
@@ -51,7 +51,11 @@ describe("Market Execution Facet - Advanced Test Cases", function () {
 
     diamondAddress = await deployDiamond();
 
-    exchangeFacet = await ethers.getContractAt("ExchangeFacet", diamondAddress);
+    // Order creation facet handles order writes post-exchange split
+        orderCreationFacet = await ethers.getContractAt(
+          "OrderCreationFacet",
+          diamondAddress
+        );
     erc1155 = await ethers.getContractAt("ERC1155Facet", diamondAddress);
     conditionalFacet = await ethers.getContractAt(
       "ConditionalTokensFacet",
@@ -158,7 +162,7 @@ describe("Market Execution Facet - Advanced Test Cases", function () {
       });
 
       // Create BUY order for NO tokens (complement)
-      await createLimitOrder(exchangeFacet, maker, {
+      await createLimitOrder(orderCreationFacet, maker, {
         positionId: noId,
         collateralToken: erc20.address,
         amount,
@@ -274,7 +278,7 @@ describe("Market Execution Facet - Advanced Test Cases", function () {
         .safeTransferFrom(owner.address, maker.address, noId, amount, "0x");
       await erc1155.connect(maker).setApprovalForAll(diamondAddress, true);
 
-      await createLimitOrder(exchangeFacet, maker, {
+      await createLimitOrder(orderCreationFacet, maker, {
         positionId: noId,
         collateralToken: erc20.address,
         amount,
@@ -361,7 +365,7 @@ describe("Market Execution Facet - Advanced Test Cases", function () {
 
       console.log("Order amount for BUY order:", orderAmount.toString());
       // Create BUY order from maker
-      await createLimitOrder(exchangeFacet, maker, {
+      await createLimitOrder(orderCreationFacet, maker, {
         positionId: yesId,
         collateralToken: erc20.address,
         amount: orderAmount,
@@ -467,7 +471,7 @@ describe("Market Execution Facet - Advanced Test Cases", function () {
         .safeTransferFrom(owner.address, maker.address, yesId, amount, "0x");
       await erc1155.connect(maker).setApprovalForAll(diamondAddress, true);
 
-      await createLimitOrder(exchangeFacet, maker, {
+      await createLimitOrder(orderCreationFacet, maker, {
         positionId: yesId,
         collateralToken: erc20.address,
         amount,
@@ -532,7 +536,7 @@ describe("Market Execution Facet - Advanced Test Cases", function () {
         );
       await erc1155.connect(maker).setApprovalForAll(diamondAddress, true);
 
-      await createLimitOrder(exchangeFacet, maker, {
+      await createLimitOrder(orderCreationFacet, maker, {
         positionId: yesId,
         collateralToken: erc20.address,
         amount: availableAmount,
@@ -593,7 +597,7 @@ describe("Market Execution Facet - Advanced Test Cases", function () {
         .safeTransferFrom(owner.address, maker.address, yesId, amount, "0x");
       await erc1155.connect(maker).setApprovalForAll(diamondAddress, true);
 
-      await createLimitOrder(exchangeFacet, maker, {
+      await createLimitOrder(orderCreationFacet, maker, {
         positionId: yesId,
         collateralToken: erc20.address,
         amount,
@@ -660,7 +664,7 @@ describe("Market Execution Facet - Advanced Test Cases", function () {
         spender: diamondAddress,
       });
 
-      await createLimitOrder(exchangeFacet, maker, {
+      await createLimitOrder(orderCreationFacet, maker, {
         positionId: yesId,
         collateralToken: erc20.address,
         amount,
@@ -788,7 +792,7 @@ describe("Market Execution Facet - Advanced Test Cases", function () {
         .safeTransferFrom(owner.address, maker.address, yesId, amount, "0x");
       await erc1155.connect(maker).setApprovalForAll(diamondAddress, true);
 
-      await createLimitOrder(exchangeFacet, maker, {
+      await createLimitOrder(orderCreationFacet, maker, {
         positionId: yesId,
         collateralToken: erc20.address,
         amount,
@@ -905,7 +909,7 @@ describe("Market Execution Facet - Advanced Test Cases", function () {
       await erc1155.connect(maker).setApprovalForAll(diamondAddress, true);
 
       for (let i = 0; i < numOrders; i++) {
-        await createLimitOrder(exchangeFacet, maker, {
+        await createLimitOrder(orderCreationFacet, maker, {
           positionId: yesId,
           collateralToken: erc20.address,
           amount: orderAmount,
@@ -980,7 +984,7 @@ describe("Market Execution Facet - Advanced Test Cases", function () {
         .safeTransferFrom(owner.address, maker.address, yesId, amount, "0x");
       await erc1155.connect(maker).setApprovalForAll(diamondAddress, true);
 
-      await createLimitOrder(exchangeFacet, maker, {
+      await createLimitOrder(orderCreationFacet, maker, {
         positionId: yesId,
         collateralToken: erc20.address,
         amount,

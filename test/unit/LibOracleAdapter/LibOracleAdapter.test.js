@@ -67,7 +67,7 @@ describe("LibOracleAdapter", function () {
       const bucket2 = await oracleAdapter.getTimestampBucket(timestamp2);
 
       expect(bucket1).to.not.equal(bucket2);
-      expect(bucket2).to.equal(bucket1 + TIMESTAMP_BUCKET);
+      expect(bucket2).to.equal(bucket1.add(TIMESTAMP_BUCKET));
     });
 
     it("should handle zero timestamp", async function () {
@@ -76,9 +76,9 @@ describe("LibOracleAdapter", function () {
     });
 
     it("should handle very large timestamps", async function () {
-      const largeTimestamp = ethers.MaxUint256 - 1000n;
+      const largeTimestamp = ethers.constants.MaxUint256.sub(1000);
       const bucket = await oracleAdapter.getTimestampBucket(largeTimestamp);
-      expect(bucket).to.be.a("bigint");
+      expect(bucket.toBigInt()).to.be.a("bigint");
     });
   });
 
@@ -129,7 +129,7 @@ describe("LibOracleAdapter", function () {
 
       // Test boundary values
       expect(50).to.be.lessThan(buckets[0]);
-      expect(50 + (buckets.length - 1) * 100).to.be.greaterThanOrEqual(
+      expect(50 + buckets.length * 100).to.be.greaterThanOrEqual(
         buckets[buckets.length - 1]
       );
     });
@@ -142,23 +142,23 @@ describe("LibOracleAdapter", function () {
   describe("Statistics Tracking", function () {
     it("should initialize with zero questions created", async function () {
       const created = await oracleAdapter.getTotalQuestionsCreated();
-      expect(created).to.be.a("bigint");
+      expect(created.toBigInt()).to.be.a("bigint");
     });
 
     it("should initialize with zero questions resolved", async function () {
       const resolved = await oracleAdapter.getTotalQuestionsResolved();
-      expect(resolved).to.be.a("bigint");
+      expect(resolved.toBigInt()).to.be.a("bigint");
     });
 
     it("should track total questions created", async function () {
       const createdBefore = await oracleAdapter.getTotalQuestionsCreated();
-      expect(createdBefore).to.be.a("bigint");
+      expect(createdBefore.toBigInt()).to.be.a("bigint");
       // Stats tracking requires actual question creation through the full flow
     });
 
     it("should track total questions resolved", async function () {
       const resolvedBefore = await oracleAdapter.getTotalQuestionsResolved();
-      expect(resolvedBefore).to.be.a("bigint");
+      expect(resolvedBefore.toBigInt()).to.be.a("bigint");
     });
   });
 
@@ -211,19 +211,19 @@ describe("LibOracleAdapter", function () {
     it("should return zero for unmapped block height", async function () {
       const blockHeight = 1000000;
       const timestamp = await oracleAdapter.getBlockTimestamp(blockHeight);
-      expect(timestamp).to.equal(0n);
+      expect(timestamp.toBigInt()).to.equal(0n);
     });
 
     it("should return zero for unmapped timestamp", async function () {
       const timestamp = 1699200000;
       const blockHeight = await oracleAdapter.getTimestampBlock(timestamp);
-      expect(blockHeight).to.equal(0n);
+      expect(blockHeight.toBigInt()).to.equal(0n);
     });
 
     it("should handle maximum block heights", async function () {
-      const maxBlockHeight = ethers.MaxUint256;
+      const maxBlockHeight = ethers.constants.MaxUint256;
       const timestamp = await oracleAdapter.getBlockTimestamp(maxBlockHeight);
-      expect(timestamp).to.be.a("bigint");
+      expect(timestamp.toBigInt()).to.be.a("bigint");
     });
   });
 
@@ -296,7 +296,7 @@ describe("LibOracleAdapter", function () {
 
     it("should handle maximum uint256 block height", async function () {
       const questions = await oracleAdapter.getThresholdQuestionsAtBlock(
-        ethers.MaxUint256
+        ethers.constants.MaxUint256
       );
       expect(questions).to.be.an("array");
     });

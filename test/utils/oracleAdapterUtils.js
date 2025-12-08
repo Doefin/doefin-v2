@@ -93,7 +93,7 @@ function calculateDifficulty(nBits) {
   const mantissa = nBits & 0xffffff;
 
   if (exponent <= 3) {
-    return mantissa >> (8 * (3 - exponent));
+    return mantissa / Math.pow(256, 3 - exponent);
   } else {
     return mantissa * Math.pow(256, exponent - 3);
   }

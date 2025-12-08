@@ -27,7 +27,8 @@ describe("Market Order Execution - Comparison of Methods", function () {
   let diamondAddress,
     marketExecutionFacet,
     routeSimFacet,
-    exchangeFacet,
+    orderCreationFacet,
+    exchangeViewFacet,
     erc20,
     ercUnit,
     erc1155,
@@ -49,7 +50,14 @@ describe("Market Order Execution - Comparison of Methods", function () {
 
     diamondAddress = await deployDiamond();
 
-    exchangeFacet = await ethers.getContractAt("ExchangeFacet", diamondAddress);
+    orderCreationFacet = await ethers.getContractAt(
+      "OrderCreationFacet",
+      diamondAddress
+    );
+    exchangeViewFacet = await ethers.getContractAt(
+      "ExchangeViewFacet",
+      diamondAddress
+    );
     erc1155 = await ethers.getContractAt("ERC1155Facet", diamondAddress);
     conditionalFacet = await ethers.getContractAt(
       "ConditionalTokensFacet",
@@ -136,7 +144,7 @@ describe("Market Order Execution - Comparison of Methods", function () {
               spender: diamondAddress,
               amount: makerAmount
             });
-            await createLimitOrder(exchangeFacet, maker, {
+            await createLimitOrder(orderCreationFacet, maker, {
               positionId: yesId,
               collateralToken: erc20.address,
               amount: makerAmount,
@@ -194,7 +202,7 @@ describe("Market Order Execution - Comparison of Methods", function () {
               spender: diamondAddress,
               amount: makerAmount
             });
-            await createLimitOrder(exchangeFacet, maker, {
+            await createLimitOrder(orderCreationFacet, maker, {
               positionId: yesId,
               collateralToken: erc20.address,
               amount: makerAmount,
@@ -214,7 +222,7 @@ describe("Market Order Execution - Comparison of Methods", function () {
           });
 
           // Approach 2: Direct
-          const tx2 = await createMarketOrder(exchangeFacet, taker1, {
+          const tx2 = await createMarketOrder(orderCreationFacet, taker1, {
             positionId: yesId,
             collateralToken: erc20.address,
             amount: takerAmount,
@@ -290,8 +298,8 @@ describe("Market Order Execution - Comparison of Methods", function () {
             await erc1155.balanceOf(maker1.address, yesId)
           );
 
-          const makerOrderId = await exchangeFacet.getNextOrderId();
-          await createLimitOrder(exchangeFacet, maker1, {
+          const makerOrderId = await exchangeViewFacet.getNextOrderId();
+          await createLimitOrder(orderCreationFacet, maker1, {
             positionId: yesId,
             collateralToken: erc20.address,
             amount: largeAmount,
@@ -300,7 +308,7 @@ describe("Market Order Execution - Comparison of Methods", function () {
             expiry: 0,
             direction: sellDir,
           });
-          const makerOrderDetail = await exchangeFacet.getOrder(makerOrderId);
+          const makerOrderDetail = await exchangeViewFacet.getOrder(makerOrderId);
           console.log("makerOrderDetail:", makerOrderDetail);
 
           console.log(
@@ -353,7 +361,7 @@ describe("Market Order Execution - Comparison of Methods", function () {
             spender: diamondAddress,
             amount: makerLargeAmount
           });
-          await createLimitOrder(exchangeFacet, maker1, {
+          await createLimitOrder(orderCreationFacet, maker1, {
             positionId: yesId,
             collateralToken: erc20.address,
             amount: largeAmount,
@@ -371,7 +379,7 @@ describe("Market Order Execution - Comparison of Methods", function () {
             spender: diamondAddress,
           });
 
-          await createMarketOrder(exchangeFacet, taker1, {
+          await createMarketOrder(orderCreationFacet, taker1, {
             positionId: yesId,
             collateralToken: erc20.address,
             amount: largeAmount,
@@ -393,7 +401,7 @@ describe("Market Order Execution - Comparison of Methods", function () {
       .safeTransferFrom(owner.address, maker1.address, yesId, amount, "0x");
     await erc1155.connect(maker1).setApprovalForAll(diamondAddress, true);
 
-    await createLimitOrder(exchangeFacet, maker1, {
+    await createLimitOrder(orderCreationFacet, maker1, {
       positionId: yesId,
       collateralToken: erc20.address,
       amount,
@@ -450,7 +458,7 @@ describe("Market Order Execution - Comparison of Methods", function () {
       .safeTransferFrom(owner.address, maker1.address, yesId, amount, "0x");
     await erc1155.connect(maker1).setApprovalForAll(diamondAddress, true);
 
-    await createLimitOrder(exchangeFacet, maker1, {
+    await createLimitOrder(orderCreationFacet, maker1, {
       positionId: yesId,
       collateralToken: erc20.address,
       amount,
@@ -469,7 +477,7 @@ describe("Market Order Execution - Comparison of Methods", function () {
     });
 
     // Approach 2: Direct Execution using createMarketOrder helper
-    await createMarketOrder(exchangeFacet, taker1, {
+    await createMarketOrder(orderCreationFacet, taker1, {
       positionId: yesId,
       collateralToken: erc20.address,
       amount,

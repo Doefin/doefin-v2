@@ -12,7 +12,12 @@ const { takeSnapshot, revertToSnapshot } = require("../../utils/snapshotUtils.js
 
 describe("ExchangeFacet - Escrow Status", function () {
   let owner, user1, user2, oracle;
-  let diamondAddress, exchangeFacet, erc20, erc20_2, erc1155;
+  let diamondAddress,
+    orderCreationFacet,
+    exchangeViewFacet,
+    erc20,
+    erc20_2,
+    erc1155;
   let conditionalFacet, conditionManagerFacet, adminConfig;
   let questionId, conditionId, yesId, noId;
   let mintAmount, unit;
@@ -33,7 +38,14 @@ describe("ExchangeFacet - Escrow Status", function () {
     diamondAddress = await deployDiamond();
 
     // Get facet instances
-    exchangeFacet = await ethers.getContractAt("ExchangeFacet", diamondAddress);
+    orderCreationFacet = await ethers.getContractAt(
+      "OrderCreationFacet",
+      diamondAddress
+    );
+    exchangeViewFacet = await ethers.getContractAt(
+      "ExchangeViewFacet",
+      diamondAddress
+    );
     erc1155 = await ethers.getContractAt("ERC1155Facet", diamondAddress);
     conditionalFacet = await ethers.getContractAt("ConditionalTokensFacet", diamondAddress);
     conditionManagerFacet = await ethers.getContractAt("ConditionManagerFacet", diamondAddress);
@@ -138,7 +150,7 @@ describe("ExchangeFacet - Escrow Status", function () {
       const buyAmount = ethers.utils.parseEther("20");
       const buyPrice = ethers.utils.parseEther("0.5");
       
-      await createLimitOrder(exchangeFacet, user1, {
+      await createLimitOrder(orderCreationFacet, user1, {
         positionId: yesId,
         collateralToken: erc20.address,
         amount: buyAmount,
@@ -149,7 +161,7 @@ describe("ExchangeFacet - Escrow Status", function () {
       });
 
       // Create another buy order with second token
-      await createLimitOrder(exchangeFacet, user1, {
+      await createLimitOrder(orderCreationFacet, user1, {
         positionId: noId,
         collateralToken: erc20_2.address,
         amount: buyAmount.mul(2),
@@ -163,7 +175,7 @@ describe("ExchangeFacet - Escrow Status", function () {
       const sellAmount = ethers.utils.parseEther("5");
       const sellPrice = ethers.utils.parseEther("0.7");
       
-      await createLimitOrder(exchangeFacet, user1, {
+      await createLimitOrder(orderCreationFacet, user1, {
         positionId: yesId,
         collateralToken: erc20.address,
         amount: sellAmount,
@@ -174,7 +186,7 @@ describe("ExchangeFacet - Escrow Status", function () {
       });
 
       // Create another sell order for noId
-      await createLimitOrder(exchangeFacet, user1, {
+      await createLimitOrder(orderCreationFacet, user1, {
         positionId: noId,
         collateralToken: erc20.address,
         amount: sellAmount.mul(2),
@@ -188,7 +200,7 @@ describe("ExchangeFacet - Escrow Status", function () {
       const tokens = [erc20.address, erc20_2.address];
       const positionIds = [yesId, noId];
       
-      const [erc20Balances, erc1155Balances] = await exchangeFacet.getUserEscrowStatus(
+      const [erc20Balances, erc1155Balances] = await exchangeViewFacet.getUserEscrowStatus(
         user1.address,
         tokens,
         positionIds
@@ -213,7 +225,7 @@ describe("ExchangeFacet - Escrow Status", function () {
       const tokens = [erc20.address, erc20_2.address];
       const positionIds = [yesId, noId];
       
-      const [erc20Balances, erc1155Balances] = await exchangeFacet.getUserEscrowStatus(
+      const [erc20Balances, erc1155Balances] = await exchangeViewFacet.getUserEscrowStatus(
         user2.address,
         tokens,
         positionIds
@@ -231,7 +243,7 @@ describe("ExchangeFacet - Escrow Status", function () {
 
     it("should handle empty arrays correctly", async function () {
       // Test with empty token array
-      const [erc20BalancesEmpty, erc1155BalancesWithPositions] = await exchangeFacet.getUserEscrowStatus(
+      const [erc20BalancesEmpty, erc1155BalancesWithPositions] = await exchangeViewFacet.getUserEscrowStatus(
         user1.address,
         [], // Empty tokens array
         [yesId, noId]
@@ -241,7 +253,7 @@ describe("ExchangeFacet - Escrow Status", function () {
       expect(erc1155BalancesWithPositions.length).to.equal(2);
 
       // Test with empty position IDs array
-      const [erc20BalancesWithTokens, erc1155BalancesEmpty] = await exchangeFacet.getUserEscrowStatus(
+      const [erc20BalancesWithTokens, erc1155BalancesEmpty] = await exchangeViewFacet.getUserEscrowStatus(
         user1.address,
         [erc20.address, erc20_2.address],
         [] // Empty position IDs array
@@ -251,7 +263,7 @@ describe("ExchangeFacet - Escrow Status", function () {
       expect(erc1155BalancesEmpty.length).to.equal(0);
 
       // Test with both arrays empty
-      const [erc20BalancesAllEmpty, erc1155BalancesAllEmpty] = await exchangeFacet.getUserEscrowStatus(
+      const [erc20BalancesAllEmpty, erc1155BalancesAllEmpty] = await exchangeViewFacet.getUserEscrowStatus(
         user1.address,
         [],
         []

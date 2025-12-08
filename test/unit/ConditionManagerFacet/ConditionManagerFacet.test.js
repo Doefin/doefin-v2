@@ -3,6 +3,7 @@ const { expect } = require("chai");
 const { ethers } = require("hardhat");
 
 const { getConditionId } = require("../../utils/ctfUtils.js");
+const { createCondition } = require("../../utils/conditionUtils.js");
 const {
   takeSnapshot,
   revertToSnapshot,
@@ -260,9 +261,9 @@ describe("ConditionManagerFacet", function () {
     const SETTLEMENT_DELAY = 6;
 
     it("should emit DifficultyThresholdQuestionCreated event with all parameters", async () => {
-      const currentHeight = await blockHeaderOracle.getCurrentBlockHeight();
-      const targetBlockHeight = currentHeight.add ? currentHeight.add(2) : ethers.BigNumber.from(currentHeight).add(2);
-      const settlementBlock = targetBlockHeight.add ? targetBlockHeight.add(SETTLEMENT_DELAY) : ethers.BigNumber.from(targetBlockHeight).add(SETTLEMENT_DELAY);
+      const currentHeight = ethers.BigNumber.from(0);
+      const targetBlockHeight = currentHeight.add(2);
+      const settlementBlock = targetBlockHeight.add(SETTLEMENT_DELAY);
       const threshold = ethers.utils.parseUnits("50", "gwei");
       const metadata = encodeDifficultyThreshold(threshold, targetBlockHeight);
 
@@ -315,9 +316,9 @@ describe("ConditionManagerFacet", function () {
     });
 
     it("should emit DifficultyRangeQuestionCreated event with buckets", async () => {
-      const currentHeight = await blockHeaderOracle.getCurrentBlockHeight();
-      const targetBlockHeight = currentHeight.add ? currentHeight.add(2) : ethers.BigNumber.from(currentHeight).add(2);
-      const settlementBlock = targetBlockHeight.add ? targetBlockHeight.add(SETTLEMENT_DELAY) : ethers.BigNumber.from(targetBlockHeight).add(SETTLEMENT_DELAY);
+      const currentHeight = ethers.BigNumber.from(0);
+      const targetBlockHeight = currentHeight.add(2);
+      const settlementBlock = targetBlockHeight.add(SETTLEMENT_DELAY);
       const buckets = [
         ethers.utils.parseUnits("40", "gwei"),
         ethers.utils.parseUnits("50", "gwei"),
@@ -404,10 +405,10 @@ describe("ConditionManagerFacet", function () {
     });
 
     it("should emit MiningDurationQuestionCreated event with duration buckets", async () => {
-      const currentHeight = await blockHeaderOracle.getCurrentBlockHeight();
-      const startBlockHeight = currentHeight.add ? currentHeight.add(1) : ethers.BigNumber.from(currentHeight).add(1);
+      const currentHeight = ethers.BigNumber.from(0);
+      const startBlockHeight = currentHeight.add(1);
       const blockCount = 2;
-      const settlementBlock = startBlockHeight.add ? startBlockHeight.add(blockCount + SETTLEMENT_DELAY) : ethers.BigNumber.from(startBlockHeight).add(blockCount + SETTLEMENT_DELAY);
+      const settlementBlock = startBlockHeight.add(blockCount + SETTLEMENT_DELAY);
       const durationBuckets = [600, 1200]; // 10, 20 minutes
       const metadata = encodeMiningDuration(
         startBlockHeight,
@@ -449,9 +450,9 @@ describe("ConditionManagerFacet", function () {
     });
 
     it("should emit both generic and specialized events", async () => {
-      const currentHeight = await blockHeaderOracle.getCurrentBlockHeight();
-      const targetBlockHeight = currentHeight.add ? currentHeight.add(2) : ethers.BigNumber.from(currentHeight).add(2);
-      const settlementBlock = targetBlockHeight.add ? targetBlockHeight.add(SETTLEMENT_DELAY) : ethers.BigNumber.from(targetBlockHeight).add(SETTLEMENT_DELAY);
+      const currentHeight = ethers.BigNumber.from(0);
+      const targetBlockHeight = currentHeight.add(2);
+      const settlementBlock = targetBlockHeight.add(SETTLEMENT_DELAY);
       const threshold = ethers.utils.parseUnits("50", "gwei");
       const metadata = encodeDifficultyThreshold(threshold, targetBlockHeight);
 
@@ -508,19 +509,14 @@ describe("ConditionManagerFacet", function () {
     const testOutcomeSlotCount = 3;
 
     beforeEach(async () => {
-      testConditionId = getConditionId(
-        oracle.address,
-        testQuestionId,
-        testOutcomeSlotCount
-      );
-      await conditionManagerFacet
-        .connect(marketMaker)
-        .createCondition(
-          oracle.address,
-          testQuestionId,
-          testOutcomeSlotCount,
-          "ipfs://test-query"
-        );
+      testConditionId = await createCondition({
+        conditionManagerFacet,
+        oracle,
+        creator: marketMaker,
+        questionId: testQuestionId,
+        outcomeSlotCount: testOutcomeSlotCount,
+        metadata: "ipfs://test-query",
+      });
     });
 
     it("should return correct condition details", async () => {
@@ -581,19 +577,14 @@ describe("ConditionManagerFacet", function () {
     const testOutcomeSlotCount = 2;
 
     beforeEach(async () => {
-      testConditionId = getConditionId(
-        oracle.address,
-        testQuestionId,
-        testOutcomeSlotCount
-      );
-      await conditionManagerFacet
-        .connect(marketMaker)
-        .createCondition(
-          oracle.address,
-          testQuestionId,
-          testOutcomeSlotCount,
-          "ipfs://cancellation-test"
-        );
+      testConditionId = await createCondition({
+        conditionManagerFacet,
+        oracle,
+        creator: marketMaker,
+        questionId: testQuestionId,
+        outcomeSlotCount: testOutcomeSlotCount,
+        metadata: "ipfs://cancellation-test",
+      });
     });
 
     it("should allow creator to cancel condition", async () => {
@@ -655,21 +646,15 @@ describe("ConditionManagerFacet", function () {
 
       const conditionIds = [];
       for (const questionId of questions) {
-        const conditionId = getConditionId(
-          oracle.address,
+        const conditionId = await createCondition({
+          conditionManagerFacet,
+          oracle,
+          creator: marketMaker,
           questionId,
-          outcomeSlotCount
-        );
+          outcomeSlotCount: 2,
+          metadata: `ipfs://${questionId}`,
+        });
         conditionIds.push(conditionId);
-
-        await conditionManagerFacet
-          .connect(marketMaker)
-          .createCondition(
-            oracle.address,
-            questionId,
-            outcomeSlotCount,
-            `ipfs://${questionId}`
-          );
       }
 
       // Verify all conditions exist
@@ -699,35 +684,22 @@ describe("ConditionManagerFacet", function () {
       const questionId = ethers.utils.id("multi-oracle-question");
       const outcomeSlotCount = 2;
 
-      const conditionId1 = getConditionId(
-        oracle.address,
+      const conditionId1 = await createCondition({
+        conditionManagerFacet,
+        oracle,
+        creator: marketMaker,
         questionId,
-        outcomeSlotCount
-      );
-      const conditionId2 = getConditionId(
-        oracle2.address,
+        outcomeSlotCount,
+        metadata: "ipfs://oracle1",
+      });
+      const conditionId2 = await createCondition({
+        conditionManagerFacet,
+        oracle: oracle2,
+        creator: marketMaker,
         questionId,
-        outcomeSlotCount
-      );
-
-      // Same question ID but different oracles create different conditions
-      await conditionManagerFacet
-        .connect(marketMaker)
-        .createCondition(
-          oracle.address,
-          questionId,
-          outcomeSlotCount,
-          "ipfs://oracle1"
-        );
-
-      await conditionManagerFacet
-        .connect(marketMaker)
-        .createCondition(
-          oracle2.address,
-          questionId,
-          outcomeSlotCount,
-          "ipfs://oracle2"
-        );
+        outcomeSlotCount,
+        metadata: "ipfs://oracle2",
+      });
 
       expect(conditionId1).to.not.equal(conditionId2);
 
@@ -748,20 +720,14 @@ describe("ConditionManagerFacet", function () {
       const questionId = ethers.utils.id("large-outcomes");
       const largeOutcomeCount = 255; // Maximum uint8
 
-      await conditionManagerFacet
-        .connect(marketMaker)
-        .createCondition(
-          oracle.address,
-          questionId,
-          largeOutcomeCount,
-          "ipfs://large-outcomes"
-        );
-
-      const conditionId = getConditionId(
-        oracle.address,
+      const conditionId = await createCondition({
+        conditionManagerFacet,
+        oracle,
+        creator: marketMaker,
         questionId,
-        largeOutcomeCount
-      );
+        outcomeSlotCount: largeOutcomeCount,
+        metadata: "ipfs://large-outcomes",
+      });
       const [, , conditionOutcomeSlotCount] =
         await conditionManagerFacet.getCondition(conditionId);
       expect(conditionOutcomeSlotCount).to.equal(largeOutcomeCount);
@@ -774,12 +740,15 @@ describe("ConditionManagerFacet", function () {
       // Rapid creation
       for (let i = 0; i < numConditions; i++) {
         const questionId = ethers.utils.id(`rapid-${i}`);
-        const conditionId = getConditionId(oracle.address, questionId, 2);
+        const conditionId = await createCondition({
+          conditionManagerFacet,
+          oracle,
+          creator: marketMaker,
+          questionId,
+          outcomeSlotCount: 2,
+          metadata: `ipfs://rapid-${i}`,
+        });
         conditionIds.push({ questionId, conditionId });
-
-        await conditionManagerFacet
-          .connect(marketMaker)
-          .createCondition(oracle.address, questionId, 2, `ipfs://rapid-${i}`);
       }
 
       // Rapid cancellation
@@ -808,14 +777,14 @@ describe("ConditionManagerFacet", function () {
 
       // Create conditions concurrently (simulated)
       const createPromises = questionIds.map((questionId) =>
-        conditionManagerFacet
-          .connect(marketMaker)
-          .createCondition(
-            oracle.address,
-            questionId,
-            2,
-            `ipfs://${questionId}`
-          )
+        createCondition({
+          conditionManagerFacet,
+          oracle,
+          creator: marketMaker,
+          questionId,
+          outcomeSlotCount: 2,
+          metadata: `ipfs://${questionId}`,
+        })
       );
 
       await Promise.all(createPromises);
@@ -846,18 +815,15 @@ describe("ConditionManagerFacet", function () {
 
       for (let i = 0; i < numConditions; i++) {
         const questionId = ethers.utils.id(`gas-test-${i}`);
-        const conditionId = getConditionId(oracle.address, questionId, 2);
-
-        // Measure creation gas
-        const createTx = await conditionManagerFacet
-          .connect(marketMaker)
-          .createCondition(
-            oracle.address,
-            questionId,
-            2,
-            `ipfs://gas-test-${i}`
-          );
-        const createReceipt = await createTx.wait();
+        const { conditionId, receipt: createReceipt } = await createCondition({
+          conditionManagerFacet,
+          oracle,
+          creator: marketMaker,
+          questionId,
+          outcomeSlotCount: 2,
+          metadata: `ipfs://gas-test-${i}`,
+          returnTx: true,
+        });
         createGasCosts.push(createReceipt.gasUsed);
 
         // Measure cancellation gas

@@ -1,20 +1,42 @@
 const { expect } = require("chai");
+const { ethers } = require("hardhat");
 
+// Enum mirrors contract values used by createOrder
 const ExecutionType = {
   Market: 0,
-  Limit: 1
+  Limit: 1,
 };
 
 const OrderType = {
   Standard: 0,
-  CrossCurrency: 1
+  CrossCurrency: 1,
+};
+
+const OrderDirection = {
+  Buy: 0,
+  Sell: 1,
+};
+
+const ExchangeRateType = {
+  Fixed: 0,
+  Dynamic: 1,
 };
 
 const EMPTY_CROSS_CURRENCY_CONFIG = {
-  quoteCurrencyToken: "0x0000000000000000000000000000000000000000",
-  exchangeRateType: 0,
-  exchangeRate: 0
+  quoteCurrencyToken: ethers.constants.AddressZero,
+  exchangeRateType: ExchangeRateType.Fixed,
+  exchangeRate: 0,
 };
+
+const buildCrossCurrencyConfig = ({
+  quoteCurrencyToken,
+  exchangeRateType = ExchangeRateType.Fixed,
+  exchangeRate = 0,
+}) => ({
+  quoteCurrencyToken,
+  exchangeRateType,
+  exchangeRate,
+});
 
 async function createLimitOrder(
   facet,
@@ -62,14 +84,6 @@ async function createMarketOrder(
     fillOrKill = false,
   }
 ) {
-  const ExecutionType = { Market: 0, Limit: 1 };
-  const OrderType = { Standard: 0, CrossCurrency: 1 };
-  const emptyCrossCurrencyConfig = {
-    quoteCurrencyToken: ethers.constants.AddressZero,
-    exchangeRateType: 0,
-    exchangeRate: 0,
-  };
-  
   return facet
     .connect(maker)
     .createOrder(
@@ -83,7 +97,7 @@ async function createMarketOrder(
       direction,
       ExecutionType.Market,
       OrderType.Standard,
-      emptyCrossCurrencyConfig
+      EMPTY_CROSS_CURRENCY_CONFIG
     );
 }
 
@@ -104,7 +118,41 @@ async function createCrossCurrencyLimitOrder(
     exchangeRate,
   }
 ) {
-  // Pass CrossCurrencyConfig as object struct
+  // Cross-currency limit order uses the provided FX config
+  return facet
+    .connect(maker)
+    .createOrder(
+      positionId,
+      collateralToken,
+      amount,
+      pricePerToken,
+      minFillAmount,
+      expiry,
+      fillOrKill,
+      direction,
+      ExecutionType.Limit,
+      OrderType.CrossCurrency,
+      buildCrossCurrencyConfig({ quoteCurrencyToken, exchangeRateType, exchangeRate })
+    );
+}
+
+async function createCrossCurrencyMarketOrder(
+  facet,
+  maker,
+  {
+    positionId,
+    collateralToken,
+    amount,
+    pricePerToken,
+    minFillAmount = 0,
+    expiry = 0,
+    direction,
+    fillOrKill = false,
+    quoteCurrencyToken,
+    exchangeRateType,
+    exchangeRate,
+  }
+) {
   return facet
     .connect(maker)
     .createOrder(
@@ -117,8 +165,8 @@ async function createCrossCurrencyLimitOrder(
       fillOrKill,
       direction,
       ExecutionType.Market,
-      OrderType.Standard,
-      EMPTY_CROSS_CURRENCY_CONFIG
+      OrderType.CrossCurrency,
+      buildCrossCurrencyConfig({ quoteCurrencyToken, exchangeRateType, exchangeRate })
     );
 }
 
@@ -130,27 +178,6 @@ async function validateOrderState(facet, orderId, expected) {
   expect(order.active).to.equal(true);
 }
 
-// Enums matching contract definitions
-const OrderDirection = {
-  Buy: 0,
-  Sell: 1,
-};
-
-const ExecutionType = {
-  Market: 0,
-  Limit: 1,
-};
-
-const OrderType = {
-  Standard: 0,
-  CrossCurrency: 1,
-};
-
-const ExchangeRateType = {
-  Fixed: 0,
-  Dynamic: 1,
-};
-
 module.exports = {
   createLimitOrder,
   createMarketOrder,
@@ -159,4 +186,6 @@ module.exports = {
   validateOrderState,
   ExecutionType,
   OrderType,
+  OrderDirection,
+  ExchangeRateType,
 };

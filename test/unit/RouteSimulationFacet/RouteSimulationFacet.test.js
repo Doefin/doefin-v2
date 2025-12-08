@@ -25,7 +25,8 @@ describe("RouteSimulationFacet", function () {
   let owner, user, maker, oracle, taker;
   let diamondAddress,
     routeSimFacet,
-    exchangeFacet,
+    orderCreationFacet,
+    exchangeViewFacet,
     erc20,
     ercUnit,
     erc1155,
@@ -47,7 +48,14 @@ describe("RouteSimulationFacet", function () {
 
     diamondAddress = await deployDiamond();
 
-    exchangeFacet = await ethers.getContractAt("ExchangeFacet", diamondAddress);
+    orderCreationFacet = await ethers.getContractAt(
+      "OrderCreationFacet",
+      diamondAddress
+    );
+    exchangeViewFacet = await ethers.getContractAt(
+      "ExchangeViewFacet",
+      diamondAddress
+    );
     erc1155 = await ethers.getContractAt("ERC1155Facet", diamondAddress);
     conditionalFacet = await ethers.getContractAt(
       "ConditionalTokensFacet",
@@ -153,7 +161,7 @@ describe("RouteSimulationFacet", function () {
       .safeTransferFrom(owner.address, maker.address, yesId, amount, "0x");
     await erc1155.connect(maker).setApprovalForAll(diamondAddress, true);
 
-    await createLimitOrder(exchangeFacet, maker, {
+    await createLimitOrder(orderCreationFacet, maker, {
       positionId: yesId,
       collateralToken: erc20.address,
       amount,
@@ -164,7 +172,7 @@ describe("RouteSimulationFacet", function () {
     });
 
     const expectedOrderId =
-      (await exchangeFacet.callStatic.getNextOrderId()) - 1;
+      (await exchangeViewFacet.callStatic.getNextOrderId()) - 1;
 
     // Simulate with taker's budget (calculated from desired shares * effective price)
     const parsedRoute = await simulateAndParseMatchRoute({

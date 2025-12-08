@@ -25,7 +25,7 @@ describe("RouteSimulationFacet - Advanced Test Cases", function () {
   let owner, user, maker, oracle, taker, maker2, maker3, maker4;
   let diamondAddress,
     routeSimFacet,
-    exchangeFacet,
+    orderCreationFacet,
     erc20,
     ercUnit,
     erc1155,
@@ -48,7 +48,10 @@ describe("RouteSimulationFacet - Advanced Test Cases", function () {
 
     diamondAddress = await deployDiamond();
 
-    exchangeFacet = await ethers.getContractAt("ExchangeFacet", diamondAddress);
+    orderCreationFacet = await ethers.getContractAt(
+      "OrderCreationFacet",
+      diamondAddress
+    );
     erc1155 = await ethers.getContractAt("ERC1155Facet", diamondAddress);
     conditionalFacet = await ethers.getContractAt(
       "ConditionalTokensFacet",
@@ -161,7 +164,7 @@ describe("RouteSimulationFacet - Advanced Test Cases", function () {
       await erc1155.connect(maker).setApprovalForAll(diamondAddress, true);
 
       for (let i = 0; i < prices.length; i++) {
-        await createLimitOrder(exchangeFacet, maker, {
+        await createLimitOrder(orderCreationFacet, maker, {
           positionId: yesId,
           collateralToken: erc20.address,
           amount: amounts[i],
@@ -249,7 +252,7 @@ describe("RouteSimulationFacet - Advanced Test Cases", function () {
       await erc1155.connect(maker).setApprovalForAll(diamondAddress, true);
 
       for (let i = 0; i < prices.length; i++) {
-        await createLimitOrder(exchangeFacet, maker, {
+        await createLimitOrder(orderCreationFacet, maker, {
           positionId: yesId,
           collateralToken: erc20.address,
           amount: availableAmounts[i],
@@ -320,7 +323,7 @@ describe("RouteSimulationFacet - Advanced Test Cases", function () {
         );
       await erc1155.connect(maker).setApprovalForAll(diamondAddress, true);
 
-      await createLimitOrder(exchangeFacet, maker, {
+      await createLimitOrder(orderCreationFacet, maker, {
         positionId: yesId,
         collateralToken: erc20.address,
         amount: orderAmount,
@@ -342,7 +345,7 @@ describe("RouteSimulationFacet - Advanced Test Cases", function () {
         spender: diamondAddress,
       });
 
-      await createLimitOrder(exchangeFacet, maker2, {
+      await createLimitOrder(orderCreationFacet, maker2, {
         positionId: noId,
         collateralToken: erc20.address,
         amount: totalMintAmount,
@@ -416,7 +419,7 @@ describe("RouteSimulationFacet - Advanced Test Cases", function () {
       await erc1155.connect(maker).setApprovalForAll(diamondAddress, true);
 
       for (const config of orderConfigs) {
-        await createLimitOrder(exchangeFacet, maker, {
+        await createLimitOrder(orderCreationFacet, maker, {
           positionId: yesId,
           collateralToken: erc20.address,
           amount: config.amount,
@@ -498,7 +501,7 @@ describe("RouteSimulationFacet - Advanced Test Cases", function () {
           spender: diamondAddress,
         });
 
-        await createLimitOrder(exchangeFacet, maker, {
+        await createLimitOrder(orderCreationFacet, maker, {
           positionId: yesId,
           collateralToken: erc20.address,
           amount: order.amount,
@@ -560,7 +563,7 @@ describe("RouteSimulationFacet - Advanced Test Cases", function () {
         );
       await erc1155.connect(maker).setApprovalForAll(diamondAddress, true);
 
-      await createLimitOrder(exchangeFacet, maker, {
+      await createLimitOrder(orderCreationFacet, maker, {
         positionId: yesId,
         collateralToken: erc20.address,
         amount: ethers.utils.parseEther("1"),
@@ -606,7 +609,7 @@ describe("RouteSimulationFacet - Advanced Test Cases", function () {
         spender: diamondAddress,
       });
 
-      await createLimitOrder(exchangeFacet, maker, {
+      await createLimitOrder(orderCreationFacet, maker, {
         positionId: noId,
         collateralToken: erc20.address,
         amount: maxAmount,
@@ -664,7 +667,7 @@ describe("RouteSimulationFacet - Advanced Test Cases", function () {
         );
       await erc1155.connect(maker).setApprovalForAll(diamondAddress, true);
 
-      await createLimitOrder(exchangeFacet, maker, {
+      await createLimitOrder(orderCreationFacet, maker, {
         positionId: yesId,
         collateralToken: erc20.address,
         amount: orderAmount,
@@ -713,7 +716,7 @@ describe("RouteSimulationFacet - Advanced Test Cases", function () {
         const price = basePrice.add(
           ethers.utils.parseEther((i * 0.01).toString())
         );
-        await createLimitOrder(exchangeFacet, maker, {
+        await createLimitOrder(orderCreationFacet, maker, {
           positionId: yesId,
           collateralToken: erc20.address,
           amount: baseAmount,
@@ -781,7 +784,7 @@ describe("RouteSimulationFacet - Advanced Test Cases", function () {
       await erc1155.connect(maker).setApprovalForAll(diamondAddress, true);
 
       for (const config of configs) {
-        await createLimitOrder(exchangeFacet, maker, {
+        await createLimitOrder(orderCreationFacet, maker, {
           positionId: yesId,
           collateralToken: erc20.address,
           amount: config.amount,
@@ -844,7 +847,7 @@ describe("RouteSimulationFacet - Advanced Test Cases", function () {
         .safeTransferFrom(owner.address, maker.address, yesId, amount, "0x");
       await erc1155.connect(maker).setApprovalForAll(diamondAddress, true);
 
-      await createLimitOrder(exchangeFacet, maker, {
+      await createLimitOrder(orderCreationFacet, maker, {
         positionId: yesId,
         collateralToken: erc20.address,
         amount,
@@ -921,7 +924,7 @@ describe("RouteSimulationFacet - Advanced Test Cases", function () {
       await erc1155.connect(maker).setApprovalForAll(diamondAddress, true);
 
       for (const order of orders) {
-        await createLimitOrder(exchangeFacet, maker, {
+        await createLimitOrder(orderCreationFacet, maker, {
           positionId: yesId,
           collateralToken: erc20.address,
           amount: order.amount,

@@ -25,7 +25,7 @@ describe("RouteSimulationFacet", function () {
   let owner, user, maker, oracle, taker;
   let diamondAddress,
     routeSimFacet,
-    exchangeFacet,
+    orderCreationFacet,
     erc20,
     ercUnit,
     erc1155,
@@ -47,7 +47,10 @@ describe("RouteSimulationFacet", function () {
 
     diamondAddress = await deployDiamond();
 
-    exchangeFacet = await ethers.getContractAt("ExchangeFacet", diamondAddress);
+    orderCreationFacet = await ethers.getContractAt(
+      "OrderCreationFacet",
+      diamondAddress
+    );
     erc1155 = await ethers.getContractAt("ERC1155Facet", diamondAddress);
     conditionalFacet = await ethers.getContractAt(
       "ConditionalTokensFacet",
@@ -163,7 +166,7 @@ describe("RouteSimulationFacet", function () {
     await erc1155.connect(maker).setApprovalForAll(diamondAddress, true);
 
     // Create two SELL orders
-    await createLimitOrder(exchangeFacet, maker, {
+    await createLimitOrder(orderCreationFacet, maker, {
       positionId: yesId,
       collateralToken: erc20.address,
       amount,
@@ -173,7 +176,7 @@ describe("RouteSimulationFacet", function () {
       direction: sellDir,
     });
 
-    await createLimitOrder(exchangeFacet, maker, {
+    await createLimitOrder(orderCreationFacet, maker, {
       positionId: yesId,
       collateralToken: erc20.address,
       amount,

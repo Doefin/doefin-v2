@@ -145,9 +145,10 @@ describe("MarketDataFacet - Advanced Test Cases", function () {
     it("should handle malformed condition ID", async () => {
       const malformedConditionId = ethers.utils.id("non-existent-condition");
 
-      await expect(
-        marketDataFacet.getMarketsByCondition(malformedConditionId)
-      ).to.be.revertedWith("ConditionDoesNotExist()");
+      const markets = await marketDataFacet.getMarketsByCondition(
+        malformedConditionId
+      );
+      expect(markets).to.have.lengthOf(0);
     });
 
     it("should return consistent data across multiple calls", async () => {
@@ -202,21 +203,27 @@ describe("MarketDataFacet - Advanced Test Cases", function () {
         outcomeSlotCount
       );
 
-      // Both conditions should exist but have no positions yet, so they should revert
-      await expect(
-        marketDataFacet.getMarketsByCondition(conditionId1)
-      ).to.be.revertedWith("ConditionDoesNotExist()");
+      // Both conditions exist but have no positions yet; expect empty arrays
+      const markets1 = await marketDataFacet.getMarketsByCondition(
+        conditionId1
+      );
+      const markets2 = await marketDataFacet.getMarketsByCondition(
+        conditionId2
+      );
 
-      await expect(
-        marketDataFacet.getMarketsByCondition(conditionId2)
-      ).to.be.revertedWith("ConditionDoesNotExist()");
+      expect(markets1).to.have.lengthOf(0);
+      expect(markets2).to.have.lengthOf(0);
     });
 
-    it("should handle getMarketMetadataByCondition with invalid condition", async () => {
+    it("should handle getMarketMetadataByMarket with invalid condition", async () => {
       const invalidConditionId = ethers.utils.id("invalid-condition-metadata");
 
       await expect(
-        marketDataFacet.getMarketMetadataByCondition(invalidConditionId)
+        marketDataFacet.getMarketMetadataByMarket(
+          invalidConditionId,
+          ethers.constants.HashZero,
+          erc20.address
+        )
       ).to.be.revertedWith("ConditionDoesNotExist()");
     });
   });
@@ -382,7 +389,8 @@ describe("MarketDataFacet - Advanced Test Cases", function () {
       expect(positionIds3).to.have.lengthOf(3);
 
       const markets = await marketDataFacet.getMarketsByCondition(conditionId3);
-      expect(markets).to.have.lengthOf(3);
+      expect(markets).to.have.lengthOf(1);
+      expect(markets[0].positionIds).to.have.lengthOf(3);
 
       const metadata = await marketDataFacet.getMarketMetadata(positionIds3[0]);
       expect(metadata.positionIds).to.have.lengthOf(3);
@@ -417,19 +425,16 @@ describe("MarketDataFacet - Advanced Test Cases", function () {
       expect(positionIds8).to.have.lengthOf(8);
 
       const markets = await marketDataFacet.getMarketsByCondition(conditionId8);
-      expect(markets).to.have.lengthOf(8);
+  expect(markets).to.have.lengthOf(1);
+  expect(markets[0].positionIds).to.have.lengthOf(8);
 
       // Test complement functionality with multiple outcomes
       // Note: With 8 individual outcomes (powers of 2), each position's complement
       // would be the union of all other positions, which may not exist as a single position
-      // So we'll test that the function works for the first few positions
-      const complement1 = await marketDataFacet.getComplement(positionIds8[0]);
-      const complement2 = await marketDataFacet.getComplement(positionIds8[1]);
-
-      // Verify complements are different from originals
-      expect(complement1).to.not.equal(positionIds8[0]);
-      expect(complement2).to.not.equal(positionIds8[1]);
-      expect(complement1).to.not.equal(complement2);
+      // So complements may not exist; ensure function reverts gracefully
+      await expect(
+        marketDataFacet.getComplement(positionIds8[0])
+      ).to.be.revertedWith("InvalidComplement()");
     });
 
     it("should handle partial position splits", async () => {
@@ -465,7 +470,8 @@ describe("MarketDataFacet - Advanced Test Cases", function () {
       const markets = await marketDataFacet.getMarketsByCondition(
         conditionIdPartial
       );
-      expect(markets).to.have.lengthOf(2);
+      expect(markets).to.have.lengthOf(1);
+      expect(markets[0].positionIds).to.have.lengthOf(2);
 
       // Verify complement relationship
       const complement1 = await marketDataFacet.getComplement(
@@ -581,9 +587,10 @@ describe("MarketDataFacet - Advanced Test Cases", function () {
       const markets = await marketDataFacet.getMarketsByCondition(
         integrationConditionId
       );
-      expect(markets).to.have.lengthOf(2);
-      expect(markets[0]).to.equal(integrationPositionIds[0]);
-      expect(markets[1]).to.equal(integrationPositionIds[1]);
+      expect(markets).to.have.lengthOf(1);
+      expect(markets[0].positionIds.map((p) => p.toString())).to.include.members(
+        integrationPositionIds.map((p) => p.toString())
+      );
     });
 
     it("should handle position queries after condition resolution", async () => {
@@ -639,8 +646,11 @@ describe("MarketDataFacet - Advanced Test Cases", function () {
     it("should maintain referential integrity across all functions", async () => {
       // Get data using different methods
       const directMetadata = await marketDataFacet.getMarketMetadata(yesId);
-      const conditionMetadata =
-        await marketDataFacet.getMarketMetadataByCondition(conditionId);
+      const conditionMetadata = await marketDataFacet.getMarketMetadataByMarket(
+        conditionId,
+        ethers.constants.HashZero,
+        erc20.address
+      );
       const positionInfo = await marketDataFacet.getPositionInfo(yesId);
 
       // All should return consistent collateral token

@@ -8,6 +8,9 @@ const {
   getPositionId,
 } = require("../../utils/ctfUtils.js");
 const {
+  createAndSplitCondition,
+} = require("../../utils/conditionUtils.js");
+const {
   takeSnapshot,
   revertToSnapshot,
 } = require("../../utils/snapshotUtils.js");
@@ -61,6 +64,8 @@ describe("ConditionalTokensFacet Advanced", function () {
 
     // Add market maker
     await accessControlFacet.connect(owner).addMarketMaker(marketMaker.address);
+    await accessControlFacet.connect(owner).addMarketMaker(owner.address);
+    await accessControlFacet.connect(owner).addMarketMaker(user1.address);
 
     // Mint tokens to users
     const mintAmount = ethers.utils.parseEther("1000");
@@ -294,8 +299,8 @@ describe("ConditionalTokensFacet Advanced", function () {
             mockToken.address,
             ethers.constants.HashZero,
             testConditionId,
-            amount,
-            partition
+            partition,
+            amount
           )
       )
         .to.emit(conditionalTokensFacet, "PositionSplit")
@@ -359,8 +364,8 @@ describe("ConditionalTokensFacet Advanced", function () {
             mockToken.address,
             ethers.constants.HashZero,
             multiConditionId,
-            amount,
-            partition
+            partition,
+            amount
           )
       ).to.emit(conditionalTokensFacet, "PositionSplit");
 
@@ -412,8 +417,8 @@ describe("ConditionalTokensFacet Advanced", function () {
           mockToken.address,
           ethers.constants.HashZero,
           parentConditionId,
-          amount,
-          [1, 2]
+          [1, 2],
+          amount
         );
 
       // Get parent collection ID for YES outcome
@@ -432,8 +437,8 @@ describe("ConditionalTokensFacet Advanced", function () {
             mockToken.address,
             parentCollectionId,
             childConditionId,
-            amount,
-            [1, 2]
+            [1, 2],
+            amount
           )
       )
         .to.emit(conditionalTokensFacet, "PositionSplit")
@@ -454,27 +459,23 @@ describe("ConditionalTokensFacet Advanced", function () {
     const testOutcomeSlotCount = 2;
 
     beforeEach(async () => {
-      testConditionId = getConditionId(
-        oracle.address,
-        testQuestionId,
-        testOutcomeSlotCount
-      );
-      await conditionalTokensFacet
-        .connect(owner)
-        .prepareCondition(oracle.address, testQuestionId, testOutcomeSlotCount);
-
-      // Setup positions for merging
       const amount = ethers.utils.parseEther("10");
       await mockToken.connect(user1).approve(diamondAddress, amount);
-      await conditionalTokensFacet
-        .connect(user1)
-        .splitPosition(
-          mockToken.address,
-          ethers.constants.HashZero,
-          testConditionId,
-          amount,
-          [1, 2]
-        );
+
+      const { conditionId } = await createAndSplitCondition({
+        conditionManagerFacet,
+        conditionalFacet: conditionalTokensFacet,
+        oracle,
+        owner,
+        splitter: user1,
+        erc20: mockToken,
+        questionId: testQuestionId,
+        outcomeSlotCount: testOutcomeSlotCount,
+        splitAmount: amount,
+        partition: [1, 2],
+      });
+
+      testConditionId = conditionId;
     });
 
     it("should merge positions back to collateral", async () => {
@@ -577,27 +578,23 @@ describe("ConditionalTokensFacet Advanced", function () {
     const testOutcomeSlotCount = 2;
 
     beforeEach(async () => {
-      testConditionId = getConditionId(
-        oracle.address,
-        testQuestionId,
-        testOutcomeSlotCount
-      );
-      await conditionalTokensFacet
-        .connect(owner)
-        .prepareCondition(oracle.address, testQuestionId, testOutcomeSlotCount);
-
-      // Setup positions and resolve condition
       const amount = ethers.utils.parseEther("10");
       await mockToken.connect(user1).approve(diamondAddress, amount);
-      await conditionalTokensFacet
-        .connect(user1)
-        .splitPosition(
-          mockToken.address,
-          ethers.constants.HashZero,
-          testConditionId,
-          amount,
-          [1, 2]
-        );
+
+      const { conditionId } = await createAndSplitCondition({
+        conditionManagerFacet,
+        conditionalFacet: conditionalTokensFacet,
+        oracle,
+        owner,
+        splitter: user1,
+        erc20: mockToken,
+        questionId: testQuestionId,
+        outcomeSlotCount: testOutcomeSlotCount,
+        splitAmount: amount,
+        partition: [1, 2],
+      });
+
+      testConditionId = conditionId;
 
       // Resolve condition (YES wins)
       await conditionalTokensFacet
@@ -791,8 +788,8 @@ describe("ConditionalTokensFacet Advanced", function () {
           mockToken.address,
           ethers.constants.HashZero,
           conditionId,
-          amount,
-          [1, 2, 4]
+          [1, 2, 4],
+          amount
         );
 
       await conditionalTokensFacet
@@ -801,8 +798,8 @@ describe("ConditionalTokensFacet Advanced", function () {
           mockToken.address,
           ethers.constants.HashZero,
           conditionId,
-          amount,
-          [1, 2, 4]
+          [1, 2, 4],
+          amount
         );
 
       // Resolve condition (outcome 2 wins)
@@ -872,8 +869,8 @@ describe("ConditionalTokensFacet Advanced", function () {
           mockToken.address,
           ethers.constants.HashZero,
           conditionId,
-          amount1,
-          [1, 2]
+          [1, 2],
+          amount1
         );
 
       await conditionalTokensFacet
@@ -882,8 +879,8 @@ describe("ConditionalTokensFacet Advanced", function () {
           mockToken2.address,
           ethers.constants.HashZero,
           conditionId,
-          amount2,
-          [1, 2]
+          [1, 2],
+          amount2
         );
 
       // Verify different position IDs for different collaterals

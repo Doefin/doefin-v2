@@ -27,7 +27,8 @@ describe("LibFeeManager - Fee Management Tests", function () {
     // Deploy diamond
     diamondAddress = await deployDiamond();
     adminConfig = await ethers.getContractAt("AdminConfigFacet", diamondAddress);
-    exchangeFacet = await ethers.getContractAt("ExchangeFacet", diamondAddress);
+    // The createOrder entrypoint now lives in OrderCreationFacet (ExchangeFacet removed)
+    exchangeFacet = await ethers.getContractAt("OrderCreationFacet", diamondAddress);
     conditionalFacet = await ethers.getContractAt("ConditionalTokensFacet", diamondAddress);
     conditionManagerFacet = await ethers.getContractAt("ConditionManagerFacet", diamondAddress);
     erc1155 = await ethers.getContractAt("ERC1155Facet", diamondAddress);
@@ -554,20 +555,22 @@ describe("LibFeeManager - Fee Management Tests", function () {
         });
 
         const tokens = [mockToken.address, mockToken2.address];
-        const totalValue = await adminConfig.getTotalAccumulatedFeesValue(tokens);
-        
-        // Current implementation returns count of tokens with fees
-        expect(totalValue).to.equal(2);
+        const balances = await adminConfig.getProtocolFeesBalances(tokens);
+
+        // Placeholder logic: count how many balances are > 0
+        const feeBearingCount = balances.filter((b) => !b.isZero()).length;
+        expect(feeBearingCount).to.equal(2);
       });
 
       it("should return 0 when no tokens have fees", async function () {
         // Withdraw all fees first
         await adminConfig.withdrawAllProtocolFees(mockToken.address);
-        
+
         const tokens = [mockToken.address, mockToken2.address];
-        const totalValue = await adminConfig.getTotalAccumulatedFeesValue(tokens);
-        
-        expect(totalValue).to.equal(0);
+        const balances = await adminConfig.getProtocolFeesBalances(tokens);
+        const feeBearingCount = balances.filter((b) => !b.isZero()).length;
+
+        expect(feeBearingCount).to.equal(0);
       });
     });
   });

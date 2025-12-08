@@ -348,33 +348,32 @@ describe("AccessControlFacet", function () {
         removeGasCosts.push(removeReceipt.gasUsed);
       }
 
+      const addGasNumbers = addGasCosts.map((g) => g.toNumber());
+      const removeGasNumbers = removeGasCosts.map((g) => g.toNumber());
+
       // Gas costs should be relatively consistent
       const addGasVariance =
-        Math.max(...addGasCosts) - Math.min(...addGasCosts);
+        Math.max(...addGasNumbers) - Math.min(...addGasNumbers);
       const removeGasVariance =
-        Math.max(...removeGasCosts) - Math.min(...removeGasCosts);
+        Math.max(...removeGasNumbers) - Math.min(...removeGasNumbers);
 
-      console.log(
-        "Add gas costs:",
-        addGasCosts.map((g) => g.toString())
-      );
-      console.log(
-        "Remove gas costs:",
-        removeGasCosts.map((g) => g.toString())
-      );
-      console.log("Add gas variance:", addGasVariance.toString());
-      console.log("Remove gas variance:", removeGasVariance.toString());
+      console.log("Add gas costs:", addGasNumbers);
+      console.log("Remove gas costs:", removeGasNumbers);
+      console.log("Add gas variance:", addGasVariance);
+      console.log("Remove gas variance:", removeGasVariance);
 
       // Variance should be minimal (within 10% of average)
-      const avgAddGas = addGasCosts
-        .reduce((sum, cost) => sum.add(cost), ethers.constants.Zero)
-        .div(addGasCosts.length);
-      const avgRemoveGas = removeGasCosts
-        .reduce((sum, cost) => sum.add(cost), ethers.constants.Zero)
-        .div(removeGasCosts.length);
+      const avgAddGas =
+        addGasNumbers.reduce((sum, cost) => sum + cost, 0) /
+        addGasNumbers.length;
+      const avgRemoveGas =
+        removeGasNumbers.reduce((sum, cost) => sum + cost, 0) /
+        removeGasNumbers.length;
 
-      expect(addGasVariance).to.be.lessThan(avgAddGas.div(10).toNumber());
-      expect(removeGasVariance).to.be.lessThan(avgRemoveGas.div(10).toNumber());
+      expect(addGasVariance).to.be.lessThan(Math.floor(avgAddGas / 10));
+      expect(removeGasVariance).to.be.lessThan(
+        Math.floor(avgRemoveGas / 10)
+      );
     });
   });
 

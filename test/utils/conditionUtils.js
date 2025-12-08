@@ -41,6 +41,39 @@ async function splitConditionAndGetPositionIds({
   return [positionIds, amounts];
 }
 
+async function createCondition({
+  conditionManagerFacet,
+  oracle,
+  creator,
+  questionId,
+  outcomeSlotCount,
+  metadata = "ipfs://dummy",
+  returnTx = false,
+}) {
+  const conditionId = getConditionId(
+    oracle.address,
+    questionId,
+    outcomeSlotCount
+  );
+
+  const tx = await conditionManagerFacet
+    .connect(creator)
+    .createCondition(
+      oracle.address,
+      questionId,
+      outcomeSlotCount,
+      metadata
+    );
+
+  const receipt = await tx.wait();
+
+  if (returnTx) {
+    return { conditionId, tx, receipt };
+  }
+
+  return conditionId;
+}
+
 async function createAndSplitCondition({
   conditionManagerFacet,
   conditionalFacet,
@@ -50,6 +83,9 @@ async function createAndSplitCondition({
   questionId,
   outcomeSlotCount = 2,
   splitAmount = ethers.utils.parseEther("2"),
+  partition = [1, 2],
+  parentCollectionId = ethers.constants.HashZero,
+  splitter,
 }) {
   const conditionId = getConditionId(
     oracle.address,
@@ -66,25 +102,30 @@ async function createAndSplitCondition({
       "ipfs://dummy"
     );
 
+  const actor = splitter ?? owner;
+
   const splitTx = await conditionalFacet
-    .connect(owner)
+    .connect(actor)
     .splitPosition(
       erc20.address,
-      ethers.constants.HashZero,
+      parentCollectionId,
       conditionId,
-      [1, 2], // partition comes before amount
+      partition, // partition comes before amount
       splitAmount
     );
 
   const receipt = await splitTx.wait();
-  return parseTransferBatch(
+  const parsed = parseTransferBatch(
     receipt,
     ethers.constants.AddressZero,
-    owner.address
+    await actor.getAddress()
   );
+
+  return { conditionId, ...parsed };
 }
 
 module.exports = {
   splitConditionAndGetPositionIds,
+  createCondition,
   createAndSplitCondition,
 };

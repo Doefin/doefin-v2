@@ -27,7 +27,7 @@ describe("RouteSimulationFacet - Sorting and Match Order", function () {
   let owner, user, maker, oracle, taker;
   let diamondAddress,
     routeSimFacet,
-    exchangeFacet,
+    orderCreationFacet,
     erc20,
     ercUnit,
     erc1155,
@@ -49,7 +49,10 @@ describe("RouteSimulationFacet - Sorting and Match Order", function () {
 
     diamondAddress = await deployDiamond();
 
-    exchangeFacet = await ethers.getContractAt("ExchangeFacet", diamondAddress);
+    orderCreationFacet = await ethers.getContractAt(
+      "OrderCreationFacet",
+      diamondAddress
+    );
     erc1155 = await ethers.getContractAt("ERC1155Facet", diamondAddress);
     conditionalFacet = await ethers.getContractAt(
       "ConditionalTokensFacet",
@@ -157,7 +160,7 @@ describe("RouteSimulationFacet - Sorting and Match Order", function () {
         .safeTransferFrom(owner.address, maker.address, yesId, amount, "0x");
       await erc1155.connect(maker).setApprovalForAll(diamondAddress, true);
 
-      await createLimitOrder(exchangeFacet, maker, {
+      await createLimitOrder(orderCreationFacet, maker, {
         positionId: yesId,
         collateralToken: erc20.address,
         amount,

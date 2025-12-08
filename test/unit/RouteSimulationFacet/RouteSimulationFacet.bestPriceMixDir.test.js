@@ -25,7 +25,7 @@ describe("RouteSimulationFacet", function () {
   let owner, user, maker, oracle, taker;
   let diamondAddress,
     routeSimFacet,
-    exchangeFacet,
+    orderCreationFacet,
     erc20,
     ercUnit,
     erc1155,
@@ -47,7 +47,10 @@ describe("RouteSimulationFacet", function () {
 
     diamondAddress = await deployDiamond();
 
-    exchangeFacet = await ethers.getContractAt("ExchangeFacet", diamondAddress);
+    orderCreationFacet = await ethers.getContractAt(
+      "OrderCreationFacet",
+      diamondAddress
+    );
     erc1155 = await ethers.getContractAt("ERC1155Facet", diamondAddress);
     conditionalFacet = await ethers.getContractAt(
       "ConditionalTokensFacet",
@@ -152,7 +155,7 @@ describe("RouteSimulationFacet", function () {
 
     await erc1155.connect(maker).setApprovalForAll(diamondAddress, true);
     // Complementary: Sell YES
-    await createLimitOrder(exchangeFacet, maker, {
+    await createLimitOrder(orderCreationFacet, maker, {
       positionId: yesId,
       collateralToken: erc20.address,
       amount,
@@ -163,7 +166,7 @@ describe("RouteSimulationFacet", function () {
     });
 
     // Mint: Buy No
-    await createLimitOrder(exchangeFacet, maker, {
+    await createLimitOrder(orderCreationFacet, maker, {
       positionId: noId,
       collateralToken: erc20.address,
       amount,
@@ -208,7 +211,7 @@ describe("RouteSimulationFacet", function () {
     });
 
     // Complementary: Buy YES
-    await createLimitOrder(exchangeFacet, maker, {
+    await createLimitOrder(orderCreationFacet, maker, {
       positionId: yesId,
       collateralToken: erc20.address,
       amount,
@@ -228,7 +231,7 @@ describe("RouteSimulationFacet", function () {
     await erc1155.connect(maker).setApprovalForAll(diamondAddress, true);
 
     // Mint: Sell NO
-    await createLimitOrder(exchangeFacet, maker, {
+    await createLimitOrder(orderCreationFacet, maker, {
       positionId: noId,
       collateralToken: erc20.address,
       amount,

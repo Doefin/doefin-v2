@@ -27,7 +27,7 @@ describe("Market Execution Facet - Mixed Matched tests", function () {
   let diamondAddress,
     matchExecutionFacet,
     routeSimFacet,
-    exchangeFacet,
+    orderCreationFacet,
     erc20,
     ercUnit,
     erc1155,
@@ -51,7 +51,10 @@ describe("Market Execution Facet - Mixed Matched tests", function () {
 
     diamondAddress = await deployDiamond();
 
-    exchangeFacet = await ethers.getContractAt("ExchangeFacet", diamondAddress);
+    orderCreationFacet = await ethers.getContractAt(
+      "OrderCreationFacet",
+      diamondAddress
+    );
     erc1155 = await ethers.getContractAt("ERC1155Facet", diamondAddress);
     conditionalFacet = await ethers.getContractAt(
       "ConditionalTokensFacet",
@@ -238,7 +241,7 @@ describe("Market Execution Facet - Mixed Matched tests", function () {
     const makerERC20Before = await erc20.balanceOf(maker.address);
 
     // Maker places limit buy for yes token
-    await createLimitOrder(exchangeFacet, maker, {
+    await createLimitOrder(orderCreationFacet, maker, {
       positionId: yesId,
       collateralToken: erc20.address,
       amount: firstBuyYesLimitOrderAmount,
@@ -249,7 +252,7 @@ describe("Market Execution Facet - Mixed Matched tests", function () {
     });
 
     // Maker (owner address) places limit sell order for no
-    await createLimitOrder(exchangeFacet, owner, {
+    await createLimitOrder(orderCreationFacet, owner, {
       positionId: noId,
       collateralToken: erc20.address,
       amount: secondSellNoLimitOrderAmount,
@@ -381,7 +384,7 @@ describe("Market Execution Facet - Mixed Matched tests", function () {
     const makerERC20Before = await erc20.balanceOf(maker.address);
 
     // Maker places BUY order for YES (Mint match)
-    await createLimitOrder(exchangeFacet, maker, {
+    await createLimitOrder(orderCreationFacet, maker, {
       positionId: yesId,
       collateralToken: erc20.address,
       amount: firstBuyAmount,
@@ -391,7 +394,7 @@ describe("Market Execution Facet - Mixed Matched tests", function () {
       direction: buyDir,
     });
 
-    await createLimitOrder(exchangeFacet, maker, {
+    await createLimitOrder(orderCreationFacet, maker, {
       positionId: yesId,
       collateralToken: erc20.address,
       amount: secondBuyAmount,
@@ -406,7 +409,10 @@ describe("Market Execution Facet - Mixed Matched tests", function () {
     const noPrice = ethers.utils.parseUnits("1", erc20Decimals).sub(secondBuyPrice);
     const takerBudgetBase = marketFillAmount.mul(noPrice).div(ercUnit);
     const takerBudgetFee = takerBudgetBase.mul(feeConfig.takerBps).div(10_000);
-    const takerBudget = takerBudgetBase.add(takerBudgetFee);
+    let takerBudget = takerBudgetBase.add(takerBudgetFee);
+    if (!takerBudget.mod(ercUnit).eq(0)) {
+      takerBudget = takerBudget.add(ercUnit.sub(takerBudget.mod(ercUnit)));
+    }
 
     // Simulate taker Buy NO (should match with YES buy via mint)
     const route = await simulateAndParseMatchRoute({

@@ -181,6 +181,19 @@ function getInitialBlockHeight() {
   return loadProductionBlocks().initialHeight;
 }
 
+async function initializeBlockHeaderOracle({ oracle, caller, initBlocks, initialHeight }) {
+  const blocks = initBlocks || getInitializationBlocks();
+  const height = initialHeight || getInitialBlockHeight();
+
+  const tx = await oracle
+    .connect(caller)
+    .initializeBlockHeaderOracle(blocks, height);
+
+  await tx.wait();
+
+  return { initBlocks: blocks, initialHeight: height };
+}
+
 /**
  * Convert a block header object to the format expected by the contract
  */
@@ -333,6 +346,7 @@ module.exports = {
   getInitializationBlocks,
   getTestingBlocks,
   getInitialBlockHeight,
+  initializeBlockHeaderOracle,
 
   // Block data utilities
   getBlockDataInfo,

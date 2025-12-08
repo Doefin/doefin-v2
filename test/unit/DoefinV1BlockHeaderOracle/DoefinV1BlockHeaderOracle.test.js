@@ -22,6 +22,7 @@ const {
   getTestingBlocks,
   getInitialBlockHeight,
   validateBlockHeader,
+  initializeBlockHeaderOracle,
 } = require("../../utils/blockHeaderOracleUtils.js");
 
 describe("DoefinV1BlockHeaderOracle", function () {
@@ -45,6 +46,13 @@ describe("DoefinV1BlockHeaderOracle", function () {
     testBlocks = getTestingBlocks();
     initialHeight = getInitialBlockHeight();
 
+    await initializeBlockHeaderOracle({
+      oracle,
+      caller: owner,
+      initBlocks,
+      initialHeight,
+    });
+
     console.log(`✓ Oracle deployed at ${diamondAddress}`);
     console.log(`✓ Initial height: ${initialHeight}`);
     console.log(`✓ Initialization blocks: ${initBlocks.length}`);
@@ -58,13 +66,17 @@ describe("DoefinV1BlockHeaderOracle", function () {
   describe("Initialization", function () {
     it("should initialize with 17 blocks", async function () {
       const currentHeight = await getCurrentBlockHeight(oracle);
-      expect(currentHeight).to.equal(initialHeight + initBlocks.length - 1);
+      expect(currentHeight).to.equal(
+        ethers.BigNumber.from(initialHeight).add(initBlocks.length - 1)
+      );
     });
 
     it("should set correct initial block height", async function () {
       const currentHeight = await getCurrentBlockHeight(oracle);
       // Current height should be initial height + 16 (0-indexed)
-      expect(currentHeight).to.equal(initialHeight + 16);
+      expect(currentHeight).to.equal(
+        ethers.BigNumber.from(initialHeight).add(16)
+      );
     });
 
     it("should initialize next block index to 0", async function () {
@@ -169,7 +181,7 @@ describe("DoefinV1BlockHeaderOracle", function () {
       await submitBlockHeader({ oracle, blockHeader: newBlock, caller: owner });
 
       const heightAfter = await getCurrentBlockHeight(oracle);
-      expect(heightAfter).to.equal(BigInt(heightBefore) + 1n);
+      expect(heightAfter).to.equal(heightBefore.add(1));
     });
 
     it("should increment next block index after submission", async function () {
@@ -179,8 +191,8 @@ describe("DoefinV1BlockHeaderOracle", function () {
       await submitBlockHeader({ oracle, blockHeader: newBlock, caller: owner });
 
       const indexAfter = await getNextBlockIndex(oracle);
-      const expected = (BigInt(indexBefore) + 1n) % 17n;
-      expect(BigInt(indexAfter)).to.equal(expected);
+      const expected = indexBefore.add(1).mod(ethers.BigNumber.from(17));
+      expect(indexAfter).to.equal(expected);
     });
 
     it("should allow multiple sequential block submissions", async function () {
@@ -190,7 +202,9 @@ describe("DoefinV1BlockHeaderOracle", function () {
       await submitBlockHeader({ oracle, blockHeader: newBlock1, caller: owner });
 
       const heightAfter1 = await getCurrentBlockHeight(oracle);
-      expect(heightAfter1).to.equal(initialHeight + 17);
+      expect(heightAfter1).to.equal(
+        ethers.BigNumber.from(initialHeight).add(17)
+      );
 
       // For second block, we need to construct it properly based on the state
       // For now, just verify the first submission worked
