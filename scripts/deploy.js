@@ -52,6 +52,13 @@ async function deployDiamond() {
   // deploy facets
   console.log("");
   console.log("Deploying facets");
+
+  const BlockHeaderUtilsLib = await ethers.getContractFactory("BlockHeaderUtils");
+  const blockHeaderUtils = await BlockHeaderUtilsLib.deploy();
+  await blockHeaderUtils.deployed();
+  console.log("BlockHeaderUtils deployed:", blockHeaderUtils.address);
+  await verifyContract(blockHeaderUtils.address);
+
   const FacetNames = [
     "DiamondLoupeFacet",
     "OwnershipFacet",
@@ -59,19 +66,27 @@ async function deployDiamond() {
     "ERC1155ReceiverFacet",
     "ConditionalTokensFacet",
     "ConditionManagerFacet",
+    "DoefinV1BlockHeaderOracle",
     "AccessControlFacet",
     "AdminConfigFacet",
     "OrderCreationFacet", // Split from ExchangeFacet to reduce size
     "OrderManagementFacet", // Split from ExchangeFacet to reduce size
+    "ExchangeViewFacet", // Read-only exchange queries
     "MarketExecutionFacet",
     "RouteSimulationFacet",
     "MarketDataFacet",
+    "OracleAdapterFacet",
     "OracleManagerFacet",
   ];
   const cut = [];
   for (const FacetName of FacetNames) {
-    const Facet = await ethers.getContractFactory(FacetName);
-    const facet = await Facet.deploy();
+    const factories = FacetName === "DoefinV1BlockHeaderOracle"
+      ? await ethers.getContractFactory(FacetName, {
+          libraries: { BlockHeaderUtils: blockHeaderUtils.address },
+        })
+      : await ethers.getContractFactory(FacetName);
+
+    const facet = await factories.deploy();
     await facet.deployed();
     console.log(`${FacetName} deployed: ${facet.address}`);
     await verifyContract(facet.address);
