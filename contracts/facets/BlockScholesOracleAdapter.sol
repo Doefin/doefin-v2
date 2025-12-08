@@ -185,7 +185,7 @@ contract BlockScholesOracleAdapter is IBaseOracleAdapter {
      * @param feedId Block Scholes Feed ID (e.g., 3 for spot prices)
      * @param exchange Exchange parameter (0 for BLOCKSCHOLES composite)
      * @param baseAsset Base asset enum (1 for BTC, 2 for ETH)
-     * @param decimals Output decimals (0-18, where 0 defaults to 18; typically 8 for BTC, 6 for stablecoins)
+     * @param decimals Output decimals (1-18; typically 8 for BTC, 6 for stablecoins)
      *
      * @dev This is called during adapter setup to map your asset IDs to Block Scholes feeds.
      * Example: configureAssetFeed(keccak256("BTC-USD"), 3, 0, 1, 8)
@@ -194,8 +194,8 @@ contract BlockScholesOracleAdapter is IBaseOracleAdapter {
         if (feedId == 0) {
             revert Errors.InvalidFeedId();
         }
-        // Allow decimals 0-18: 0 defaults to 18 (matching OracleManagerFacet policy)
-        if (decimals > 18) {
+        // Validate decimals: must be between 1 and 18 (inclusive)
+        if (decimals == 0 || decimals > 18) {
             revert Errors.InvalidDecimals();
         }
 
