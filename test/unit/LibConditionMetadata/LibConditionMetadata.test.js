@@ -38,11 +38,11 @@ describe("LibConditionMetadata", function () {
 
   describe("DifficultyThreshold Encoding/Decoding", function () {
     it("should encode and decode threshold correctly", async function () {
-      const threshold = ethers.parseUnits("50", "gwei"); // 50G difficulty
+      const threshold = ethers.utils.parseUnits("50", "gwei"); // 50G difficulty
       const targetBlockHeight = 100;
 
       const encoded = encodeDifficultyThreshold(threshold, targetBlockHeight);
-      const abiCoder = ethers.AbiCoder.defaultAbiCoder();
+      const abiCoder = ethers.utils.defaultAbiCoder;
       const [decodedThreshold, decodedHeight] = abiCoder.decode(
         ["uint256", "uint256"],
         encoded
@@ -53,25 +53,25 @@ describe("LibConditionMetadata", function () {
     });
 
     it("should handle zero threshold", async function () {
-      const threshold = 0n;
+      const threshold = 0;
       const targetBlockHeight = 100;
 
       const encoded = encodeDifficultyThreshold(threshold, targetBlockHeight);
-      const abiCoder = ethers.AbiCoder.defaultAbiCoder();
+      const abiCoder = ethers.utils.defaultAbiCoder;
       const [decodedThreshold] = abiCoder.decode(
         ["uint256", "uint256"],
         encoded
       );
 
-      expect(decodedThreshold).to.equal(0n);
+      expect(decodedThreshold).to.equal(0);
     });
 
     it("should handle very large threshold", async function () {
-      const threshold = ethers.MaxUint256;
+      const threshold = ethers.constants.MaxUint256;
       const targetBlockHeight = 100;
 
       const encoded = encodeDifficultyThreshold(threshold, targetBlockHeight);
-      const abiCoder = ethers.AbiCoder.defaultAbiCoder();
+      const abiCoder = ethers.utils.defaultAbiCoder;
       const [decodedThreshold] = abiCoder.decode(
         ["uint256", "uint256"],
         encoded
@@ -89,13 +89,13 @@ describe("LibConditionMetadata", function () {
     it("should encode and decode range buckets correctly", async function () {
       const targetBlockHeight = 100;
       const buckets = [
-        ethers.parseUnits("40", "gwei"),
-        ethers.parseUnits("50", "gwei"),
-        ethers.parseUnits("60", "gwei"),
+        ethers.utils.parseUnits("40", "gwei"),
+        ethers.utils.parseUnits("50", "gwei"),
+        ethers.utils.parseUnits("60", "gwei"),
       ];
 
       const encoded = encodeDifficultyRange(targetBlockHeight, buckets);
-      const abiCoder = ethers.AbiCoder.defaultAbiCoder();
+      const abiCoder = ethers.utils.defaultAbiCoder;
       const [decodedHeight, decodedBuckets] = abiCoder.decode(
         ["uint256", "uint256[]"],
         encoded
@@ -110,10 +110,10 @@ describe("LibConditionMetadata", function () {
 
     it("should handle single bucket", async function () {
       const targetBlockHeight = 100;
-      const buckets = [ethers.parseUnits("50", "gwei")];
+      const buckets = [ethers.utils.parseUnits("50", "gwei")];
 
       const encoded = encodeDifficultyRange(targetBlockHeight, buckets);
-      const abiCoder = ethers.AbiCoder.defaultAbiCoder();
+      const abiCoder = ethers.utils.defaultAbiCoder;
       const [, decodedBuckets] = abiCoder.decode(
         ["uint256", "uint256[]"],
         encoded
@@ -127,11 +127,11 @@ describe("LibConditionMetadata", function () {
       const targetBlockHeight = 100;
       const buckets = [];
       for (let i = 1; i <= 10; i++) {
-        buckets.push(ethers.parseUnits((40 + i * 2).toString(), "gwei"));
+        buckets.push(ethers.utils.parseUnits((40 + i * 2).toString(), "gwei"));
       }
 
       const encoded = encodeDifficultyRange(targetBlockHeight, buckets);
-      const abiCoder = ethers.AbiCoder.defaultAbiCoder();
+      const abiCoder = ethers.utils.defaultAbiCoder;
       const [, decodedBuckets] = abiCoder.decode(
         ["uint256", "uint256[]"],
         encoded
@@ -156,7 +156,7 @@ describe("LibConditionMetadata", function () {
         endTimestamp,
         countBuckets
       );
-      const abiCoder = ethers.AbiCoder.defaultAbiCoder();
+      const abiCoder = ethers.utils.defaultAbiCoder;
       const [decodedStart, decodedEnd, decodedBuckets] = abiCoder.decode(
         ["uint256", "uint256", "uint256[]"],
         encoded
@@ -172,7 +172,7 @@ describe("LibConditionMetadata", function () {
       const countBuckets = [50];
 
       const encoded = encodeBlockCount(timestamp, timestamp, countBuckets);
-      const abiCoder = ethers.AbiCoder.defaultAbiCoder();
+      const abiCoder = ethers.utils.defaultAbiCoder;
       const [decodedStart, decodedEnd] = abiCoder.decode(
         ["uint256", "uint256", "uint256[]"],
         encoded
@@ -197,7 +197,7 @@ describe("LibConditionMetadata", function () {
         blockCount,
         durationBuckets
       );
-      const abiCoder = ethers.AbiCoder.defaultAbiCoder();
+      const abiCoder = ethers.utils.defaultAbiCoder;
       const [decodedStart, decodedCount, decodedBuckets] = abiCoder.decode(
         ["uint256", "uint256", "uint256[]"],
         encoded
@@ -218,7 +218,7 @@ describe("LibConditionMetadata", function () {
         blockCount,
         durationBuckets
       );
-      const abiCoder = ethers.AbiCoder.defaultAbiCoder();
+      const abiCoder = ethers.utils.defaultAbiCoder;
       const [, decodedCount] = abiCoder.decode(
         ["uint256", "uint256", "uint256[]"],
         encoded
@@ -241,7 +241,7 @@ describe("LibConditionMetadata", function () {
         blockCount,
         durationBuckets
       );
-      const abiCoder = ethers.AbiCoder.defaultAbiCoder();
+      const abiCoder = ethers.utils.defaultAbiCoder;
       const [, decodedCount] = abiCoder.decode(
         ["uint256", "uint256", "uint256[]"],
         encoded
@@ -257,7 +257,7 @@ describe("LibConditionMetadata", function () {
 
   describe("Question ID Generation", function () {
     it("should generate deterministic question IDs", async function () {
-      const threshold = ethers.parseUnits("50", "gwei");
+      const threshold = ethers.utils.parseUnits("50", "gwei");
       const targetBlockHeight = 100;
       const metadata = encodeDifficultyThreshold(threshold, targetBlockHeight);
       const salt = ethers.constants.HashZero;
@@ -276,8 +276,8 @@ describe("LibConditionMetadata", function () {
     });
 
     it("should generate different IDs for different thresholds", async function () {
-      const threshold1 = ethers.parseUnits("50", "gwei");
-      const threshold2 = ethers.parseUnits("60", "gwei");
+      const threshold1 = ethers.utils.parseUnits("50", "gwei");
+      const threshold2 = ethers.utils.parseUnits("60", "gwei");
       const targetBlockHeight = 100;
 
       const encoded1 = encodeDifficultyThreshold(
@@ -293,7 +293,7 @@ describe("LibConditionMetadata", function () {
     });
 
     it("should generate different IDs for different block heights", async function () {
-      const threshold = ethers.parseUnits("50", "gwei");
+      const threshold = ethers.utils.parseUnits("50", "gwei");
       const height1 = 100;
       const height2 = 200;
 
@@ -319,8 +319,8 @@ describe("LibConditionMetadata", function () {
     });
 
     it("should handle very large timestamp values", async function () {
-      const startTimestamp = ethers.MaxUint256 - 1000000n;
-      const endTimestamp = ethers.MaxUint256;
+      const startTimestamp = ethers.constants.MaxUint256.sub(ethers.BigNumber.from(1000000));
+      const endTimestamp = ethers.constants.MaxUint256;
       const countBuckets = [100];
 
       const encoded = encodeBlockCount(
@@ -328,7 +328,7 @@ describe("LibConditionMetadata", function () {
         endTimestamp,
         countBuckets
       );
-      const abiCoder = ethers.AbiCoder.defaultAbiCoder();
+      const abiCoder = ethers.utils.defaultAbiCoder;
       const [decodedStart, decodedEnd] = abiCoder.decode(
         ["uint256", "uint256", "uint256[]"],
         encoded

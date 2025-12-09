@@ -84,16 +84,11 @@ describe("ConditionManagerFacet", function () {
         );
 
       // Verify condition exists
-      const [
-        conditionOracle,
-        conditionQuestionId,
-        conditionOutcomeSlotCount,
-        conditionMetadataURI,
-      ] = await conditionManagerFacet.getCondition(expectedConditionId);
-      expect(conditionOracle).to.equal(oracle.address);
-      expect(conditionQuestionId).to.equal(questionId);
-      expect(conditionOutcomeSlotCount).to.equal(outcomeSlotCount);
-      expect(conditionMetadataURI).to.equal(ipfsHash);
+      const condition = await conditionManagerFacet.getCondition(expectedConditionId);
+      expect(condition.oracle).to.equal(oracle.address);
+      expect(condition.questionId).to.equal(questionId);
+      expect(condition.outcomeSlotCount).to.equal(outcomeSlotCount);
+      expect(condition.metadataURI).to.equal(ipfsHash);
     });
 
     it("should create condition with multiple outcomes", async () => {
@@ -127,9 +122,8 @@ describe("ConditionManagerFacet", function () {
           marketMaker.address
         );
 
-      const [, , conditionOutcomeSlotCount] =
-        await conditionManagerFacet.getCondition(expectedConditionId);
-      expect(conditionOutcomeSlotCount).to.equal(outcomeSlotCount);
+      const condition = await conditionManagerFacet.getCondition(expectedConditionId);
+      expect(condition.outcomeSlotCount).to.equal(outcomeSlotCount);
     });
 
     it("should create conditions with different oracles", async () => {
@@ -166,15 +160,11 @@ describe("ConditionManagerFacet", function () {
           "ipfs://oracle2"
         );
 
-      const [oracle1, , ,] = await conditionManagerFacet.getCondition(
-        conditionId1
-      );
-      const [oracle2Addr, , ,] = await conditionManagerFacet.getCondition(
-        conditionId2
-      );
+      const condition1 = await conditionManagerFacet.getCondition(conditionId1);
+      const condition2 = await conditionManagerFacet.getCondition(conditionId2);
 
-      expect(oracle1).to.equal(oracle.address);
-      expect(oracle2Addr).to.equal(oracle2.address);
+      expect(condition1.oracle).to.equal(oracle.address);
+      expect(condition2.oracle).to.equal(oracle2.address);
       expect(conditionId1).to.not.equal(conditionId2);
     });
 
@@ -520,54 +510,40 @@ describe("ConditionManagerFacet", function () {
     });
 
     it("should return correct condition details", async () => {
-      const [
-        conditionOracle,
-        conditionQuestionId,
-        conditionOutcomeSlotCount,
-        conditionMetadataURI,
-      ] = await conditionManagerFacet.getCondition(testConditionId);
+      const condition = await conditionManagerFacet.getCondition(testConditionId);
 
-      expect(conditionOracle).to.equal(oracle.address);
-      expect(conditionQuestionId).to.equal(testQuestionId);
-      expect(conditionOutcomeSlotCount).to.equal(testOutcomeSlotCount);
-      expect(conditionMetadataURI).to.equal("ipfs://test-query");
+      expect(condition.oracle).to.equal(oracle.address);
+      expect(condition.questionId).to.equal(testQuestionId);
+      expect(condition.outcomeSlotCount).to.equal(testOutcomeSlotCount);
+      expect(condition.metadataURI).to.equal("ipfs://test-query");
     });
 
     it("should verify condition exists by checking oracle address", async () => {
       // Check if condition exists by verifying oracle is not zero
-      const [conditionOracle, , ,] = await conditionManagerFacet.getCondition(
-        testConditionId
-      );
-      expect(conditionOracle).to.not.equal(ethers.constants.AddressZero);
+      const condition = await conditionManagerFacet.getCondition(testConditionId);
+      expect(condition.oracle).to.not.equal(ethers.constants.AddressZero);
     });
 
     it("should return empty data for non-existent condition", async () => {
       const nonExistentId = ethers.utils.id("non-existent");
-      const [
-        conditionOracle,
-        conditionQuestionId,
-        conditionOutcomeSlotCount,
-        conditionMetadataURI,
-      ] = await conditionManagerFacet.getCondition(nonExistentId);
+      const condition = await conditionManagerFacet.getCondition(nonExistentId);
 
       // Non-existent conditions return default values (zero address, zero bytes32, 0, empty string)
-      expect(conditionOracle).to.equal(ethers.constants.AddressZero);
-      expect(conditionQuestionId).to.equal(ethers.constants.HashZero);
-      expect(conditionOutcomeSlotCount).to.equal(0);
-      expect(conditionMetadataURI).to.equal("");
+      expect(condition.oracle).to.equal(ethers.constants.AddressZero);
+      expect(condition.questionId).to.equal(ethers.constants.HashZero);
+      expect(condition.outcomeSlotCount).to.equal(0);
+      expect(condition.metadataURI).to.equal("");
     });
 
     it("should handle condition ID edge cases", async () => {
       // Test with maximum bytes32 value - should return default values
       const maxConditionId = ethers.constants.MaxUint256.toHexString();
-      const [oracle1, questionId1, outcomeSlotCount1, metadataURI1] =
-        await conditionManagerFacet.getCondition(maxConditionId);
-      expect(oracle1).to.equal(ethers.constants.AddressZero);
+      const condition1 = await conditionManagerFacet.getCondition(maxConditionId);
+      expect(condition1.oracle).to.equal(ethers.constants.AddressZero);
 
       // Test with zero condition ID - should return default values
-      const [oracle2, questionId2, outcomeSlotCount2, metadataURI2] =
-        await conditionManagerFacet.getCondition(ethers.constants.HashZero);
-      expect(oracle2).to.equal(ethers.constants.AddressZero);
+      const condition2 = await conditionManagerFacet.getCondition(ethers.constants.HashZero);
+      expect(condition2.oracle).to.equal(ethers.constants.AddressZero);
     });
   });
 
@@ -674,10 +650,8 @@ describe("ConditionManagerFacet", function () {
         .cancelCondition(conditionIds[2]);
 
       // Verify cancellation doesn't affect other conditions
-      const [oracle1, , ,] = await conditionManagerFacet.getCondition(
-        conditionIds[1]
-      );
-      expect(oracle1).to.equal(oracle.address);
+      const condition = await conditionManagerFacet.getCondition(conditionIds[1]);
+      expect(condition.oracle).to.equal(oracle.address);
     });
 
     it("should handle conditions from multiple oracles", async () => {
@@ -703,15 +677,11 @@ describe("ConditionManagerFacet", function () {
 
       expect(conditionId1).to.not.equal(conditionId2);
 
-      const [oracle1, , ,] = await conditionManagerFacet.getCondition(
-        conditionId1
-      );
-      const [oracle2Addr, , ,] = await conditionManagerFacet.getCondition(
-        conditionId2
-      );
+      const condition1 = await conditionManagerFacet.getCondition(conditionId1);
+      const condition2 = await conditionManagerFacet.getCondition(conditionId2);
 
-      expect(oracle1).to.equal(oracle.address);
-      expect(oracle2Addr).to.equal(oracle2.address);
+      expect(condition1.oracle).to.equal(oracle.address);
+      expect(condition2.oracle).to.equal(oracle2.address);
     });
   });
 
@@ -728,9 +698,8 @@ describe("ConditionManagerFacet", function () {
         outcomeSlotCount: largeOutcomeCount,
         metadata: "ipfs://large-outcomes",
       });
-      const [, , conditionOutcomeSlotCount] =
-        await conditionManagerFacet.getCondition(conditionId);
-      expect(conditionOutcomeSlotCount).to.equal(largeOutcomeCount);
+      const condition = await conditionManagerFacet.getCondition(conditionId);
+      expect(condition.outcomeSlotCount).to.equal(largeOutcomeCount);
     });
 
     it("should handle rapid condition creation and cancellation", async () => {
@@ -792,17 +761,12 @@ describe("ConditionManagerFacet", function () {
       // Verify all conditions exist and have correct data
       for (const questionId of questionIds) {
         const conditionId = getConditionId(oracle.address, questionId, 2);
-        const [
-          conditionOracle,
-          conditionQuestionId,
-          conditionOutcomeSlotCount,
-          conditionMetadataURI,
-        ] = await conditionManagerFacet.getCondition(conditionId);
+        const condition = await conditionManagerFacet.getCondition(conditionId);
 
-        expect(conditionOracle).to.equal(oracle.address);
-        expect(conditionQuestionId).to.equal(questionId);
-        expect(conditionOutcomeSlotCount).to.equal(2);
-        expect(conditionMetadataURI).to.equal(`ipfs://${questionId}`);
+        expect(condition.oracle).to.equal(oracle.address);
+        expect(condition.questionId).to.equal(questionId);
+        expect(condition.outcomeSlotCount).to.equal(2);
+        expect(condition.metadataURI).to.equal(`ipfs://${questionId}`);
       }
     });
   });
