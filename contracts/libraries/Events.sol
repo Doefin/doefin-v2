@@ -302,48 +302,6 @@ library Events {
     );
 
     // ========================================
-    // MARKET EXECUTION EVENTS
-    // ========================================
-
-    /// @notice Emitted when a market order is executed
-    /// @param taker Address executing the market order
-    /// @param positionId Position being traded
-    /// @param direction Order direction (Buy/Sell)
-    /// @param requestedAmount Originally requested amount
-    /// @param filledAmount Actually filled amount
-    /// @param totalCost Total cost of execution
-    event MarketOrderExecuted(
-        address indexed taker,
-        uint256 indexed positionId,
-        LibDoefinStorage.OrderDirection direction,
-        uint256 requestedAmount,
-        uint256 filledAmount,
-        uint256 totalCost
-    );
-
-    /// @notice Emitted for each individual match in a market order
-    /// @param taker Address executing the market order
-    /// @param positionId Position being traded in the market order
-    /// @param makerOrderId ID of the matched limit order (for consistency with other events)
-    /// @param maker Address of the limit order maker
-    /// @param takerOrderId ID of the taker order (0 for market orders, actual ID for limit orders acting as taker)
-    /// @param fillAmount Amount filled in this match
-    /// @param pricePerToken Price used for this match
-    /// @param matchType Type of match (Complementary/Mint/Merge)
-    /// @param direction Market order direction (Buy/Sell)
-    event MarketOrderMatch(
-        address indexed taker,
-        uint256 indexed positionId,
-        uint256 indexed makerOrderId,
-        address maker,
-        uint256 takerOrderId,
-        uint256 fillAmount,
-        uint256 pricePerToken,
-        LibDoefinStorage.MatchType matchType,
-        LibDoefinStorage.OrderDirection direction
-    );
-
-    // ========================================
     // ESCROW EVENTS
     // ========================================
 
