@@ -54,15 +54,9 @@ library LibFeeManager {
      * @return takerFee The taker fee amount
      * @return cost The base cost amount
      */
-    function computeTradeExecutionFees(LibDoefinStorage.SettlementExecutionContext memory settlementExecCtx)
-        internal
-        view
-        returns (
-            uint256 makerFee,
-            uint256 takerFee,
-            uint256 cost
-        )
-    {
+    function computeTradeExecutionFees(
+        LibDoefinStorage.SettlementExecutionContext memory settlementExecCtx
+    ) internal view returns (uint256 makerFee, uint256 takerFee, uint256 cost) {
         LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
         LibDoefinStorage.Order memory makerOrder = settlementExecCtx.makerOrder;
 
@@ -74,8 +68,8 @@ library LibFeeManager {
         cost = Math.mulDiv(settlementExecCtx.fillableAmount, makerOrder.pricePerToken, unitPerPair);
 
         // Calculate fees
-        makerFee = Math.mulDiv(cost, makerOrder.orderFeeConfig.makerFeeBps, 10_000);
-        takerFee = Math.mulDiv(cost, makerOrder.orderFeeConfig.takerFeeBps, 10_000);
+        makerFee = Math.mulDiv(cost, makerOrder.makerFeeBps, 10_000);
+        takerFee = Math.mulDiv(cost, makerOrder.takerFeeBps, 10_000);
     }
 
     /**
@@ -87,16 +81,10 @@ library LibFeeManager {
      * @return makerContribution The maker's contribution to the mint
      * @return takerContribution The taker's contribution to the mint
      */
-    function computeMintFees(LibDoefinStorage.Order memory makerOrder, uint256 fillableAmount)
-        internal
-        view
-        returns (
-            uint256 makerFee,
-            uint256 takerFee,
-            uint256 makerContribution,
-            uint256 takerContribution
-        )
-    {
+    function computeMintFees(
+        LibDoefinStorage.Order memory makerOrder,
+        uint256 fillableAmount
+    ) internal view returns (uint256 makerFee, uint256 takerFee, uint256 makerContribution, uint256 takerContribution) {
         LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
         address collateralToken = makerOrder.collateralToken;
         uint256 unitPerPair = ds.adminConfigStorage.unitPerPair[collateralToken];
@@ -106,8 +94,8 @@ library LibFeeManager {
         takerContribution = fillableAmount - makerContribution;
 
         // Calculate fees on respective contributions
-        makerFee = Math.mulDiv(makerContribution, makerOrder.orderFeeConfig.makerFeeBps, 10_000);
-        takerFee = Math.mulDiv(takerContribution, makerOrder.orderFeeConfig.takerFeeBps, 10_000);
+        makerFee = Math.mulDiv(makerContribution, makerOrder.makerFeeBps, 10_000);
+        takerFee = Math.mulDiv(takerContribution, makerOrder.takerFeeBps, 10_000);
     }
 
     // ----------------------------------------
@@ -120,11 +108,7 @@ library LibFeeManager {
      * @param takerFee The taker fee amount
      * @param settlementExecCtx The settlement execution context containing trade details
      */
-    function accrueFees(
-        uint256 makerFee,
-        uint256 takerFee,
-        LibDoefinStorage.SettlementExecutionContext memory settlementExecCtx
-    ) internal {
+    function accrueFees(uint256 makerFee, uint256 takerFee, LibDoefinStorage.SettlementExecutionContext memory settlementExecCtx) internal {
         uint256 totalFees = makerFee + takerFee;
         if (totalFees == 0) return;
 
@@ -158,11 +142,7 @@ library LibFeeManager {
      * @param amount The amount to withdraw (0 = withdraw all)
      * @param recipient The address to send fees to (0 = use configured fee receiver)
      */
-    function withdrawProtocolFees(
-        address token,
-        uint256 amount,
-        address recipient
-    ) internal {
+    function withdrawProtocolFees(address token, uint256 amount, address recipient) internal {
         // Enforce admin access
         LibDiamond.enforceIsContractOwner();
 
@@ -189,7 +169,7 @@ library LibFeeManager {
         LibReentrancyGuard._nonReentrantBefore();
         // Transfer fees
         IERC20(token).safeTransfer(feeRecipient, withdrawAmount);
-        
+
         LibReentrancyGuard._nonReentrantAfter();
 
         emit Events.ProtocolFeesWithdrawn(token, feeRecipient, withdrawAmount, ds.escrowStorage.protocolFees[token]);
@@ -210,11 +190,7 @@ library LibFeeManager {
      * @param amounts Array of amounts to withdraw (0 = withdraw all for that token)
      * @param recipient The address to send fees to (0 = use configured fee receiver)
      */
-    function batchWithdrawProtocolFees(
-        address[] memory tokens,
-        uint256[] memory amounts,
-        address recipient
-    ) internal {
+    function batchWithdrawProtocolFees(address[] memory tokens, uint256[] memory amounts, address recipient) internal {
         if (tokens.length != amounts.length) revert Errors.ArrayLengthMismatch();
 
         for (uint256 i = 0; i < tokens.length; i++) {

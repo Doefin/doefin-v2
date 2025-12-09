@@ -36,7 +36,7 @@ library LibSettlement {
             amount: takerOrderStorage.amount,
             remainingAmount: takerOrderStorage.remainingAmount,
             targetAvgPrice: takerOrderStorage.pricePerToken,
-            takerPaidFeeBps: takerOrderStorage.orderFeeConfig.makerFeeBps,
+            takerPaidFeeBps: takerOrderStorage.makerFeeBps,
             fillOrKill: takerOrderStorage.fillOrKill,
             direction: takerOrderStorage.direction
         });
@@ -88,21 +88,6 @@ library LibSettlement {
 
             // Execute settlement
             LibTradeSettlement.settlementDispatcher(_buildSettlementCtx(fillableAmount, takerOrderCtx, makerOrder, matchType, executionType));
-
-            // Emit market order events
-            if (executionType == LibDoefinStorage.ExecutionType.Market) {
-                emit Events.MarketOrderMatch(
-                    takerOrderCtx.taker, // taker
-                    takerOrderCtx.positionId, // positionId
-                    makerOrder.orderId, // makerOrderId
-                    makerOrder.maker, // maker
-                    takerOrderCtx.orderId, // takerOrderId (0 for market orders)
-                    fillableAmount, // fillAmount
-                    effectivePrice, // pricePerToken
-                    matchType, // matchType
-                    takerOrderCtx.direction // direction
-                );
-            }
         }
 
         // Handle market order completion
@@ -110,14 +95,6 @@ library LibSettlement {
             if (takerOrderCtx.fillOrKill && takerOrderCtx.remainingAmount > 0) {
                 revert Errors.FillOrKillFailed();
             }
-            emit Events.MarketOrderExecuted(
-                takerOrderCtx.taker,
-                takerOrderCtx.positionId,
-                takerOrderCtx.direction,
-                takerOrderCtx.amount,
-                takerOrderCtx.amount - takerOrderCtx.remainingAmount,
-                totalValue
-            );
         }
     }
 
@@ -419,7 +396,7 @@ library LibSettlement {
         // Mixed order types were rejected at lines 408-415
         if (makerOrder.orderType == LibDoefinStorage.OrderType.CrossCurrency) {
             // Determine if we should use oracle rate or fixed rate
-            bool useOracleRate = (makerOrder.crossCurrencyConfig.exchangeRateType == LibDoefinStorage.ExchangeRateType.Dynamic);
+            bool useOracleRate = (makerOrder.exchangeRateType == LibDoefinStorage.ExchangeRateType.Dynamic);
 
             // Calculate quote currency price
             (uint256 quoteCurrencyPrice, bool isStale) = LibQuoteCurrency.calculateQuoteCurrencyPrice(makerOrder, useOracleRate);
@@ -431,9 +408,9 @@ library LibSettlement {
 
             // Apply taker fee to get effective price
             if (takerOrderCtx.direction == LibDoefinStorage.OrderDirection.Buy) {
-                price = (quoteCurrencyPrice * (10_000 + makerOrder.orderFeeConfig.takerFeeBps)) / 10_000;
+                price = (quoteCurrencyPrice * (10_000 + makerOrder.takerFeeBps)) / 10_000;
             } else {
-                price = (quoteCurrencyPrice * (10_000 - makerOrder.orderFeeConfig.takerFeeBps)) / 10_000;
+                price = (quoteCurrencyPrice * (10_000 - makerOrder.takerFeeBps)) / 10_000;
             }
         } else {
             // This should be unreachable - mixed order types were rejected above

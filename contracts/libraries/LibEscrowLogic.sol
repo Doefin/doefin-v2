@@ -13,116 +13,52 @@ import {Errors} from "./Errors.sol";
  * @dev This is the new version that replaces LibEscrowLogic with proper separation of concerns
  */
 library LibEscrowLogic {
-    // ----------------------------------------
-    // Order Collateral Management
-    // ----------------------------------------
+    function _calculateCrossCurrencyQuote(LibDoefinStorage.Order memory order, uint256 amount) private view returns (uint256) {
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
+        uint256 collateralUnitPerPair = ds.adminConfigStorage.unitPerPair[order.collateralToken];
+        if (collateralUnitPerPair == 0) revert Errors.InvalidUnitPerPair();
 
-    /**
-     * @notice Lock collateral for an order (delegates to LibCollateralManager)
-     * @param order The order to lock collateral for
-     * @dev For buy orders:
-     *      - Cross-currency orders lock quote currency (ETH/BTC) converted from collateral value
-     *      - Standard orders lock collateral token directly
-     *      For sell orders: Always lock position tokens (ERC1155)
-     * @dev Cross-currency conversion formula:
-     *      collateralValue = (amount × pricePerToken) ÷ collateralUnitPerPair (in price decimals 1e6)
-     *      quoteAmount = (collateralValue × exchangeRate) ÷ 1e18 (in quote currency decimals)
-     *      Exchange rate can be dynamic (oracle) or fixed (from order config)
-     */
+        uint256 exchangeRate;
+        if (order.exchangeRateType == LibDoefinStorage.ExchangeRateType.Dynamic) {
+            (exchangeRate, ) = LibQuoteCurrency.getOracleExchangeRate(order.quoteCurrencyToken, order.collateralToken);
+        } else {
+            exchangeRate = order.exchangeRate;
+        }
+
+        if (exchangeRate == 0) revert Errors.InvalidExchangeRate();
+        uint256 quoteAmount = (((amount * order.pricePerToken) / collateralUnitPerPair) * exchangeRate) / 1e18;
+        return quoteAmount + (quoteAmount * order.makerFeeBps) / 10000;
+    }
+
     function lockCollateral(LibDoefinStorage.Order memory order) internal {
         if (order.direction == LibDoefinStorage.OrderDirection.Buy) {
             if (order.orderType == LibDoefinStorage.OrderType.CrossCurrency) {
-                address quoteCurrency = order.crossCurrencyConfig.quoteCurrencyToken;
+                uint256 totalQuoteRequired = _calculateCrossCurrencyQuote(order, order.amount);
                 LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
-                uint256 quoteUnitPerPair = ds.adminConfigStorage.unitPerPair[quoteCurrency];
-                uint256 collateralUnitPerPair = ds.adminConfigStorage.unitPerPair[order.collateralToken];
-
-                // Validate unitPerPair values to prevent division by zero
-                if (collateralUnitPerPair == 0) revert Errors.InvalidUnitPerPair();
-                if (quoteUnitPerPair == 0) revert Errors.InvalidUnitPerPair();
-
-                uint256 collateralValue = (order.amount * order.pricePerToken) / collateralUnitPerPair;
-                uint256 quoteAmount;
-
-                if (order.crossCurrencyConfig.exchangeRateType == LibDoefinStorage.ExchangeRateType.Dynamic) {
-                    (uint256 exchangeRate, bool isStale) = LibQuoteCurrency.getOracleExchangeRate(quoteCurrency, order.collateralToken);
-                    if (isStale) revert Errors.OraclePriceStale();
-                    if (exchangeRate == 0) revert Errors.InvalidExchangeRate();
-                    quoteAmount = (collateralValue * exchangeRate) / 1e18;
-                } else {
-                    uint256 fixedRate = order.crossCurrencyConfig.exchangeRate;
-                    // Validate fixed exchange rate to prevent division by zero
-                    if (fixedRate == 0) revert Errors.InvalidExchangeRate();
-                    quoteAmount = (collateralValue * fixedRate) / 1e18;
-                }
-
-                uint256 quoteFee = (quoteAmount * order.orderFeeConfig.makerFeeBps) / 10000;
-                uint256 totalQuoteRequired = quoteAmount + quoteFee;
-
-                LibCollateralManager.lockERC20Collateral(order.maker, quoteCurrency, totalQuoteRequired, quoteUnitPerPair, 0);
+                uint256 quoteUnitPerPair = ds.adminConfigStorage.unitPerPair[order.quoteCurrencyToken];
+                LibCollateralManager.lockERC20Collateral(order.maker, order.quoteCurrencyToken, totalQuoteRequired, quoteUnitPerPair, 0);
             } else {
-                LibCollateralManager.lockERC20Collateral(
-                    order.maker,
-                    order.collateralToken,
-                    order.amount,
-                    order.pricePerToken,
-                    order.orderFeeConfig.makerFeeBps
-                );
+                LibCollateralManager.lockERC20Collateral(order.maker, order.collateralToken, order.amount, order.pricePerToken, order.makerFeeBps);
             }
         } else {
             LibCollateralManager.lockERC1155Collateral(order.maker, order.positionId, order.amount);
         }
     }
 
-    /**
-     * @notice Release collateral for an order (delegates to LibCollateralManager)
-     * @param order The order to release collateral for
-     * @dev For buy orders:
-     *      - Cross-currency orders release quote currency based on remainingAmount
-     *      - Standard orders release collateral token directly
-     *      For sell orders: Always release position tokens (ERC1155)
-     * @dev Cross-currency release calculation (matches lockCollateral pattern):
-     *      collateralValue = (remainingAmount × pricePerToken) ÷ collateralUnitPerPair
-     *      quoteAmount = (collateralValue × exchangeRate) ÷ 1e18
-     */
     function releaseCollateral(LibDoefinStorage.Order memory order) internal {
         if (order.direction == LibDoefinStorage.OrderDirection.Buy) {
             if (order.orderType == LibDoefinStorage.OrderType.CrossCurrency) {
-                address quoteCurrency = order.crossCurrencyConfig.quoteCurrencyToken;
+                uint256 totalQuoteToRelease = _calculateCrossCurrencyQuote(order, order.remainingAmount);
                 LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
-                uint256 quoteUnitPerPair = ds.adminConfigStorage.unitPerPair[quoteCurrency];
-                uint256 collateralUnitPerPair = ds.adminConfigStorage.unitPerPair[order.collateralToken];
-
-                // Validate unitPerPair values to prevent division by zero
-                if (collateralUnitPerPair == 0) revert Errors.InvalidUnitPerPair();
-                if (quoteUnitPerPair == 0) revert Errors.InvalidUnitPerPair();
-
-                uint256 collateralValue = (order.remainingAmount * order.pricePerToken) / collateralUnitPerPair;
-                uint256 quoteAmount;
-
-                if (order.crossCurrencyConfig.exchangeRateType == LibDoefinStorage.ExchangeRateType.Dynamic) {
-                    (uint256 exchangeRate, bool isStale) = LibQuoteCurrency.getOracleExchangeRate(quoteCurrency, order.collateralToken);
-                    if (isStale) revert Errors.OraclePriceStale();
-                    if (exchangeRate == 0) revert Errors.InvalidExchangeRate();
-                    quoteAmount = (collateralValue * exchangeRate) / 1e18;
-                } else {
-                    uint256 fixedRate = order.crossCurrencyConfig.exchangeRate;
-                    // Validate fixed exchange rate to prevent division by zero
-                    if (fixedRate == 0) revert Errors.InvalidExchangeRate();
-                    quoteAmount = (collateralValue * fixedRate) / 1e18;
-                }
-
-                uint256 quoteFee = (quoteAmount * order.orderFeeConfig.makerFeeBps) / 10000;
-                uint256 totalQuoteToRelease = quoteAmount + quoteFee;
-
-                LibCollateralManager.releaseERC20Collateral(order.maker, quoteCurrency, totalQuoteToRelease, quoteUnitPerPair, 0);
+                uint256 quoteUnitPerPair = ds.adminConfigStorage.unitPerPair[order.quoteCurrencyToken];
+                LibCollateralManager.releaseERC20Collateral(order.maker, order.quoteCurrencyToken, totalQuoteToRelease, quoteUnitPerPair, 0);
             } else {
                 LibCollateralManager.releaseERC20Collateral(
                     order.maker,
                     order.collateralToken,
                     order.remainingAmount,
                     order.pricePerToken,
-                    order.orderFeeConfig.makerFeeBps
+                    order.makerFeeBps
                 );
             }
         } else {
@@ -130,38 +66,14 @@ library LibEscrowLogic {
         }
     }
 
-    /**
-     * @notice Adjust collateral when an order is modified (delegates to LibCollateralManager)
-     * @param modifyCtx The modification context
-     */
     function adjustCollateralForModifiedOrder(LibDoefinStorage.ModifyCollateralContext memory modifyCtx) internal {
         LibCollateralManager.adjustCollateralForModifiedOrder(modifyCtx);
     }
 
-    // ----------------------------------------
-    // Fee Management Delegation
-    // ----------------------------------------
-
-    /**
-     * @notice Get current market fees (delegates to LibFeeManager)
-     * @return orderFeeConfig The current fee configuration
-     */
     function getMarketFees() internal view returns (LibDoefinStorage.OrderFeeConfig memory orderFeeConfig) {
         return LibFeeManager.getMarketFees();
     }
 
-    // ----------------------------------------
-    // Enhanced Functionality
-    // ----------------------------------------
-
-    /**
-     * @notice Get comprehensive escrow status for a user
-     * @param user The user address
-     * @param tokens Array of ERC20 tokens to check
-     * @param positionIds Array of position IDs to check
-     * @return erc20Balances Array of ERC20 collateral balances
-     * @return erc1155Balances Array of ERC1155 collateral balances
-     */
     function getEscrowStatus(
         address user,
         address[] memory tokens,

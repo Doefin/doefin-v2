@@ -543,13 +543,12 @@ library LibTradeSettlement {
      */
     function _executeCrossCurrencyComplementaryMatch(LibDoefinStorage.SettlementExecutionContext memory settlementExecCtx) private {
         LibDoefinStorage.Order memory makerOrder = settlementExecCtx.makerOrder;
-        LibDoefinStorage.TakerOrderContext memory takerOrder = settlementExecCtx.takerOrder;
         uint256 fillAmount = settlementExecCtx.fillableAmount;
 
-        address quoteCurrencyToken = makerOrder.crossCurrencyConfig.quoteCurrencyToken;
+        address quoteCurrencyToken = makerOrder.quoteCurrencyToken;
         address collateralToken = makerOrder.collateralToken;
 
-        bool useOracleRate = (makerOrder.crossCurrencyConfig.exchangeRateType == LibDoefinStorage.ExchangeRateType.Dynamic);
+        bool useOracleRate = (makerOrder.exchangeRateType == LibDoefinStorage.ExchangeRateType.Dynamic);
         uint256 exchangeRate;
 
         if (useOracleRate) {
@@ -561,7 +560,7 @@ library LibTradeSettlement {
             exchangeRate = oracleRate;
         } else {
             // Fixed rate: use the rate from order config
-            exchangeRate = makerOrder.crossCurrencyConfig.exchangeRate;
+            exchangeRate = makerOrder.exchangeRate;
         }
 
         (uint256 makerQuoteFee, uint256 takerQuoteFee, uint256 makerQuotePayment, uint256 takerQuotePayment) = _computeCrossCurrencyFees(
@@ -578,15 +577,10 @@ library LibTradeSettlement {
 
         LibFeeManager.accrueFees(makerQuoteFee, takerQuoteFee, settlementExecCtx);
 
-        emit Events.CrossCurrencySettlement(
-            takerOrder.taker,
-            makerOrder.maker,
-            makerOrder.orderId,
-            quoteCurrencyToken,
-            fillAmount,
-            exchangeRate,
-            makerQuoteFee + takerQuoteFee
-        );
+        // Note: CrossCurrencySettlement event removed - all info is available from:
+        // - TradeFilled event (maker, taker, orderId, fillAmount, matchType)
+        // - OrderCreated event (quoteCurrencyToken, exchangeRate, exchangeRateType)
+        // - ProtocolFeesAccrued event (fee details)
     }
 
     /**
@@ -602,13 +596,12 @@ library LibTradeSettlement {
 
         // Validate quote currency is allowed
         LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
-        if (!ds.adminConfigStorage.isAllowed[makerOrder.crossCurrencyConfig.quoteCurrencyToken]) {
+        if (!ds.adminConfigStorage.isAllowed[makerOrder.quoteCurrencyToken]) {
             revert Errors.TokenNotAllowed();
         }
 
         // Validate exchange rate (only required for fixed-rate orders; dynamic-rate orders use oracle)
-        if (makerOrder.crossCurrencyConfig.exchangeRateType == LibDoefinStorage.ExchangeRateType.Fixed &&
-            makerOrder.crossCurrencyConfig.exchangeRate == 0) {
+        if (makerOrder.exchangeRateType == LibDoefinStorage.ExchangeRateType.Fixed && makerOrder.exchangeRate == 0) {
             revert Errors.InvalidExchangeRate();
         }
     }
@@ -642,8 +635,8 @@ library LibTradeSettlement {
         uint256 collateralValue = (fillAmount * makerOrder.pricePerToken) / collateralUnitPerPair;
         uint256 totalQuoteValue = (collateralValue * exchangeRate) / 1e18;
 
-        makerQuoteFee = (totalQuoteValue * makerOrder.orderFeeConfig.makerFeeBps) / 10_000;
-        takerQuoteFee = (totalQuoteValue * makerOrder.orderFeeConfig.takerFeeBps) / 10_000;
+        makerQuoteFee = (totalQuoteValue * makerOrder.makerFeeBps) / 10_000;
+        takerQuoteFee = (totalQuoteValue * makerOrder.takerFeeBps) / 10_000;
 
         if (makerOrder.direction == LibDoefinStorage.OrderDirection.Buy) {
             makerQuotePayment = totalQuoteValue + makerQuoteFee;
@@ -699,14 +692,7 @@ library LibTradeSettlement {
             LibERC1155.safeTransferFrom(address(this), takerOrder.taker, makerOrder.maker, makerOrder.positionId, fillAmount, "");
         } else {
             LibCollateralManager.consumeERC1155Collateral(takerOrder.taker, makerOrder.positionId, fillAmount);
-            LibERC1155.safeTransferFrom(
-                address(this),
-                address(this),
-                makerOrder.maker,
-                makerOrder.positionId,
-                fillAmount,
-                ""
-            );
+            LibERC1155.safeTransferFrom(address(this), address(this), makerOrder.maker, makerOrder.positionId, fillAmount, "");
         }
     }
 
@@ -732,14 +718,7 @@ library LibTradeSettlement {
             LibERC1155.safeTransferFrom(address(this), makerOrder.maker, takerOrder.taker, makerOrder.positionId, fillAmount, "");
         } else {
             LibCollateralManager.consumeERC1155Collateral(makerOrder.maker, makerOrder.positionId, fillAmount);
-            LibERC1155.safeTransferFrom(
-                address(this),
-                address(this),
-                takerOrder.taker,
-                makerOrder.positionId,
-                fillAmount,
-                ""
-            );
+            LibERC1155.safeTransferFrom(address(this), address(this), takerOrder.taker, makerOrder.positionId, fillAmount, "");
         }
 
         // Handle quote currency transfers based on execution type

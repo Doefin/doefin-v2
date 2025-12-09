@@ -13,7 +13,7 @@ library LibDoefinStorage {
     uint256 constant SETTLEMENT_DELAY = 6;
     uint256 constant NUM_OF_TIMESTAMPS = 11;
     uint256 constant NUM_OF_BLOCK_HEADERS = 17;
-    
+
     // Oracle Adapter constants
     uint256 constant TIMESTAMP_BUCKET = 600; // 10 minutes in seconds
     uint256 constant MAX_BUCKETS = 10; // Maximum number of range buckets per question
@@ -107,10 +107,10 @@ library LibDoefinStorage {
     }
 
     struct Condition {
-        address oracle;
         bytes32 questionId;
-        uint8 outcomeSlotCount;
         string metadataURI;
+        address oracle;
+        uint8 outcomeSlotCount;
         bool active;
         address creator;
     }
@@ -178,14 +178,14 @@ library LibDoefinStorage {
     }
 
     struct ModifyCollateralContext {
-        address maker;
-        address collateralToken;
         uint256 positionId;
-        uint16 makerFeeBps;
         uint256 oldAmount;
         uint256 newAmount;
         uint256 oldPrice;
         uint256 newPrice;
+        address maker;
+        uint16 makerFeeBps;
+        address collateralToken;
         OrderDirection direction;
     }
 
@@ -214,11 +214,11 @@ library LibDoefinStorage {
 
     struct TakerOrderContext {
         uint256 orderId;
-        address taker;
         uint256 positionId;
         uint256 amount;
         uint256 remainingAmount;
         uint256 targetAvgPrice;
+        address taker;
         uint16 takerPaidFeeBps;
         bool fillOrKill;
         OrderDirection direction;
@@ -232,15 +232,12 @@ library LibDoefinStorage {
 
     /// @notice Struct representing a single limit or market order
     /// @dev Each order maps to a specific ERC1155 position token and can be either a buy or a sell
+    /// @dev Optimized packing: 15 slots (was 19), saves 128 bytes per order
     struct Order {
         /// @notice Unique order identifier (incremental)
         uint256 orderId;
-        /// @notice Creator of the order
-        address maker;
         /// @notice Position Id of the token
         uint256 positionId;
-        /// @notice Address of the requested ERC20 token
-        address collateralToken;
         /// @notice Total size of the order
         uint256 amount;
         /// @notice Amount remaining to be filled
@@ -253,21 +250,22 @@ library LibDoefinStorage {
         uint256 expiry;
         /// @notice Timestamp of the order creation time
         uint256 createdAt;
-        /// @notice Type of order (Standard or CrossCurrency)
-        OrderType orderType;
-        /// @notice Maker and Taker Fees
-        OrderFeeConfig orderFeeConfig;
-        /// @notice Cross currency configuration (only used for CrossCurrency orders)
-        CrossCurrencyConfig crossCurrencyConfig;
-        // These fields will be packed into a single slot:
-        /// @notice Buy or Sell side of the order
+        /// @notice Exchange rate (quote currency per collateral token)
+        uint256 exchangeRate;
+        /// @notice Creator of the order (20 bytes) + direction (1 byte) + executionType (1 byte) + orderType (1 byte) + exchangeRateType (1 byte) + active (1 byte) + fillOrKill (1 byte) = 26 bytes packed
+        address maker;
         OrderDirection direction;
-        /// @notice Type of order execution
         ExecutionType executionType;
-        /// @notice Whether the order is currently active
+        OrderType orderType;
+        ExchangeRateType exchangeRateType;
         bool active;
-        /// @notice Whether the order must be filled completely
         bool fillOrKill;
+        /// @notice Address of the requested ERC20 token (20 bytes) + makerFeeBps (2 bytes) + takerFeeBps (2 bytes) = 24 bytes packed
+        address collateralToken;
+        uint16 makerFeeBps;
+        uint16 takerFeeBps;
+        /// @notice Quote currency token address (only used for CrossCurrency orders)
+        address quoteCurrencyToken;
     }
 
     /// @notice Global storage layout for the Orderbook facet/module
@@ -280,7 +278,7 @@ library LibDoefinStorage {
         /// @notice Mapping of position ID to array of active sell order IDs
         mapping(uint256 => uint256[]) sellOrdersByPosition;
         /// @notice Added Extra Gaps for safe upgrades
-        uint256[20] __gap;
+        uint256[10] __gap;
     }
 
     struct EscrowStorage {
@@ -325,14 +323,14 @@ library LibDoefinStorage {
      * one that meets the difficulty target.
      */
     struct BlockHeader {
-        uint32 version;
         bytes32 prevBlockHash;
         bytes32 merkleRootHash;
+        bytes32 blockHash;
+        uint256 blockNumber;
+        uint32 version;
         uint32 timestamp;
         uint32 nBits;
         uint32 nonce;
-        bytes32 blockHash;
-        uint256 blockNumber;
     }
 
     struct BlockHeaderOracleStorage {
@@ -351,18 +349,18 @@ library LibDoefinStorage {
     }
 
     struct AdapterConfig {
-        address adapterAddress;
         uint256 maxStaleness;
         uint256 failureCount;
+        address adapterAddress;
         bool enabled;
     }
 
     struct AssetConfig {
         bytes32[] adapterPriority; // Ordered array of adapter IDs
         uint256 maxStaleness;
-        bool tradingPaused;
         uint256 lastUpdateTimestamp;
         uint8 decimals; // Number of decimals for the oracle price (0-18, 0 defaults to 18)
+        bool tradingPaused;
     }
 
     struct PriceData {

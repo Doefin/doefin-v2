@@ -96,18 +96,18 @@ library LibQuoteCurrency {
         uint256 exchangeRate;
 
         if (useOracleRate) {
-            (exchangeRate, isStale) = getOracleExchangeRate(order.crossCurrencyConfig.quoteCurrencyToken, order.collateralToken);
+            (exchangeRate, isStale) = getOracleExchangeRate(order.quoteCurrencyToken, order.collateralToken);
             if (isStale) {
                 return (0, true);
             }
         } else {
-            exchangeRate = order.crossCurrencyConfig.exchangeRate;
+            exchangeRate = order.exchangeRate;
             isStale = false;
         }
 
         LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
         uint256 collateralUnitPerPair = ds.adminConfigStorage.unitPerPair[order.collateralToken];
-        uint256 quoteUnitPerPair = ds.adminConfigStorage.unitPerPair[order.crossCurrencyConfig.quoteCurrencyToken];
+        uint256 quoteUnitPerPair = ds.adminConfigStorage.unitPerPair[order.quoteCurrencyToken];
 
         // Validate unitPerPair values to prevent division by zero
         if (collateralUnitPerPair == 0 || quoteUnitPerPair == 0) revert Errors.InvalidUnitPerPair();
@@ -132,7 +132,7 @@ library LibQuoteCurrency {
         }
 
         // Must have same quote currency
-        if (makerOrder.crossCurrencyConfig.quoteCurrencyToken != takerOrder.crossCurrencyConfig.quoteCurrencyToken) {
+        if (makerOrder.quoteCurrencyToken != takerOrder.quoteCurrencyToken) {
             return false;
         }
 
@@ -161,21 +161,17 @@ library LibQuoteCurrency {
         LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
 
         // Validate quote currency is allowed
-        if (ds.adminConfigStorage.unitPerPair[order.crossCurrencyConfig.quoteCurrencyToken] == 0) {
+        if (ds.adminConfigStorage.unitPerPair[order.quoteCurrencyToken] == 0) {
             revert Errors.TokenNotAllowed();
         }
 
         // Buy orders must use Fixed exchange rate
-        if (
-            order.direction == LibDoefinStorage.OrderDirection.Buy &&
-            order.crossCurrencyConfig.exchangeRateType != LibDoefinStorage.ExchangeRateType.Fixed
-        ) {
+        if (order.direction == LibDoefinStorage.OrderDirection.Buy && order.exchangeRateType != LibDoefinStorage.ExchangeRateType.Fixed) {
             revert Errors.BuyOrdersMustUseFixedRate();
         }
 
         // Validate exchange rate for fixed-rate orders (dynamic rates use oracle)
-        if (order.crossCurrencyConfig.exchangeRateType == LibDoefinStorage.ExchangeRateType.Fixed &&
-            order.crossCurrencyConfig.exchangeRate == 0) {
+        if (order.exchangeRateType == LibDoefinStorage.ExchangeRateType.Fixed && order.exchangeRate == 0) {
             revert Errors.InvalidExchangeRate();
         }
     }

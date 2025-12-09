@@ -30,67 +30,24 @@ library LibOrderbook {
     ) internal returns (uint256 orderId) {
         LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
         uint256 unitsPerPair = ds.adminConfigStorage.unitPerPair[collateralToken];
-        if (unitsPerPair == 0) {
-            revert Errors.TokenNotAllowed();
-        }
-        if (pricePerToken >= unitsPerPair || pricePerToken == 0) {
-            revert Errors.InvalidPrice();
-        }
-        if (amount < minFillAmount || amount == 0) {
-            revert Errors.InvalidAmounts();
-        }
-        if (expiry != 0 && expiry <= block.timestamp) {
-            revert Errors.OrderCreatedWithPastExpiry();
-        }
+        if (unitsPerPair == 0) revert Errors.TokenNotAllowed();
+        if (pricePerToken >= unitsPerPair || pricePerToken == 0) revert Errors.InvalidPrice();
+        if (amount < minFillAmount || amount == 0) revert Errors.InvalidAmounts();
+        if (expiry != 0 && expiry <= block.timestamp) revert Errors.OrderCreatedWithPastExpiry();
 
-        // Validate cross currency configuration if order type is CrossCurrency
         if (orderType == LibDoefinStorage.OrderType.CrossCurrency) {
-            if (crossCurrencyConfig.quoteCurrencyToken == address(0)) {
-                revert Errors.InvalidQuoteCurrencyToken();
-            }
-            uint256 quoteUnitPerPair = ds.adminConfigStorage.unitPerPair[crossCurrencyConfig.quoteCurrencyToken];
-            if (quoteUnitPerPair == 0) {
-                revert Errors.TokenNotAllowed();
-            }
-            if (crossCurrencyConfig.quoteCurrencyToken == collateralToken) {
-                revert Errors.SameCollateralAndQuoteCurrency();
-            }
-            if (crossCurrencyConfig.exchangeRate == 0) {
-                revert Errors.InvalidExchangeRate();
-            }
-
-            // Dynamic exchange rate is only allowed for sell orders
-            if (
-                crossCurrencyConfig.exchangeRateType == LibDoefinStorage.ExchangeRateType.Dynamic && direction != LibDoefinStorage.OrderDirection.Sell
-            ) {
-                revert Errors.BuyOrdersMustUseFixedRate();
-            }
-
-            // Perform oracle validation for dynamic exchange rates
+            if (crossCurrencyConfig.quoteCurrencyToken == address(0)) revert Errors.InvalidQuoteCurrencyToken();
+            if (crossCurrencyConfig.quoteCurrencyToken == collateralToken) revert Errors.SameCollateralAndQuoteCurrency();
             if (crossCurrencyConfig.exchangeRateType == LibDoefinStorage.ExchangeRateType.Dynamic) {
-                // Check if oracle data is available and not stale
-                (uint256 exchangeRate, bool isStale) = LibQuoteCurrency.getOracleExchangeRate(
-                    crossCurrencyConfig.quoteCurrencyToken,
-                    collateralToken
-                );
-                if (isStale) {
-                    revert Errors.OraclePriceStale();
-                }
-                // Exchange rate must be valid (non-zero)
-                if (exchangeRate == 0) {
-                    revert Errors.InvalidExchangeRate();
-                }
+                (, bool isStale) = LibQuoteCurrency.getOracleExchangeRate(crossCurrencyConfig.quoteCurrencyToken, collateralToken);
+                if (isStale) revert Errors.OraclePriceStale();
             }
-        } else {
-            // For Standard orders, ensure no cross currency config is provided
-            // Explicitly check that all crossCurrencyConfig fields are in their default state (zero values)
-            if (
-                crossCurrencyConfig.quoteCurrencyToken != address(0) ||
-                crossCurrencyConfig.exchangeRate != 0 ||
-                uint8(crossCurrencyConfig.exchangeRateType) != 0
-            ) {
-                revert Errors.UnexpectedCrossCurrencyConfig();
-            }
+        } else if (
+            crossCurrencyConfig.quoteCurrencyToken != address(0) ||
+            crossCurrencyConfig.exchangeRate != 0 ||
+            uint8(crossCurrencyConfig.exchangeRateType) != 0
+        ) {
+            revert Errors.UnexpectedCrossCurrencyConfig();
         }
 
         orderId = ds.orderbookStorage.nextOrderId++;
@@ -99,35 +56,34 @@ library LibOrderbook {
 
         LibDoefinStorage.Order memory order = LibDoefinStorage.Order({
             orderId: orderId,
-            maker: msg.sender,
             positionId: positionId,
-            collateralToken: collateralToken,
             amount: amount,
             remainingAmount: amount,
             minFillAmount: minFillAmount,
             pricePerToken: pricePerToken,
             expiry: expiry,
             createdAt: block.timestamp,
-            orderType: orderType,
-            orderFeeConfig: orderFeeConfig,
-            crossCurrencyConfig: crossCurrencyConfig,
+            exchangeRate: crossCurrencyConfig.exchangeRate,
+            maker: msg.sender,
             direction: direction,
             executionType: executionType,
+            orderType: orderType,
+            exchangeRateType: crossCurrencyConfig.exchangeRateType,
             active: true,
-            fillOrKill: fillOrKill
+            fillOrKill: fillOrKill,
+            collateralToken: collateralToken,
+            makerFeeBps: orderFeeConfig.makerFeeBps,
+            takerFeeBps: orderFeeConfig.takerFeeBps,
+            quoteCurrencyToken: crossCurrencyConfig.quoteCurrencyToken
         });
 
-        // Perform comprehensive cross-currency validation
         LibQuoteCurrency.validateCrossCurrencyOrder(order);
 
-        if (order.executionType == LibDoefinStorage.ExecutionType.Limit) {
-            LibEscrowLogic.lockCollateral(order);
-        }
+        bool isLimit = executionType == LibDoefinStorage.ExecutionType.Limit;
+        if (isLimit) LibEscrowLogic.lockCollateral(order);
 
         ds.orderbookStorage.orders[orderId] = order;
-        if (order.executionType == LibDoefinStorage.ExecutionType.Limit) {
-            _insertSorted(order);
-        }
+        if (isLimit) _insertSorted(order);
 
         emit Events.OrderCreated(
             orderId,
@@ -141,36 +97,17 @@ library LibOrderbook {
             direction,
             executionType,
             fillOrKill,
-            orderFeeConfig.makerFeeBps,
-            orderFeeConfig.takerFeeBps,
+            order.makerFeeBps,
+            order.takerFeeBps,
             orderType,
-            crossCurrencyConfig.quoteCurrencyToken,
-            crossCurrencyConfig.exchangeRateType,
-            crossCurrencyConfig.exchangeRate
+            order.quoteCurrencyToken,
+            order.exchangeRateType,
+            order.exchangeRate
         );
 
-        _tryFillImmediately(orderId);
-    }
-
-    function _tryFillImmediately(uint256 orderId) internal {
-        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
-
         uint256[] memory makerIds = LibMatchEngine.findPotentialMatchesForOrder(orderId);
-
         if (makerIds.length > 0) {
             LibSettlement.fillOrders(orderId, makerIds);
-
-            // Re-read from storage after execution
-            LibDoefinStorage.Order storage order = ds.orderbookStorage.orders[orderId];
-            if (order.executionType == LibDoefinStorage.ExecutionType.Market && order.fillOrKill && order.remainingAmount > 0) {
-                revert Errors.FillOrKillFailed();
-            }
-        } else {
-            LibDoefinStorage.Order storage order = ds.orderbookStorage.orders[orderId];
-
-            if (order.executionType == LibDoefinStorage.ExecutionType.Market && order.fillOrKill) {
-                revert Errors.FillOrKillFailed();
-            }
         }
     }
 
@@ -207,17 +144,16 @@ library LibOrderbook {
         if (order.remainingAmount != order.amount) revert Errors.PartiallyFilledOrdersNotModifiable();
 
         LibDoefinStorage.ModifyCollateralContext memory modifyCtx = LibDoefinStorage.ModifyCollateralContext({
-            maker: maker,
-            collateralToken: order.collateralToken,
             positionId: order.positionId,
-            makerFeeBps: order.orderFeeConfig.makerFeeBps,
             oldAmount: order.amount,
             newAmount: newAmount,
             oldPrice: order.pricePerToken,
             newPrice: newPricePerToken,
+            maker: maker,
+            makerFeeBps: order.makerFeeBps,
+            collateralToken: order.collateralToken,
             direction: order.direction
         });
-        // Adjust collateral if the total cost decreased or increased
         LibEscrowLogic.adjustCollateralForModifiedOrder(modifyCtx);
 
         uint256 oldMinFill = order.minFillAmount;
@@ -229,7 +165,6 @@ library LibOrderbook {
         order.minFillAmount = newMinFillAmount;
         order.expiry = newExpiry;
 
-        // Reorder the book if the price has changed.
         if (newPricePerToken != modifyCtx.oldPrice) {
             removeOrderFromOrderbook(order);
             _insertSorted(order);
@@ -255,10 +190,9 @@ library LibOrderbook {
             ? ds.orderbookStorage.buyOrdersByPosition[order.positionId]
             : ds.orderbookStorage.sellOrdersByPosition[order.positionId];
 
-        // For cross-currency orders, use quote currency price for sorting
         uint256 price = order.pricePerToken;
         if (order.orderType == LibDoefinStorage.OrderType.CrossCurrency) {
-            bool useOracleRate = (order.crossCurrencyConfig.exchangeRateType == LibDoefinStorage.ExchangeRateType.Dynamic);
+            bool useOracleRate = (order.exchangeRateType == LibDoefinStorage.ExchangeRateType.Dynamic);
             (uint256 quoteCurrencyPrice, bool isStale) = LibQuoteCurrency.calculateQuoteCurrencyPrice(order, useOracleRate);
             if (isStale) {
                 revert Errors.OraclePriceStale();
@@ -266,7 +200,6 @@ library LibOrderbook {
             price = quoteCurrencyPrice;
         }
 
-        // Binary search for insertion index - O(log n)
         uint256 left = 0;
         uint256 right = book.length;
 
@@ -275,9 +208,8 @@ library LibOrderbook {
             LibDoefinStorage.Order storage existingOrder = ds.orderbookStorage.orders[book[mid]];
             uint256 existingPrice = existingOrder.pricePerToken;
 
-            // For cross-currency existing orders, also use quote currency price
             if (existingOrder.orderType == LibDoefinStorage.OrderType.CrossCurrency) {
-                bool useExistingOracleRate = (existingOrder.crossCurrencyConfig.exchangeRateType == LibDoefinStorage.ExchangeRateType.Dynamic);
+                bool useExistingOracleRate = (existingOrder.exchangeRateType == LibDoefinStorage.ExchangeRateType.Dynamic);
                 (uint256 existingQuotePrice, bool existingIsStale) = LibQuoteCurrency.calculateQuoteCurrencyPrice(
                     existingOrder,
                     useExistingOracleRate
@@ -288,27 +220,18 @@ library LibOrderbook {
                 existingPrice = existingQuotePrice;
             }
 
-            // Ascending for Sell (lowest price first)
-            // Descending for Buy (highest price first)
-            bool shouldInsertBefore;
-            if (price == existingPrice) {
-                // Price-time priority: earlier orders come first
-                shouldInsertBefore = order.createdAt < existingOrder.createdAt;
-            } else {
-                shouldInsertBefore =
-                    (order.direction == LibDoefinStorage.OrderDirection.Sell && price < existingPrice) ||
-                    (order.direction == LibDoefinStorage.OrderDirection.Buy && price > existingPrice);
-            }
-
-            if (shouldInsertBefore) {
+            if (
+                price == existingPrice
+                    ? order.createdAt < existingOrder.createdAt
+                    : (order.direction == LibDoefinStorage.OrderDirection.Sell ? price < existingPrice : price > existingPrice)
+            ) {
                 right = mid;
             } else {
                 left = mid + 1;
             }
         }
 
-        // Insert at position left
-        book.push(order.orderId); // expand length
+        book.push(order.orderId);
         for (uint256 j = book.length - 1; j > left; j--) {
             book[j] = book[j - 1];
         }

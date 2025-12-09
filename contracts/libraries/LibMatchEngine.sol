@@ -79,10 +79,7 @@ library LibMatchEngine {
         complementaryOrders = isBuy ? ds.orderbookStorage.sellOrdersByPosition[positionId] : ds.orderbookStorage.buyOrdersByPosition[positionId];
 
         // Filter to only compatible cross-currency orders
-        uint256[] memory compatibleOrderIds = _filterCrossCurrencyCompatibleOrders(
-            complementaryOrders,
-            quoteCurrencyToken
-        );
+        uint256[] memory compatibleOrderIds = _filterCrossCurrencyCompatibleOrders(complementaryOrders, quoteCurrencyToken);
 
         // Use quote currency unit for price calculations
         return _simulateCrossCurrencyWithOrders(compatibleOrderIds, desiredMarketAmount, direction, quoteUnitPerPair);
@@ -154,7 +151,7 @@ library LibMatchEngine {
                 uint256 takerPriceForComparison = takerOrder.pricePerToken;
                 if (takerOrder.orderType == LibDoefinStorage.OrderType.CrossCurrency) {
                     // Convert taker's collateral-denominated price to quote currency
-                    bool useOracleRate = (takerOrder.crossCurrencyConfig.exchangeRateType == LibDoefinStorage.ExchangeRateType.Dynamic);
+                    bool useOracleRate = (takerOrder.exchangeRateType == LibDoefinStorage.ExchangeRateType.Dynamic);
                     (uint256 takerQuotePrice, bool isStale) = LibQuoteCurrency.calculateQuoteCurrencyPrice(takerOrder, useOracleRate);
                     if (isStale) {
                         revert Errors.OraclePriceStale();
@@ -163,9 +160,9 @@ library LibMatchEngine {
                     // Apply taker fee to make comparison consistent with effectiveTakerPrice
                     // This ensures both sides of the price comparison include taker fees
                     if (takerOrder.direction == LibDoefinStorage.OrderDirection.Buy) {
-                        takerPriceForComparison = (takerQuotePrice * (10_000 + takerOrder.orderFeeConfig.takerFeeBps)) / 10_000;
+                        takerPriceForComparison = (takerQuotePrice * (10_000 + takerOrder.takerFeeBps)) / 10_000;
                     } else {
-                        takerPriceForComparison = (takerQuotePrice * (10_000 - takerOrder.orderFeeConfig.takerFeeBps)) / 10_000;
+                        takerPriceForComparison = (takerQuotePrice * (10_000 - takerOrder.takerFeeBps)) / 10_000;
                     }
                 }
 
@@ -510,9 +507,9 @@ library LibMatchEngine {
             basePrice = unit - makerOrder.pricePerToken;
         }
         if (takerDirection == LibDoefinStorage.OrderDirection.Buy) {
-            return (basePrice * (10_000 + makerOrder.orderFeeConfig.takerFeeBps)) / 10_000;
+            return (basePrice * (10_000 + makerOrder.takerFeeBps)) / 10_000;
         } else {
-            return (basePrice * (10_000 - makerOrder.orderFeeConfig.takerFeeBps)) / 10_000;
+            return (basePrice * (10_000 - makerOrder.takerFeeBps)) / 10_000;
         }
     }
 
@@ -534,7 +531,7 @@ library LibMatchEngine {
         }
 
         // Determine which exchange rate to use based on the maker order's configuration
-        bool useOracleRate = (makerOrder.crossCurrencyConfig.exchangeRateType == LibDoefinStorage.ExchangeRateType.Dynamic);
+        bool useOracleRate = (makerOrder.exchangeRateType == LibDoefinStorage.ExchangeRateType.Dynamic);
 
         // Calculate the quote currency price (may revert if oracle is stale)
         (uint256 quoteCurrencyPrice, bool isStale) = LibQuoteCurrency.calculateQuoteCurrencyPrice(makerOrder, useOracleRate);
@@ -546,9 +543,9 @@ library LibMatchEngine {
 
         // Apply taker fee to the quote currency price
         if (takerDirection == LibDoefinStorage.OrderDirection.Buy) {
-            return (quoteCurrencyPrice * (10_000 + makerOrder.orderFeeConfig.takerFeeBps)) / 10_000;
+            return (quoteCurrencyPrice * (10_000 + makerOrder.takerFeeBps)) / 10_000;
         } else {
-            return (quoteCurrencyPrice * (10_000 - makerOrder.orderFeeConfig.takerFeeBps)) / 10_000;
+            return (quoteCurrencyPrice * (10_000 - makerOrder.takerFeeBps)) / 10_000;
         }
     }
 
@@ -563,10 +560,10 @@ library LibMatchEngine {
         uint256 makerPrice = makerOrder.pricePerToken;
         if (makerOrder.direction == LibDoefinStorage.OrderDirection.Buy) {
             // Buyer pays more: base price + maker fee
-            return (makerPrice * (10_000 + makerOrder.orderFeeConfig.makerFeeBps)) / 10_000;
+            return (makerPrice * (10_000 + makerOrder.makerFeeBps)) / 10_000;
         } else {
             // Seller receives less: base price - maker fee
-            return (makerPrice * (10_000 - makerOrder.orderFeeConfig.makerFeeBps)) / 10_000;
+            return (makerPrice * (10_000 - makerOrder.makerFeeBps)) / 10_000;
         }
     }
 
@@ -603,7 +600,7 @@ library LibMatchEngine {
             }
 
             // Check if quote currencies match
-            if (order.crossCurrencyConfig.quoteCurrencyToken != quoteCurrencyToken) {
+            if (order.quoteCurrencyToken != quoteCurrencyToken) {
                 continue;
             }
 
@@ -671,11 +668,7 @@ library LibMatchEngine {
                     continue;
                 }
 
-                uint256 effectivePrice = _effectiveTakerPriceCrossCurrency(
-                    order,
-                    direction,
-                    LibDoefinStorage.MatchType.Complementary
-                );
+                uint256 effectivePrice = _effectiveTakerPriceCrossCurrency(order, direction, LibDoefinStorage.MatchType.Complementary);
 
                 // Select based on price (and time for tiebreaker)
                 bool isBetter = false;
