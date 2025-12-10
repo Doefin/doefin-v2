@@ -13,7 +13,7 @@ const { sendAndApproveERC1155 } = require("../../utils/erc1155Utils.js");
 const {
   splitConditionAndGetPositionIds,
 } = require("../../utils/conditionUtils.js");
-const { createLimitOrder } = require("../../utils/orderUtils.js");
+const { createLimitOrder, createMarketOrder } = require("../../utils/orderUtils.js");
 const {
   takeSnapshot,
   revertToSnapshot,
@@ -262,34 +262,16 @@ describe("Market Execution Facet - Mixed Matched tests", function () {
       direction: secondOrderDir,
     });
 
-    // Simulate taker BUY YES (should match with NO buy via mint)
-    const route = await simulateAndParseMatchRoute({
-      routeSimFacet,
+    // Execute market BUY order (automatically finds mixed match)
+    // Taker is buying NO, use the better price (complementary match price)
+    await createMarketOrder(orderCreationFacet, taker, {
       positionId: noId,
-      amount: totalTakerPays,
+      collateralToken: erc20.address,
+      amount: marketBuyNoFillAmount,
+      pricePerToken: secondSellNoLimitOrderPrice,
       direction: marketOrderDir,
+      fillOrKill: false,
     });
-
-    console.log("Route:", route);
-
-    const effectiveBuyPrice = route.totalOutputAmount
-      .mul(ercUnit)
-      .div(route.totalInputAmount);
-
-    // Fill the market order
-    await matchExecutionFacet.connect(taker).fillMarketOrderWithRoute(
-      noId,
-      marketBuyNoFillAmount,
-      effectiveBuyPrice,
-      false, // fillOrKill
-      marketOrderDir,
-      route.matches.map((m) => [
-        m.matchedOrderId,
-        m.amount,
-        m.effectivePrice,
-        m.matchType,
-      ])
-    );
 
     // Balances after
     const makerYesAfter = await erc1155.balanceOf(maker.address, yesId);
@@ -414,37 +396,20 @@ describe("Market Execution Facet - Mixed Matched tests", function () {
       takerBudget = takerBudget.add(ercUnit.sub(takerBudget.mod(ercUnit)));
     }
 
-    // Simulate taker Buy NO (should match with YES buy via mint)
-    const route = await simulateAndParseMatchRoute({
-      routeSimFacet,
-      positionId: noId,
-      amount: takerBudget,
-      direction: buyDir,
-    });
-
-    const effectiveSellPrice = route.totalOutputAmount
-      .mul(ercUnit)
-      .div(route.totalInputAmount);
-
     // Balances before
     const makerYesBefore = await erc1155.balanceOf(maker.address, yesId);
     const takerNoBefore = await erc1155.balanceOf(taker.address, noId);
     const takerERC20Before = await erc20.balanceOf(taker.address);
 
-    // Execute fill
-    await matchExecutionFacet.connect(taker).fillMarketOrderWithRoute(
-      noId,
-      marketFillAmount,
-      effectiveSellPrice,
-      false, // fillOrKill
-      buyDir,
-      route.matches.map((m) => [
-        m.matchedOrderId,
-        m.amount,
-        m.effectivePrice,
-        m.matchType,
-      ])
-    );
+    // Execute market BUY NO order (automatically finds mint match with YES orders)
+    await createMarketOrder(orderCreationFacet, taker, {
+      positionId: noId,
+      collateralToken: erc20.address,
+      amount: marketFillAmount,
+      pricePerToken: noPrice,
+      direction: buyDir,
+      fillOrKill: false,
+    });
 
     // Balances after
     const makerYesAfter = await erc1155.balanceOf(maker.address, yesId);
