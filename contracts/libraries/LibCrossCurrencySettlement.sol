@@ -30,7 +30,7 @@ library LibCrossCurrencySettlement {
      */
     function validateCrossCurrencyMatch(
         LibDoefinStorage.Order memory takerOrder,
-        LibDoefinStorage.Order storage makerOrder
+        LibDoefinStorage.Order memory makerOrder
     ) internal view returns (bool crossing, LibDoefinStorage.MatchType matchType, uint256 price) {
         // Only complementary matching supported
         if (takerOrder.direction == makerOrder.direction || takerOrder.positionId != makerOrder.positionId) {
@@ -40,8 +40,7 @@ library LibCrossCurrencySettlement {
         matchType = LibDoefinStorage.MatchType.Complementary;
 
         // Validate compatibility
-        if (takerOrder.orderType == LibDoefinStorage.OrderType.CrossCurrency && 
-            makerOrder.orderType == LibDoefinStorage.OrderType.CrossCurrency) {
+        if (takerOrder.orderType == LibDoefinStorage.OrderType.CrossCurrency && makerOrder.orderType == LibDoefinStorage.OrderType.CrossCurrency) {
             if (!LibQuoteCurrency.areOrdersCompatible(takerOrder, makerOrder)) {
                 return (false, matchType, 0);
             }
@@ -75,5 +74,25 @@ library LibCrossCurrencySettlement {
                 ? takerOrder.pricePerToken >= price
                 : takerOrder.pricePerToken <= price;
         }
+    }
+
+    /**
+     * @notice Calculate required quote currency amount for cross-currency order
+     */
+    function calculateRequiredQuoteAmount(LibDoefinStorage.Order memory order, uint256 amount) internal view returns (uint256) {
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
+        uint256 collateralUnit = ds.adminConfigStorage.unitPerPair[order.collateralToken];
+        if (collateralUnit == 0) revert Errors.InvalidUnitPerPair();
+
+        uint256 exchangeRate;
+        if (order.exchangeRateType == LibDoefinStorage.ExchangeRateType.Dynamic) {
+            (exchangeRate, ) = LibQuoteCurrency.getOracleExchangeRate(order.quoteCurrencyToken, order.collateralToken);
+        } else {
+            exchangeRate = order.exchangeRate;
+        }
+
+        if (exchangeRate == 0) revert Errors.InvalidExchangeRate();
+        uint256 quoteAmount = (((amount * order.pricePerToken) / collateralUnit) * exchangeRate) / 1e18;
+        return quoteAmount + (quoteAmount * order.makerFeeBps) / 10000;
     }
 }

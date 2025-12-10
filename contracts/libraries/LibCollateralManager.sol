@@ -4,14 +4,12 @@ pragma solidity ^0.8.6;
 import {LibDoefinStorage} from "./LibDoefinStorage.sol";
 import {SafeERC20, IERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {LibERC1155} from "./LibERC1155.sol";
-import {LibReentrancyGuard} from "./LibReentrancyGuard.sol";
 import {Errors} from "./Errors.sol";
 import {Events} from "./Events.sol";
 
 /**
  * @title LibCollateralManager
  * @notice Handles all collateral management operations for ERC20 and ERC1155 tokens
- * @dev Separated from LibEscrowLogic to follow single responsibility principle
  */
 library LibCollateralManager {
     using SafeERC20 for IERC20;
@@ -28,53 +26,40 @@ library LibCollateralManager {
      * @param pricePerToken The price per token
      * @param makerFeeBps The maker fee in basis points
      */
-    function lockERC20Collateral(
-        address user,
-        address collateralToken,
-        uint256 amount,
-        uint256 pricePerToken,
-        uint256 makerFeeBps
-    ) internal {
+    function lockERC20Collateral(address user, address collateralToken, uint256 amount, uint256 pricePerToken, uint256 makerFeeBps) internal {
         if (amount == 0) return;
 
         LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
-
         uint256 unitPerPair = ds.adminConfigStorage.unitPerPair[collateralToken];
         if (unitPerPair == 0) revert Errors.TokenNotAllowed();
 
-        // Calculate cost in token's smallest units
-        uint256 cost = (amount * pricePerToken) / unitPerPair;
+        (, , uint256 totalRequired) = _calculateTotalWithFee(amount, pricePerToken, unitPerPair, makerFeeBps);
 
-        // Calculate maker fee
-        uint256 makerFee = (cost * makerFeeBps) / 10_000;
-        uint256 totalRequired = cost + makerFee;
-
-        LibReentrancyGuard._nonReentrantBefore();
         if (IERC20(collateralToken).allowance(user, address(this)) < totalRequired) {
             revert Errors.InsufficientERC20Allowance(user, collateralToken, totalRequired, IERC20(collateralToken).allowance(user, address(this)));
         }
-        // Transfer tokens from user to contract
+
         IERC20(collateralToken).safeTransferFrom(user, address(this), totalRequired);
-
-        LibReentrancyGuard._nonReentrantAfter();
-
-        // Update internal balance tracking
         ds.escrowStorage.collateralBalances[user][collateralToken] += totalRequired;
 
-        uint256 newBalance = ds.escrowStorage.collateralBalances[user][collateralToken];
-        emit Events.ERC20CollateralLocked(user, collateralToken, totalRequired, newBalance);
+        emit Events.ERC20CollateralLocked(user, collateralToken, totalRequired, ds.escrowStorage.collateralBalances[user][collateralToken]);
     }
 
-    function refundSurplus(uint256 takerPaidPerToken, uint256 tradeEffectivePrice, uint256 filledAmount, address taker, address collateralToken) internal {
+    function refundSurplus(
+        uint256 takerPaidPerToken,
+        uint256 tradeEffectivePrice,
+        uint256 filledAmount,
+        address taker,
+        address collateralToken
+    ) internal {
         LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
         uint256 residue = takerPaidPerToken - tradeEffectivePrice;
         uint256 unitPerPair = ds.adminConfigStorage.unitPerPair[collateralToken];
-        if (residue > 0){
+
+        if (residue > 0) {
             uint256 refundAmount = (residue * filledAmount) / unitPerPair;
             _consumeERC20Collateral(taker, collateralToken, refundAmount);
-            LibReentrancyGuard._nonReentrantBefore();
             IERC20(collateralToken).safeTransfer(taker, refundAmount);
-            LibReentrancyGuard._nonReentrantAfter();
             emit Events.RefundSurplus(taker, collateralToken, refundAmount, takerPaidPerToken, tradeEffectivePrice);
         }
     }
@@ -87,38 +72,19 @@ library LibCollateralManager {
      * @param pricePerToken The price per token
      * @param makerFeeBps The maker fee in basis points
      */
-    function releaseERC20Collateral(
-        address user,
-        address collateralToken,
-        uint256 amount,
-        uint256 pricePerToken,
-        uint256 makerFeeBps
-    ) internal {
+    function releaseERC20Collateral(address user, address collateralToken, uint256 amount, uint256 pricePerToken, uint256 makerFeeBps) internal {
         if (amount == 0) return;
 
         LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
-
         uint256 unitPerPair = ds.adminConfigStorage.unitPerPair[collateralToken];
         if (unitPerPair == 0) revert Errors.TokenNotAllowed();
 
-        // Calculate cost and fee
-        uint256 cost = (amount * pricePerToken) / unitPerPair;
-        uint256 makerFee = (cost * makerFeeBps) / 10_000;
-        uint256 totalToRelease = cost + makerFee;
+        (, , uint256 totalToRelease) = _calculateTotalWithFee(amount, pricePerToken, unitPerPair, makerFeeBps);
 
-        // Consume from internal balance
         _consumeERC20Collateral(user, collateralToken, totalToRelease);
-
-        LibReentrancyGuard._nonReentrantBefore();
-
-        // Transfer tokens back to user
         IERC20(collateralToken).safeTransfer(user, totalToRelease);
 
-        LibReentrancyGuard._nonReentrantAfter();
-
-
-        uint256 newBalance = ds.escrowStorage.collateralBalances[user][collateralToken];
-        emit Events.ERC20CollateralReleased(user, collateralToken, totalToRelease, newBalance);
+        emit Events.ERC20CollateralReleased(user, collateralToken, totalToRelease, ds.escrowStorage.collateralBalances[user][collateralToken]);
     }
 
     /**
@@ -127,11 +93,7 @@ library LibCollateralManager {
      * @param collateralToken The ERC20 token address
      * @param amount The amount to consume
      */
-    function consumeERC20Collateral(
-        address user,
-        address collateralToken,
-        uint256 amount
-    ) internal {
+    function consumeERC20Collateral(address user, address collateralToken, uint256 amount) internal {
         _consumeERC20Collateral(user, collateralToken, amount);
     }
 
@@ -145,11 +107,7 @@ library LibCollateralManager {
      * @param positionId The position token ID
      * @param amount The amount of tokens to lock
      */
-    function lockERC1155Collateral(
-        address user,
-        uint256 positionId,
-        uint256 amount
-    ) internal {
+    function lockERC1155Collateral(address user, uint256 positionId, uint256 amount) internal {
         if (amount == 0) return;
 
         LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
@@ -170,11 +128,7 @@ library LibCollateralManager {
      * @param positionId The position token ID
      * @param amount The amount of tokens to release
      */
-    function releaseERC1155Collateral(
-        address user,
-        uint256 positionId,
-        uint256 amount
-    ) internal {
+    function releaseERC1155Collateral(address user, uint256 positionId, uint256 amount) internal {
         if (amount == 0) return;
 
         // Consume from internal balance
@@ -193,11 +147,7 @@ library LibCollateralManager {
      * @param positionId The position token ID
      * @param amount The amount to consume
      */
-    function consumeERC1155Collateral(
-        address user,
-        uint256 positionId,
-        uint256 amount
-    ) internal {
+    function consumeERC1155Collateral(address user, uint256 positionId, uint256 amount) internal {
         _consumeERC1155Collateral(user, positionId, amount);
     }
 
@@ -213,18 +163,18 @@ library LibCollateralManager {
         if (modifyCtx.direction == LibDoefinStorage.OrderDirection.Buy) {
             LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
             uint256 unitPerPair = ds.adminConfigStorage.unitPerPair[modifyCtx.collateralToken];
-            
+
             uint256 oldCost = (modifyCtx.oldAmount * modifyCtx.oldPrice) / unitPerPair;
             uint256 newCost = (modifyCtx.newAmount * modifyCtx.newPrice) / unitPerPair;
-            
+
             // Early return if cost unchanged
             if (oldCost == newCost) return;
-            
+
             _adjustERC20CollateralForModification(modifyCtx, oldCost, newCost);
         } else {
             // Early return if amount unchanged (already handled inside the function)
             if (modifyCtx.oldAmount == modifyCtx.newAmount) return;
-            
+
             _adjustERC1155CollateralForModification(modifyCtx);
         }
     }
@@ -253,9 +203,47 @@ library LibCollateralManager {
         return LibDoefinStorage.appStorage().escrowStorage.lockedERC1155Balances[user][positionId];
     }
 
+    function getEscrowStatus(
+        address user,
+        address[] memory tokens,
+        uint256[] memory positionIds
+    ) internal view returns (uint256[] memory erc20Balances, uint256[] memory erc1155Balances) {
+        erc20Balances = new uint256[](tokens.length);
+        erc1155Balances = new uint256[](positionIds.length);
+
+        for (uint256 i = 0; i < tokens.length; i++) {
+            erc20Balances[i] = getERC20CollateralBalance(user, tokens[i]);
+        }
+
+        for (uint256 i = 0; i < positionIds.length; i++) {
+            erc1155Balances[i] = getERC1155CollateralBalance(user, positionIds[i]);
+        }
+    }
+
     // ----------------------------------------
     // Internal Helper Functions
     // ----------------------------------------
+
+    /**
+     * @notice Calculate cost, fee, and total with fee
+     * @param amount Amount in position units
+     * @param pricePerToken Price per token
+     * @param unitPerPair Unit per pair for the token
+     * @param makerFeeBps Maker fee in basis points
+     * @return cost The base cost
+     * @return fee The maker fee amount
+     * @return total The total (cost + fee)
+     */
+    function _calculateTotalWithFee(
+        uint256 amount,
+        uint256 pricePerToken,
+        uint256 unitPerPair,
+        uint256 makerFeeBps
+    ) private pure returns (uint256 cost, uint256 fee, uint256 total) {
+        cost = (amount * pricePerToken) / unitPerPair;
+        fee = (cost * makerFeeBps) / 10_000;
+        total = cost + fee;
+    }
 
     /**
      * @notice Internal function to consume ERC20 collateral
@@ -263,11 +251,7 @@ library LibCollateralManager {
      * @param token The ERC20 token address
      * @param amount The amount to consume
      */
-    function _consumeERC20Collateral(
-        address user,
-        address token,
-        uint256 amount
-    ) internal {
+    function _consumeERC20Collateral(address user, address token, uint256 amount) internal {
         LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
 
         if (ds.escrowStorage.collateralBalances[user][token] < amount) {
@@ -283,11 +267,7 @@ library LibCollateralManager {
      * @param positionId The position token ID
      * @param amount The amount to consume
      */
-    function _consumeERC1155Collateral(
-        address user,
-        uint256 positionId,
-        uint256 amount
-    ) internal {
+    function _consumeERC1155Collateral(address user, uint256 positionId, uint256 amount) internal {
         LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
 
         if (ds.escrowStorage.lockedERC1155Balances[user][positionId] < amount) {
@@ -312,26 +292,18 @@ library LibCollateralManager {
 
         uint256 oldFee = (oldCost * modifyCtx.makerFeeBps) / 10_000;
         uint256 newFee = (newCost * modifyCtx.makerFeeBps) / 10_000;
-
         uint256 totalOld = oldCost + oldFee;
         uint256 totalNew = newCost + newFee;
 
         if (totalNew > totalOld) {
-            // Need to lock additional collateral
             uint256 additional = totalNew - totalOld;
-            LibReentrancyGuard._nonReentrantBefore();
             IERC20(modifyCtx.collateralToken).safeTransferFrom(modifyCtx.maker, address(this), additional);
-            LibReentrancyGuard._nonReentrantAfter();
             ds.escrowStorage.collateralBalances[modifyCtx.maker][modifyCtx.collateralToken] += additional;
         } else if (totalNew < totalOld) {
-            // Can release some collateral
             uint256 refund = totalOld - totalNew;
             _consumeERC20Collateral(modifyCtx.maker, modifyCtx.collateralToken, refund);
-            LibReentrancyGuard._nonReentrantBefore();
             IERC20(modifyCtx.collateralToken).safeTransfer(modifyCtx.maker, refund);
-            LibReentrancyGuard._nonReentrantAfter();
         }
-        // If totalNew == totalOld, no adjustment needed
     }
 
     /**

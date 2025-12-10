@@ -90,7 +90,7 @@ library LibSettlement {
             LibTradeSettlement.settlementDispatcher(
                 LibDoefinStorage.SettlementExecutionContext({
                     fillableAmount: fillAmount,
-                    takerOrder: _orderToContext(takerOrder),
+                    takerOrder: takerOrder,
                     makerOrder: makerOrder,
                     matchType: matchType,
                     executionType: takerOrder.executionType
@@ -170,21 +170,6 @@ library LibSettlement {
             takerOrder.remainingAmount == 0,
             block.timestamp
         );
-    }
-
-    function _orderToContext(LibDoefinStorage.Order memory order) internal pure returns (LibDoefinStorage.TakerOrderContext memory) {
-        return
-            LibDoefinStorage.TakerOrderContext({
-                orderId: order.orderId,
-                taker: order.maker,
-                positionId: order.positionId,
-                amount: order.amount,
-                remainingAmount: order.remainingAmount,
-                targetAvgPrice: order.pricePerToken,
-                takerPaidFeeBps: order.makerFeeBps,
-                fillOrKill: order.fillOrKill,
-                direction: order.direction
-            });
     }
 
     function _isCrossing(

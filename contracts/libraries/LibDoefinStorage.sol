@@ -171,7 +171,7 @@ library LibDoefinStorage {
 
     struct SettlementExecutionContext {
         uint256 fillableAmount;
-        TakerOrderContext takerOrder;
+        Order takerOrder;
         Order makerOrder;
         MatchType matchType;
         ExecutionType executionType;
@@ -210,18 +210,6 @@ library LibDoefinStorage {
         Match[] matches;
         uint256 totalInputAmount;
         uint256 totalOutputAmount;
-    }
-
-    struct TakerOrderContext {
-        uint256 orderId;
-        uint256 positionId;
-        uint256 amount;
-        uint256 remainingAmount;
-        uint256 targetAvgPrice;
-        address taker;
-        uint16 takerPaidFeeBps;
-        bool fillOrKill;
-        OrderDirection direction;
     }
 
     enum MatchType {

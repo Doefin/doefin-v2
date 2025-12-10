@@ -3,7 +3,9 @@
 pragma solidity ^0.8.6;
 
 import {LibDoefinStorage} from "./LibDoefinStorage.sol";
-import {LibEscrowLogic} from "./LibEscrowLogic.sol";
+import {LibCollateralManager} from "./LibCollateralManager.sol";
+import {LibFeeManager} from "./LibFeeManager.sol";
+import {LibCrossCurrencySettlement} from "./LibCrossCurrencySettlement.sol";
 import {LibMatchEngine} from "../libraries/LibMatchEngine.sol";
 import {LibSettlement} from "../libraries/LibSettlement.sol";
 import {LibQuoteCurrency} from "./LibQuoteCurrency.sol";
@@ -52,7 +54,7 @@ library LibOrderbook {
 
         orderId = ds.orderbookStorage.nextOrderId++;
 
-        LibDoefinStorage.OrderFeeConfig memory orderFeeConfig = LibEscrowLogic.getMarketFees();
+        LibDoefinStorage.OrderFeeConfig memory orderFeeConfig = LibFeeManager.getMarketFees();
 
         LibDoefinStorage.Order memory order = LibDoefinStorage.Order({
             orderId: orderId,
@@ -80,7 +82,25 @@ library LibOrderbook {
         LibQuoteCurrency.validateCrossCurrencyOrder(order);
 
         bool isLimit = executionType == LibDoefinStorage.ExecutionType.Limit;
-        if (isLimit) LibEscrowLogic.lockCollateral(order);
+        if (isLimit) {
+            if (order.direction == LibDoefinStorage.OrderDirection.Buy) {
+                if (order.orderType == LibDoefinStorage.OrderType.CrossCurrency) {
+                    uint256 totalQuoteRequired = LibCrossCurrencySettlement.calculateRequiredQuoteAmount(order, order.amount);
+                    uint256 quoteUnitPerPair = ds.adminConfigStorage.unitPerPair[order.quoteCurrencyToken];
+                    LibCollateralManager.lockERC20Collateral(order.maker, order.quoteCurrencyToken, totalQuoteRequired, quoteUnitPerPair, 0);
+                } else {
+                    LibCollateralManager.lockERC20Collateral(
+                        order.maker,
+                        order.collateralToken,
+                        order.amount,
+                        order.pricePerToken,
+                        order.makerFeeBps
+                    );
+                }
+            } else {
+                LibCollateralManager.lockERC1155Collateral(order.maker, order.positionId, order.amount);
+            }
+        }
 
         ds.orderbookStorage.orders[orderId] = order;
         if (isLimit) _insertSorted(order);
@@ -119,7 +139,23 @@ library LibOrderbook {
 
         uint256 remainingAmount = order.remainingAmount;
 
-        LibEscrowLogic.releaseCollateral(order);
+        if (order.direction == LibDoefinStorage.OrderDirection.Buy) {
+            if (order.orderType == LibDoefinStorage.OrderType.CrossCurrency) {
+                uint256 totalQuoteToRelease = LibCrossCurrencySettlement.calculateRequiredQuoteAmount(order, order.remainingAmount);
+                uint256 quoteUnitPerPair = ds.adminConfigStorage.unitPerPair[order.quoteCurrencyToken];
+                LibCollateralManager.releaseERC20Collateral(order.maker, order.quoteCurrencyToken, totalQuoteToRelease, quoteUnitPerPair, 0);
+            } else {
+                LibCollateralManager.releaseERC20Collateral(
+                    order.maker,
+                    order.collateralToken,
+                    order.remainingAmount,
+                    order.pricePerToken,
+                    order.makerFeeBps
+                );
+            }
+        } else {
+            LibCollateralManager.releaseERC1155Collateral(order.maker, order.positionId, order.remainingAmount);
+        }
         removeOrderFromOrderbook(order);
 
         delete ds.orderbookStorage.orders[orderId];
@@ -154,7 +190,7 @@ library LibOrderbook {
             collateralToken: order.collateralToken,
             direction: order.direction
         });
-        LibEscrowLogic.adjustCollateralForModifiedOrder(modifyCtx);
+        LibCollateralManager.adjustCollateralForModifiedOrder(modifyCtx);
 
         uint256 oldMinFill = order.minFillAmount;
         uint256 oldExpiry = order.expiry;

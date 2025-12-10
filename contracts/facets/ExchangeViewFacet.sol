@@ -2,7 +2,7 @@
 pragma solidity ^0.8.6;
 
 import {LibDoefinStorage} from "../libraries/LibDoefinStorage.sol";
-import {LibEscrowLogic} from "../libraries/LibEscrowLogic.sol";
+import {LibCollateralManager} from "../libraries/LibCollateralManager.sol";
 import {IExchangeView} from "../interfaces/IExchangeView.sol";
 
 /**
@@ -81,6 +81,6 @@ contract ExchangeViewFacet is IExchangeView {
         address[] calldata tokens,
         uint256[] calldata positionIds
     ) external view returns (uint256[] memory erc20Balances, uint256[] memory erc1155Balances) {
-        return LibEscrowLogic.getEscrowStatus(user, tokens, positionIds);
+        return LibCollateralManager.getEscrowStatus(user, tokens, positionIds);
     }
 }

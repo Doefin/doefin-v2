@@ -4,7 +4,6 @@ pragma solidity ^0.8.6;
 import {LibDoefinStorage} from "./LibDoefinStorage.sol";
 import {SafeERC20, IERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
-import {LibReentrancyGuard} from "./LibReentrancyGuard.sol";
 import {LibDiamond} from "./LibDiamond.sol";
 import {Errors} from "./Errors.sol";
 import {Events} from "./Events.sol";
@@ -60,14 +59,10 @@ library LibFeeManager {
         LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
         LibDoefinStorage.Order memory makerOrder = settlementExecCtx.makerOrder;
 
-        address token = makerOrder.collateralToken;
-        uint256 unitPerPair = ds.adminConfigStorage.unitPerPair[token];
+        uint256 unitPerPair = ds.adminConfigStorage.unitPerPair[makerOrder.collateralToken];
         if (unitPerPair == 0) revert Errors.TokenNotAllowed();
 
-        // Calculate normalized cost
         cost = Math.mulDiv(settlementExecCtx.fillableAmount, makerOrder.pricePerToken, unitPerPair);
-
-        // Calculate fees
         makerFee = Math.mulDiv(cost, makerOrder.makerFeeBps, 10_000);
         takerFee = Math.mulDiv(cost, makerOrder.takerFeeBps, 10_000);
     }
@@ -122,7 +117,7 @@ library LibFeeManager {
             settlementExecCtx.makerOrder.orderId,
             settlementExecCtx.takerOrder.orderId,
             settlementExecCtx.makerOrder.maker,
-            settlementExecCtx.takerOrder.taker,
+            settlementExecCtx.takerOrder.maker,
             settlementExecCtx.fillableAmount,
             settlementExecCtx.makerOrder.pricePerToken,
             makerFee,
@@ -143,34 +138,24 @@ library LibFeeManager {
      * @param recipient The address to send fees to (0 = use configured fee receiver)
      */
     function withdrawProtocolFees(address token, uint256 amount, address recipient) internal {
-        // Enforce admin access
         LibDiamond.enforceIsContractOwner();
 
         LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
 
-        // Validate token
         if (token == address(0)) revert Errors.InvalidTokenAddress();
 
-        // Get current fee balance
         uint256 availableFees = ds.escrowStorage.protocolFees[token];
         if (availableFees == 0) revert Errors.NoFeesToWithdraw();
 
-        // Determine withdrawal amount
         uint256 withdrawAmount = amount == 0 ? availableFees : amount;
         if (withdrawAmount > availableFees) revert Errors.InsufficientFeeBalance();
 
-        // Determine recipient
         address feeRecipient = recipient == address(0) ? ds.adminConfigStorage.feeReceiver : recipient;
         if (feeRecipient == address(0)) revert Errors.InvalidFeeReceiver();
 
-        // Update fee balance
         ds.escrowStorage.protocolFees[token] -= withdrawAmount;
 
-        LibReentrancyGuard._nonReentrantBefore();
-        // Transfer fees
         IERC20(token).safeTransfer(feeRecipient, withdrawAmount);
-
-        LibReentrancyGuard._nonReentrantAfter();
 
         emit Events.ProtocolFeesWithdrawn(token, feeRecipient, withdrawAmount, ds.escrowStorage.protocolFees[token]);
     }
@@ -194,9 +179,7 @@ library LibFeeManager {
         if (tokens.length != amounts.length) revert Errors.ArrayLengthMismatch();
 
         for (uint256 i = 0; i < tokens.length; i++) {
-            if (getAccumulatedFees(tokens[i]) > 0) {
-                withdrawProtocolFees(tokens[i], amounts[i], recipient);
-            }
+            withdrawProtocolFees(tokens[i], amounts[i], recipient);
         }
     }
 
