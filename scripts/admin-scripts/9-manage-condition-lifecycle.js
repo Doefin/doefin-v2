@@ -6,7 +6,11 @@ async function main() {
     const DIAMOND_ADDRESS = process.env.DIAMOND_ADDRESS;
     const CONDITION_ID = process.env.CONDITION_ID;
     const COLLATERAL_TOKEN = process.env.MOCK_TOKEN_ADDRESS;
-    const QUESTION_ID = process.env.QUESTION_ID || "0x8cdf8b03900ebb65e57f2e8030d95c23f32b7789e797d029104d938e6f22792d";
+    const QUESTION_ID = process.env.QUESTION_ID;
+    
+    if (!QUESTION_ID) {
+        throw new Error("❌ Please set QUESTION_ID in .env file");
+    }
     
     // Simple operation config
     const operation = process.env.OPERATION || "reportPayouts";
