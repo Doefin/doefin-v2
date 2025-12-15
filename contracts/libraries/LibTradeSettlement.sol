@@ -551,6 +551,16 @@ library LibTradeSettlement {
             );
         }
         LibFeeManager.accrueFees(makerQuoteFee, takerQuoteFee, settlementExecCtx);
+
+        emit Events.CrossCurrencySettlement(
+            takerOrder.maker,
+            makerOrder.maker,
+            makerOrder.orderId,
+            quoteCurrencyToken,
+            fillAmount,
+            exchangeRate,
+            makerQuoteFee + takerQuoteFee
+        );
     }
 
     /**
