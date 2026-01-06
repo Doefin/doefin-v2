@@ -3,6 +3,7 @@ pragma solidity ^0.8.6;
 
 import {LibDoefinStorage} from "../libraries/LibDoefinStorage.sol";
 import {LibCollateralManager} from "../libraries/LibCollateralManager.sol";
+import {LibPositionRegistry} from "../libraries/LibPositionRegistry.sol";
 import {IExchangeView} from "../interfaces/IExchangeView.sol";
 
 /**
@@ -43,11 +44,12 @@ contract ExchangeViewFacet is IExchangeView {
      */
     function getOrderbook(uint256 positionId, LibDoefinStorage.OrderDirection direction) external view returns (uint256[] memory) {
         LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
-
+        address collateralToken = LibPositionRegistry.getCollateralToken(positionId);
+        bytes32 bookId = keccak256(abi.encodePacked(positionId, collateralToken));
         if (direction == LibDoefinStorage.OrderDirection.Buy) {
-            return ds.orderbookStorage.buyOrdersByPosition[positionId];
+            return ds.orderbookStorage.buyOrdersByPositionAndCurrency[bookId];
         } else {
-            return ds.orderbookStorage.sellOrdersByPosition[positionId];
+            return ds.orderbookStorage.sellOrdersByPositionAndCurrency[bookId];
         }
     }
 

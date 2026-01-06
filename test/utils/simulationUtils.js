@@ -1,7 +1,9 @@
 const MATCH_TYPE_LABELS = {
-  0: "Complementary",
-  1: "Mint",
-  2: "Merge",
+  0: "None",
+  1: "Complementary",
+  2: "Mint",
+  3: "Merge",
+  4: "CrossCurrency",
 };
 
 /**

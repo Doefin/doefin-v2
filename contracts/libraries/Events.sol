@@ -213,7 +213,6 @@ library Events {
     /// @param takerFeeBps Taker fee in basis points
     /// @param orderType Type of order (Standard or CrossCurrency)
     /// @param quoteCurrencyToken Quote currency token address (only for CrossCurrency orders)
-    /// @param exchangeRateType Exchange rate type (Fixed or Dynamic)
     /// @param exchangeRate Exchange rate (interpretation depends on exchangeRateType)
     event OrderCreated(
         uint256 indexed orderId,
@@ -231,7 +230,6 @@ library Events {
         uint16 takerFeeBps,
         LibDoefinStorage.OrderType orderType,
         address quoteCurrencyToken,
-        LibDoefinStorage.ExchangeRateType exchangeRateType,
         uint256 exchangeRate
     );
 

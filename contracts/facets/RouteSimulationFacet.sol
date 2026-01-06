@@ -7,6 +7,8 @@ pragma solidity ^0.8.6;
 import {LibDoefinStorage} from "../libraries/LibDoefinStorage.sol";
 import {IRouteSimulation} from "../interfaces/IRouteSimulation.sol";
 import {LibMatchEngine} from "../libraries/LibMatchEngine.sol";
+import {LibPositionRegistry} from "../libraries/LibPositionRegistry.sol";
+import {Errors} from "../libraries/Errors.sol";
 
 contract RouteSimulationFacet is IRouteSimulation {
     /// @notice Simulate a market order and return the best match route without executing it
@@ -20,20 +22,18 @@ contract RouteSimulationFacet is IRouteSimulation {
     }
 
     /// @notice Simulate a cross-currency market order and return the best match route without executing it
-    /// @dev This function simulates matching against compatible cross-currency orders only
-    ///      Cross-currency orders can only match complementary orders (no mint/merge)
-    ///      Orders must have matching quote currencies and be on the same position
-    /// @param positionId The position ID to trade
-    /// @param amount The desired amount to trade
-    /// @param direction Buy or Sell direction
-    /// @param quoteCurrencyToken The quote currency token to match orders against
-    /// @return The simulated match route with prices in quote currency
+    /// @dev Cross-currency simulation using the unified LibMatchEngine approach
+    /// @param positionId The position token ID to trade
+    /// @param sharesOrBudgetAmount For BUY: collateral budget to spend. For SELL: token shares to sell
+    /// @param direction The order direction (Buy or Sell)
+    /// @param quoteCurrencyToken The quote currency token address for cross-currency orders
+    /// @return route The match route with totalInputAmount and totalOutputAmount
     function simulateCrossCurrencyMarketOrder(
         uint256 positionId,
-        uint256 amount,
+        uint256 sharesOrBudgetAmount,
         LibDoefinStorage.OrderDirection direction,
         address quoteCurrencyToken
     ) external view override returns (LibDoefinStorage.MatchOrderRoute memory) {
-        return LibMatchEngine.simulateCrossCurrencyMarketOrder(positionId, amount, direction, quoteCurrencyToken);
+        return LibMatchEngine.simulateCrossCurrencyMarketOrder(positionId, sharesOrBudgetAmount, direction, quoteCurrencyToken);
     }
 }

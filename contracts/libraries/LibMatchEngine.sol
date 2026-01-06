@@ -14,6 +14,66 @@ import {Events} from "./Events.sol";
 library LibMatchEngine {
     using LibDoefinStorage for LibDoefinStorage.AppStorage;
 
+    /// @notice Simulate a cross-currency market order
+    /// @param positionId The position token ID to trade
+    /// @param sharesOrBudgetAmount For BUY: collateral budget to spend. For SELL: token shares to sell
+    /// @param direction The order direction (Buy or Sell)
+    /// @param quoteCurrencyToken The quote currency token address
+    /// @return route The match route with totalInputAmount and totalOutputAmount
+    function simulateCrossCurrencyMarketOrder(
+        uint256 positionId,
+        uint256 sharesOrBudgetAmount,
+        LibDoefinStorage.OrderDirection direction,
+        address quoteCurrencyToken
+    ) internal view returns (LibDoefinStorage.MatchOrderRoute memory route) {
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
+
+        if (quoteCurrencyToken == address(0)) revert Errors.InvalidQuoteCurrencyToken();
+
+        // Validate quote currency is allowed
+        if (ds.adminConfigStorage.unitPerPair[quoteCurrencyToken] == 0) revert Errors.TokenNotAllowed();
+
+        // If the position is not registered yet, return an empty route instead of reverting
+        bytes32 marketKey = ds.positionRegistry.marketKeyByPositionId[positionId];
+        if (marketKey == bytes32(0)) {
+            route.matches = new LibDoefinStorage.Match[](0);
+            return route;
+        }
+
+        address collateralToken = ds.positionRegistry.marketsByKey[marketKey].collateralToken;
+        if (collateralToken == address(0)) revert Errors.InvalidPositionId();
+
+        // Create cross-currency data for simulation
+        LibDoefinStorage.CrossCurrencyData memory crossCurrencyData = LibDoefinStorage.CrossCurrencyData({
+            quoteCurrencyToken: quoteCurrencyToken,
+            floorRate: 0 // No floor rate constraint for simulation
+        });
+        uint256 collateralUnit = ds.adminConfigStorage.unitPerPair[collateralToken];
+        if (collateralUnit == 0) revert Errors.TokenNotAllowed();
+
+        // Retrieve cross-currency books using unified approach
+        (uint256[] storage complementaryOrders, uint256[] storage quoteOrders, LibDoefinStorage.MatchType siblingMatchType) = retrieveTheBooksAndMatchType(
+            positionId,
+            collateralToken,
+            direction,
+            crossCurrencyData,
+            LibDoefinStorage.OrderType.Dynamic // Simulate as Dynamic order for oracle-based pricing
+        );
+
+        // Create simulation context
+        LibDoefinStorage.SimulationContext memory simCtx = LibDoefinStorage.SimulationContext({
+            complementaryOrders: complementaryOrders,
+            mintOrMergeOrders: quoteOrders,
+            siblingMatchType: siblingMatchType,
+            direction: direction,
+            collateralUnit: collateralUnit,
+            sharesOrBudgetAmount: sharesOrBudgetAmount,
+            matchCount: 0
+        });
+
+        return _simulateWithContext(simCtx);
+    }
+
     /// @notice Simulate a market order and return the best match route
     /// @dev Two distinct paths:
     ///      1. SELL: Specify shares to sell → get collateral revenue
@@ -34,10 +94,17 @@ library LibMatchEngine {
         uint256[] storage mintOrMergeOrders;
         uint256[] storage complementaryOrders;
         LibDoefinStorage.MatchType siblingMatchType;
-        (complementaryOrders, mintOrMergeOrders, siblingMatchType) = retrieveTheBooksAndMatchType(positionId, direction);
+        address collateralToken = LibPositionRegistry.getCollateralToken(positionId);
+        (complementaryOrders, mintOrMergeOrders, siblingMatchType) = retrieveTheBooksAndMatchType(
+            positionId,
+            collateralToken,
+            direction,
+            LibDoefinStorage.CrossCurrencyData(address(0), 0),
+            LibDoefinStorage.OrderType.Standard
+        );
 
         // Inline retrieveCollateralUnit
-        address collateralToken = LibPositionRegistry.getCollateralToken(positionId);
+
         uint256 collateralUnit = ds.adminConfigStorage.unitPerPair[collateralToken];
         if (collateralUnit == 0) revert Errors.TokenNotAllowed();
 
@@ -54,97 +121,83 @@ library LibMatchEngine {
         return _simulateWithContext(simCtx);
     }
 
-    /// @notice Simulate a cross-currency market order and return the best match route
-    /// @dev Cross-currency orders can only match complementary orders on the same position
-    ///      with the same quote currency. Mint/merge matches are excluded.
-    /// @param positionId The position ID to trade
-    /// @param desiredMarketAmount The desired amount to trade
-    /// @param direction Buy or Sell direction
-    /// @param quoteCurrencyToken The quote currency token to match orders against
-    /// @return route The simulated match route with prices in quote currency
-    function simulateCrossCurrencyMarketOrder(
-        uint256 positionId,
-        uint256 desiredMarketAmount,
-        LibDoefinStorage.OrderDirection direction,
-        address quoteCurrencyToken
-    ) internal view returns (LibDoefinStorage.MatchOrderRoute memory route) {
-        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
-
-        // Validate quote currency token
-        if (quoteCurrencyToken == address(0)) {
-            revert Errors.InvalidQuoteCurrencyToken();
-        }
-
-        uint256 quoteUnitPerPair = ds.adminConfigStorage.unitPerPair[quoteCurrencyToken];
-        if (quoteUnitPerPair == 0) {
-            revert Errors.TokenNotAllowed();
-        }
-
-        // Get complementary orders only (cross-currency can't use mint/merge)
-        uint256[] storage complementaryOrders;
-        bool isBuy = direction == LibDoefinStorage.OrderDirection.Buy;
-        complementaryOrders = isBuy ? ds.orderbookStorage.sellOrdersByPosition[positionId] : ds.orderbookStorage.buyOrdersByPosition[positionId];
-
-        // Filter to only compatible cross-currency orders
-        uint256[] memory compatibleOrderIds = _filterCrossCurrencyCompatibleOrders(complementaryOrders, quoteCurrencyToken);
-
-        // Use quote currency unit for price calculations
-        return _simulateCrossCurrencyWithOrders(compatibleOrderIds, desiredMarketAmount, direction, quoteUnitPerPair);
-    }
-
-    function findPotentialMatchesForOrder(uint256 takerId) internal view returns (uint256[] memory makerIds) {
+    function findPotentialMatchesForOrder(
+        uint256 takerId,
+        LibDoefinStorage.CrossCurrencyData memory crossCurrencyData,
+        LibDoefinStorage.OrderType takerOrderType
+    ) internal view returns (uint256[] memory makerIds) {
         LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
         LibDoefinStorage.Order storage takerOrder = ds.orderbookStorage.orders[takerId];
 
-        (uint256[] storage compOrders, uint256[] storage sibOrders, LibDoefinStorage.MatchType siblingMatchType) = retrieveTheBooksAndMatchType(
-            takerOrder.positionId,
-            takerOrder.direction
-        );
+        // Check oracle staleness for cross-currency orders at matching time
+        if (takerOrderType != LibDoefinStorage.OrderType.Standard) {
+            if (takerOrderType == LibDoefinStorage.OrderType.Dynamic) {
+                if (LibQuoteCurrency.isOracleStale(crossCurrencyData.quoteCurrencyToken, takerOrder.collateralToken)) {
+                    revert Errors.OraclePriceStale();
+                }
+            }
+        }
 
-        if (compOrders.length == 0 && sibOrders.length == 0) {
+        (
+            uint256[] storage compOrders,
+            uint256[] storage siblingOrQuoteBook,
+            LibDoefinStorage.MatchType siblingMatchType
+        ) = retrieveTheBooksAndMatchType(takerOrder.positionId, takerOrder.collateralToken, takerOrder.direction, crossCurrencyData, takerOrderType);
+
+        if (compOrders.length == 0 && siblingOrQuoteBook.length == 0) {
             return makerIds;
         }
 
-        makerIds = _findCrossingOrderIds(takerOrder, compOrders, sibOrders, siblingMatchType);
+        makerIds = _findCrossingOrderIds(takerOrder, compOrders, siblingOrQuoteBook, siblingMatchType, takerOrderType);
     }
 
+    /// @notice Find crossing orders for a taker order from two books
+    /// @param takerOrder The taker order
+    /// @param complementaryBook Complementary order IDs storage array
+    /// @param siblingOrQuoteBook Sibling (mint/merge) or quote currency order IDs storage array based on match type
+    /// @param matchType The match type for sibling orders
+    /// @param takerOrderType The type of the taker order
+    /// @return makerIds Array of crossing maker order IDs
     function _findCrossingOrderIds(
         LibDoefinStorage.Order memory takerOrder,
-        uint256[] storage complementaryOrders,
-        uint256[] storage mintOrMergeOrders,
-        LibDoefinStorage.MatchType siblingMatchType
+        uint256[] storage complementaryBook,
+        uint256[] storage siblingOrQuoteBook,
+        LibDoefinStorage.MatchType matchType,
+        LibDoefinStorage.OrderType takerOrderType
     ) internal view returns (uint256[] memory makerIds) {
         LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
-        uint256 totalPotential = complementaryOrders.length + mintOrMergeOrders.length;
+
+        uint256 totalPotential = complementaryBook.length + siblingOrQuoteBook.length;
         uint256[] memory tempIds = new uint256[](totalPotential);
         uint256 remaining = takerOrder.remainingAmount;
         uint256 count = 0;
         uint256 i = 0;
         uint256 j = 0;
 
-        // Cache taker price once before loop
-        uint256 takerPriceForComparison = takerOrder.pricePerToken;
-        if (takerOrder.executionType != LibDoefinStorage.ExecutionType.Market && takerOrder.orderType == LibDoefinStorage.OrderType.CrossCurrency) {
-            takerPriceForComparison = _effectiveTakerPriceCrossCurrency(takerOrder, takerOrder.direction, LibDoefinStorage.MatchType.Complementary);
-        }
+        // Cache taker price once (converted to quote currency if CC)
+        uint256 takerPriceForComparison = _getTakerComparisonPrice(takerOrder, takerOrderType);
 
-        while (remaining > 0 && (i < complementaryOrders.length || j < mintOrMergeOrders.length)) {
-            bool compAvailable = i < complementaryOrders.length;
-            bool sibAvailable = j < mintOrMergeOrders.length;
-            LibDoefinStorage.Order memory compOrder;
-            LibDoefinStorage.Order memory sibOrder;
-            if (compAvailable) compOrder = ds.orderbookStorage.orders[complementaryOrders[i]];
-            if (sibAvailable) sibOrder = ds.orderbookStorage.orders[mintOrMergeOrders[j]];
+        while (remaining > 0 && (i < complementaryBook.length || j < siblingOrQuoteBook.length)) {
+            bool compAvailable = i < complementaryBook.length;
+            bool sibAvailable = j < siblingOrQuoteBook.length;
 
-            bool compOrderValid = compAvailable && compOrder.remainingAmount > 0;
-            bool sibOrderValid = sibAvailable && sibOrder.remainingAmount > 0;
+            LibDoefinStorage.Order memory complementaryOrder;
+            LibDoefinStorage.Order memory siblingOrQuoteOrder;
+
+            if (compAvailable) complementaryOrder = ds.orderbookStorage.orders[complementaryBook[i]];
+            if (sibAvailable) siblingOrQuoteOrder = ds.orderbookStorage.orders[siblingOrQuoteBook[j]];
+
+            bool compOrderValid = compAvailable && complementaryOrder.remainingAmount > 0;
+            bool sibOrderValid = sibAvailable && siblingOrQuoteOrder.remainingAmount > 0;
+
             (LibDoefinStorage.Match memory execution, bool pickComp, bool exhausted) = _pickBestOrder(
-                compOrder,
-                sibOrder,
+                complementaryOrder,
+                siblingOrQuoteOrder,
                 compOrderValid,
                 sibOrderValid,
                 takerOrder.direction,
-                siblingMatchType,
+                matchType,
+                takerOrderType,
                 remaining
             );
             if (exhausted) break;
@@ -161,22 +214,59 @@ library LibMatchEngine {
             }
 
             uint256 fillAmount = execution.amount;
-            LibDoefinStorage.Order memory best = pickComp ? compOrder : sibOrder;
+            LibDoefinStorage.Order memory best = pickComp ? complementaryOrder : siblingOrQuoteOrder;
+            (LibDoefinStorage.OrderType bestOrderType, ) = LibQuoteCurrency.getOrderTypeAndCCData(best.orderId);
 
-            if (takerOrder.orderType == LibDoefinStorage.OrderType.CrossCurrency) {
-                if (!pickComp) {
-                    j++;
+            if (takerOrderType != LibDoefinStorage.OrderType.Standard) {
+                // Cross-currency taker: only match with cross-currency makers
+                if (bestOrderType == LibDoefinStorage.OrderType.Standard) {
+                    if (pickComp) i++;
+                    else j++;
                     continue;
                 }
+
+                // Check cross-currency compatibility (quote currency match)
                 if (!_areOrdersCompatibleForCrossCurrency(takerOrder, best)) {
                     if (pickComp) i++;
                     else j++;
                     continue;
                 }
-            } else if (best.orderType == LibDoefinStorage.OrderType.CrossCurrency) {
-                if (pickComp) i++;
-                else j++;
-                continue;
+
+                // Check floor rate validation for Dynamic orders
+                if (bestOrderType == LibDoefinStorage.OrderType.Dynamic) {
+                    LibDoefinStorage.CrossCurrencyData memory bestCCData = getCrossCurrencyData(best.orderId);
+                    // Get current exchange rate and check against floor rate
+                    (uint256 currentRate, bool isStale) = LibQuoteCurrency.getOracleExchangeRate(bestCCData.quoteCurrencyToken, best.collateralToken);
+                    if (isStale) {
+                        if (pickComp) i++;
+                        else j++;
+                        continue;
+                    }
+
+                    // Check floor rate constraint
+                    if (best.direction == LibDoefinStorage.OrderDirection.Buy) {
+                        // Buy order: current rate must be >= floor rate (floor is minimum acceptable)
+                        if (currentRate < bestCCData.floorRate) {
+                            if (pickComp) i++;
+                            else j++;
+                            continue;
+                        }
+                    } else {
+                        // Sell order: current rate must be <= floor rate (floor is maximum acceptable)
+                        if (currentRate > bestCCData.floorRate) {
+                            if (pickComp) i++;
+                            else j++;
+                            continue;
+                        }
+                    }
+                }
+            } else {
+                // Standard taker: only match with standard makers
+                if (bestOrderType != LibDoefinStorage.OrderType.Standard) {
+                    if (pickComp) i++;
+                    else j++;
+                    continue;
+                }
             }
 
             if (fillAmount < takerOrder.minFillAmount || fillAmount < best.minFillAmount) {
@@ -203,38 +293,112 @@ library LibMatchEngine {
     function _areOrdersCompatibleForCrossCurrency(
         LibDoefinStorage.Order memory takerOrder,
         LibDoefinStorage.Order memory makerOrder
-    ) internal pure returns (bool compatible) {
+    ) internal view returns (bool compatible) {
         // Use LibQuoteCurrency compatibility logic
         return LibQuoteCurrency.areOrdersCompatible(takerOrder, makerOrder);
     }
 
+    /**
+     * @notice Get cross-currency data for an order
+     * @param orderId The order ID
+     * @return ccData The cross-currency data (empty if standard order)
+     */
+    function getCrossCurrencyData(uint256 orderId) internal view returns (LibDoefinStorage.CrossCurrencyData memory ccData) {
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
+        return ds.orderbookStorage.crossCurrencyData[orderId];
+    }
+
     function retrieveTheBooksAndMatchType(
         uint256 positionId,
-        LibDoefinStorage.OrderDirection direction
+        address collateralToken,
+        LibDoefinStorage.OrderDirection direction,
+        LibDoefinStorage.CrossCurrencyData memory crossCurrencyData,
+        LibDoefinStorage.OrderType takerOrderType
     )
         internal
         view
         returns (uint256[] storage complementaryOrders, uint256[] storage mintOrMergeOrders, LibDoefinStorage.MatchType siblingMatchType)
     {
         LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
-        // Determine sibling (complementary) position
-        uint256 complementPositionId = LibPositionRegistry.getComplement(positionId);
-
         bool isBuy = direction == LibDoefinStorage.OrderDirection.Buy;
+        bytes32 positionBookId = keccak256(abi.encodePacked(positionId, collateralToken));
 
-        // Get orderbooks
-        complementaryOrders = isBuy
-            ? ds.orderbookStorage.sellOrdersByPosition[positionId] // Buy YES → Sell YES (complementary)
-            : ds.orderbookStorage.buyOrdersByPosition[positionId]; // Sell YES → Buy YES (complementary)
+        if (takerOrderType == LibDoefinStorage.OrderType.Standard) {
+            // Standard orders: Get complementary book with standard orders only
+            complementaryOrders = isBuy
+                ? ds.orderbookStorage.sellOrdersByPositionAndCurrency[positionBookId] // Buy YES → Sell YES (complementary)
+                : ds.orderbookStorage.buyOrdersByPositionAndCurrency[positionBookId]; // Sell YES → Buy YES (complementary)
 
-        // Get the match type
-        if (isBuy) {
-            mintOrMergeOrders = ds.orderbookStorage.buyOrdersByPosition[complementPositionId]; // Buy NO → Mint YES
-            siblingMatchType = LibDoefinStorage.MatchType.Mint;
+            // Get sibling position book for mint/merge
+            uint256 complementPositionId = LibPositionRegistry.getComplement(positionId);
+            bytes32 complementaryBookId = keccak256(abi.encodePacked(complementPositionId, collateralToken));
+
+            if (isBuy) {
+                mintOrMergeOrders = ds.orderbookStorage.buyOrdersByPositionAndCurrency[complementaryBookId]; // Buy NO → Mint YES
+                siblingMatchType = LibDoefinStorage.MatchType.Mint;
+            } else {
+                mintOrMergeOrders = ds.orderbookStorage.sellOrdersByPositionAndCurrency[complementaryBookId]; // Sell NO → Merge YES
+                siblingMatchType = LibDoefinStorage.MatchType.Merge;
+            }
         } else {
-            mintOrMergeOrders = ds.orderbookStorage.sellOrdersByPosition[complementPositionId]; // Sell NO → Merge YES
-            siblingMatchType = LibDoefinStorage.MatchType.Merge;
+            // Cross-currency orders: Get complementary book with cross-currency orders only
+            complementaryOrders = isBuy
+                ? ds.orderbookStorage.sellOrdersByPositionAndCurrency[positionBookId] // Buy YES → Sell YES (complementary)
+                : ds.orderbookStorage.buyOrdersByPositionAndCurrency[positionBookId]; // Sell YES → Buy YES (complementary)
+
+            // Get quote currency book (same position, quote currency)
+            bytes32 quoteBookId = keccak256(abi.encodePacked(positionId, crossCurrencyData.quoteCurrencyToken));
+            siblingMatchType = LibDoefinStorage.MatchType.CrossCurrency;
+            mintOrMergeOrders = isBuy
+                ? ds.orderbookStorage.sellOrdersByPositionAndCurrency[quoteBookId] // Buy YES → Sell YES (quote currency book)
+                : ds.orderbookStorage.buyOrdersByPositionAndCurrency[quoteBookId]; // Sell YES → Buy YES (quote currency book)
         }
+    }
+
+    /**
+     * @notice Get taker's price for comparison (in quote currency if cross-currency)
+     * @dev For cross-currency orders:
+     *      - Fixed: pricePerToken already in quote currency → use directly
+     *      - Dynamic: pricePerToken in collateral currency → convert to quote currency
+     *      For standard orders: use price as-is (in collateral)
+     */
+    function _getTakerComparisonPrice(LibDoefinStorage.Order memory takerOrder, LibDoefinStorage.OrderType takerType) private view returns (uint256) {
+        if (takerType == LibDoefinStorage.OrderType.Standard) {
+            // Standard: use price as-is (in collateral)
+            return takerOrder.pricePerToken;
+        }
+
+        // Cross-currency orders: convert to quote currency
+        if (takerType == LibDoefinStorage.OrderType.Fixed) {
+            // Fixed: pricePerToken already in quote currency
+            return takerOrder.pricePerToken;
+        } else {
+            // Dynamic: convert from collateral to quote currency using oracle
+            (uint256 quotePrice, bool stale) = LibQuoteCurrency.calculateQuoteCurrencyPrice(takerOrder, true);
+
+            if (stale) revert Errors.OraclePriceStale();
+
+            return quotePrice;
+        }
+    }
+
+    function _getBookIdForPositionAndCurrency(LibDoefinStorage.Order memory order) internal view returns (bytes32) {
+        address pricingCurrency;
+        (LibDoefinStorage.OrderType orderType, LibDoefinStorage.CrossCurrencyData memory ccData) = LibQuoteCurrency.getOrderTypeAndCCData(
+            order.orderId
+        );
+        if (orderType != LibDoefinStorage.OrderType.Fixed) {
+            // Standard or Dynamic: priced in collateral
+            pricingCurrency = order.collateralToken;
+        } else {
+            // Fixed CC: priced in quote currency
+            pricingCurrency = ccData.quoteCurrencyToken;
+        }
+
+        // STEP 2: Generate book key
+        bytes32 bookId = keccak256(abi.encodePacked(order.positionId, pricingCurrency));
+
+        return bookId;
     }
 
     function _computeBestMatchExecution(
@@ -254,13 +418,17 @@ library LibMatchEngine {
             pickComp = direction == LibDoefinStorage.OrderDirection.Buy ? effCompPrice <= effSibPrice : effCompPrice >= effSibPrice;
         }
 
-        LibDoefinStorage.Order memory best = pickComp ? compOrder : sibOrder;
-        LibDoefinStorage.MatchType matchType = pickComp ? LibDoefinStorage.MatchType.Complementary : siblingMatchType;
+        LibDoefinStorage.Order memory bestOrder = pickComp ? compOrder : sibOrder;
+        LibDoefinStorage.MatchType bestOrderMatchType = pickComp ? LibDoefinStorage.MatchType.Complementary : siblingMatchType;
         uint256 bestPrice = pickComp ? effCompPrice : effSibPrice;
 
-        uint256 fillAmount = remaining < best.remainingAmount ? remaining : best.remainingAmount;
-
-        execution = LibDoefinStorage.Match({matchedOrderId: best.orderId, matchType: matchType, amount: fillAmount, effectivePrice: bestPrice});
+        uint256 fillAmount = remaining < bestOrder.remainingAmount ? remaining : bestOrder.remainingAmount;
+        execution = LibDoefinStorage.Match({
+            matchedOrderId: bestOrder.orderId,
+            matchType: bestOrderMatchType,
+            amount: fillAmount,
+            effectivePrice: bestPrice
+        });
     }
 
     function _selectBestMatch(
@@ -283,9 +451,43 @@ library LibMatchEngine {
             sibAvailable && sibOrder.remainingAmount > 0,
             ctx.direction,
             ctx.siblingMatchType,
+            LibDoefinStorage.OrderType.Standard,
             remaining
         );
         if (!compAvailable && !sibAvailable) revert Errors.NoMatchableOrders();
+    }
+
+    struct MatchDecision {
+        LibDoefinStorage.MatchType matchType;
+        bool pickComp;
+        bool exhausted;
+    }
+
+    function _lookupDecision(
+        LibDoefinStorage.OrderType takerOrderType,
+        uint8 availability,
+        LibDoefinStorage.MatchType siblingMatchType
+    ) internal pure returns (MatchDecision memory d) {
+        if (availability == 0) {
+            return MatchDecision(LibDoefinStorage.MatchType.None, false, true);
+        }
+
+        if (availability == 3) {
+            return MatchDecision(LibDoefinStorage.MatchType.None, false, false); // defer to best-match
+        }
+
+        bool sibOnly = availability == 1;
+
+        if (takerOrderType == LibDoefinStorage.OrderType.Standard) {
+            return sibOnly ? MatchDecision(siblingMatchType, false, false) : MatchDecision(LibDoefinStorage.MatchType.Complementary, true, false);
+        }
+
+        // Cross-currency orders: all matches are CrossCurrency type
+        if (sibOnly) {
+            return MatchDecision(LibDoefinStorage.MatchType.CrossCurrency, false, false);
+        }
+
+        return MatchDecision(LibDoefinStorage.MatchType.CrossCurrency, true, false);
     }
 
     function _pickBestOrder(
@@ -295,18 +497,25 @@ library LibMatchEngine {
         bool sibAvailable,
         LibDoefinStorage.OrderDirection direction,
         LibDoefinStorage.MatchType siblingMatchType,
+        LibDoefinStorage.OrderType takerOrderType,
         uint256 remaining
     ) internal view returns (LibDoefinStorage.Match memory execution, bool pickComp, bool exhausted) {
-        if (!compAvailable && !sibAvailable) {
-            return (execution, false, true); // exhausted
+        uint8 availability = (compAvailable ? 2 : 0) | (sibAvailable ? 1 : 0);
+
+        MatchDecision memory d = _lookupDecision(takerOrderType, availability, siblingMatchType);
+
+        if (d.exhausted) {
+            return (execution, false, true);
         }
-        if (!compAvailable) {
-            return _singleExecution(sibOrder, siblingMatchType, direction, remaining, false);
+
+        // Single-sided execution
+        if (availability != 3) {
+            return _singleExecution(d.pickComp ? compOrder : sibOrder, d.matchType, direction, remaining, d.pickComp);
         }
-        if (!sibAvailable) {
-            return _singleExecution(compOrder, LibDoefinStorage.MatchType.Complementary, direction, remaining, true);
-        }
+
+        // Both available → best match
         (execution, pickComp) = _computeBestMatchExecution(compOrder, sibOrder, direction, siblingMatchType, remaining);
+
         return (execution, pickComp, false);
     }
 
@@ -317,7 +526,11 @@ library LibMatchEngine {
         uint256 remaining,
         bool isComplementaryOrder
     ) internal view returns (LibDoefinStorage.Match memory execution, bool pickComp, bool exhausted) {
-        uint256 price = effectiveTakerPrice(order, direction, matchType);
+        uint256 price = effectiveTakerPrice(
+            order,
+            direction,
+            matchType == LibDoefinStorage.MatchType.None ? LibDoefinStorage.MatchType.Complementary : matchType
+        );
         execution = LibDoefinStorage.Match({
             matchedOrderId: order.orderId,
             matchType: matchType,
@@ -434,32 +647,49 @@ library LibMatchEngine {
     /// @dev This function computes the all-in price from the taker's perspective, including fees:
     ///      - For BUY orders: returns the total cost per token (base price + taker fee)
     ///      - For SELL orders: returns the net revenue per token (base price - taker fee)
+    ///      - For Cross-Currency orders: returns price in quote currency units
     ///
     ///      Price calculation varies by match type:
     ///      1. Complementary matches: Uses maker's price directly (same position, opposite direction)
     ///      2. Mint/Merge matches: Uses complementary price (unitPerPair - maker's price) since
     ///         the taker is trading the opposite outcome
-    ///
-    ///      Example scenarios:
-    ///      - BUY taker + complementary SELL at 0.6 USDC with 1% taker fee:
-    ///        basePrice = 0.6, effectivePrice = 0.606 (taker pays 0.606 per token)
-    ///      - BUY taker minting against complementary BUY at 0.6 USDC:
-    ///        basePrice = 1 - 0.6 = 0.4, effectivePrice = 0.404 with 1% fee
+    ///      3. Cross-Currency: Always uses quote currency pricing to avoid recomputation in settlement
     ///
     /// @param makerOrder The maker order being matched against
     /// @param takerDirection The direction of the taker order (Buy or Sell)
-    /// @param matchType The type of match (Complementary, Mint, or Merge)
-    /// @return The effective price per token in collateral token's smallest unit, scaled by unitPerPair.
-    ///         This is the actual amount the taker pays (buy) or receives (sell) per position token
+    /// @param matchType The type of match (Complementary, Mint, Merge, or CrossCurrency)
+    /// @return The effective price per token. For cross-currency: in quote currency units. For standard: in collateral token units
     function effectiveTakerPrice(
         LibDoefinStorage.Order memory makerOrder,
         LibDoefinStorage.OrderDirection takerDirection,
         LibDoefinStorage.MatchType matchType
     ) internal view returns (uint256) {
-        if (makerOrder.orderType == LibDoefinStorage.OrderType.CrossCurrency) {
-            return _effectiveTakerPriceCrossCurrency(makerOrder, takerDirection, matchType);
+        (LibDoefinStorage.OrderType makerOrderType, ) = LibQuoteCurrency.getOrderTypeAndCCData(makerOrder.orderId);
+
+        // Handle cross-currency orders
+        if (makerOrderType != LibDoefinStorage.OrderType.Standard) {
+            if (matchType != LibDoefinStorage.MatchType.Complementary && matchType != LibDoefinStorage.MatchType.CrossCurrency) {
+                revert Errors.NonComplementaryCrossCurrencyMatch();
+            }
+
+            uint256 quoteCurrencyPrice;
+            if (makerOrderType == LibDoefinStorage.OrderType.Fixed) {
+                // Fixed: pricePerToken already in quote currency
+                quoteCurrencyPrice = makerOrder.pricePerToken;
+            } else {
+                // Dynamic: convert from collateral to quote currency using oracle
+                bool isStale;
+                (quoteCurrencyPrice, isStale) = LibQuoteCurrency.calculateQuoteCurrencyPrice(makerOrder, true);
+
+                if (isStale) {
+                    revert Errors.OraclePriceStale();
+                }
+            }
+
+            return _applyTakerFee(quoteCurrencyPrice, makerOrder.takerFeeBps, takerDirection == LibDoefinStorage.OrderDirection.Buy);
         }
 
+        // Handle standard orders
         uint256 basePrice;
         if (matchType == LibDoefinStorage.MatchType.Complementary) {
             basePrice = makerOrder.pricePerToken;
@@ -470,32 +700,6 @@ library LibMatchEngine {
         }
 
         return _applyTakerFee(basePrice, makerOrder.takerFeeBps, takerDirection == LibDoefinStorage.OrderDirection.Buy);
-    }
-
-    /**
-     * @notice Calculate effective taker price for cross-currency orders
-     * @param makerOrder The cross-currency maker order
-     * @param takerDirection The taker's order direction
-     * @param matchType The match type (must be Complementary for cross-currency)
-     * @return The effective price in quote currency units
-     */
-    function _effectiveTakerPriceCrossCurrency(
-        LibDoefinStorage.Order memory makerOrder,
-        LibDoefinStorage.OrderDirection takerDirection,
-        LibDoefinStorage.MatchType matchType
-    ) internal view returns (uint256) {
-        if (matchType != LibDoefinStorage.MatchType.Complementary) {
-            revert Errors.NonComplementaryCrossCurrencyMatch();
-        }
-
-        bool useOracleRate = (makerOrder.exchangeRateType == LibDoefinStorage.ExchangeRateType.Dynamic);
-        (uint256 quoteCurrencyPrice, bool isStale) = LibQuoteCurrency.calculateQuoteCurrencyPrice(makerOrder, useOracleRate);
-
-        if (isStale) {
-            revert Errors.OraclePriceStale();
-        }
-
-        return _applyTakerFee(quoteCurrencyPrice, makerOrder.takerFeeBps, takerDirection == LibDoefinStorage.OrderDirection.Buy);
     }
 
     /// @notice Calculate the effective price from maker's perspective (includes maker fees)
@@ -545,149 +749,5 @@ library LibMatchEngine {
         for (uint256 k = 0; k < count; k++) {
             result[k] = temp[k];
         }
-    }
-
-    /**
-     * @notice Filter orders to find compatible cross-currency orders
-     * @dev Returns only orders that:
-     *      - Are cross-currency orders
-     *      - Have matching quote currency
-     *      - Have remaining amount > 0
-     *      Note: Position and direction are already guaranteed by the orderIds source
-     * @param orderIds Storage array of order IDs to filter (already complementary orders for the position)
-     * @param quoteCurrencyToken The quote currency to match
-     * @return compatibleIds Array of compatible order IDs
-     */
-    function _filterCrossCurrencyCompatibleOrders(
-        uint256[] storage orderIds,
-        address quoteCurrencyToken
-    ) internal view returns (uint256[] memory compatibleIds) {
-        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
-        uint256[] memory tempIds = new uint256[](orderIds.length);
-        uint256 count = 0;
-
-        for (uint256 i = 0; i < orderIds.length; i++) {
-            LibDoefinStorage.Order storage order = ds.orderbookStorage.orders[orderIds[i]];
-
-            // Check if order is cross-currency
-            if (order.orderType != LibDoefinStorage.OrderType.CrossCurrency) {
-                continue;
-            }
-
-            // Check if it has remaining amount
-            if (order.remainingAmount == 0) {
-                continue;
-            }
-
-            // Check if quote currencies match
-            if (order.quoteCurrencyToken != quoteCurrencyToken) {
-                continue;
-            }
-
-            // Position already matches (we got orders from this position's book)
-            // Direction already opposite (we got complementary orders)
-
-            tempIds[count] = orderIds[i];
-            count++;
-        }
-
-        // Resize to actual count
-        compatibleIds = _finalizeUintArray(tempIds, count);
-    }
-
-    /**
-     * @notice Simulate cross-currency order matching with filtered compatible orders
-     * @dev Implements price-time priority: at each step, selects the best-priced available order
-     * @param compatibleOrderIds Array of compatible cross-currency order IDs
-     * @param desiredAmount The amount the taker wants to trade
-     * @param direction The taker's direction
-     * @param quoteUnitPerPair Unit per pair for quote currency
-     * @return route The simulated match route
-     */
-    function _simulateCrossCurrencyWithOrders(
-        uint256[] memory compatibleOrderIds,
-        uint256 desiredAmount,
-        LibDoefinStorage.OrderDirection direction,
-        uint256 quoteUnitPerPair
-    ) internal view returns (LibDoefinStorage.MatchOrderRoute memory route) {
-        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
-
-        if (compatibleOrderIds.length == 0) {
-            route.matches = new LibDoefinStorage.Match[](0);
-            route.totalInputAmount = 0;
-            route.totalOutputAmount = 0;
-            return route;
-        }
-
-        // Cache all orders upfront
-        LibDoefinStorage.Order[] memory orders = new LibDoefinStorage.Order[](compatibleOrderIds.length);
-        for (uint256 i = 0; i < compatibleOrderIds.length; i++) {
-            orders[i] = ds.orderbookStorage.orders[compatibleOrderIds[i]];
-        }
-
-        LibDoefinStorage.Match[] memory tempMatches = new LibDoefinStorage.Match[](compatibleOrderIds.length);
-        uint256 remaining = desiredAmount;
-        uint256 matchCount = 0;
-        route.totalInputAmount = 0;
-        route.totalOutputAmount = 0;
-
-        bool[] memory used = new bool[](compatibleOrderIds.length);
-        uint256[] memory remainingAmounts = new uint256[](compatibleOrderIds.length);
-        for (uint256 i = 0; i < compatibleOrderIds.length; i++) {
-            remainingAmounts[i] = orders[i].remainingAmount;
-        }
-
-        while (remaining > 0 && matchCount < compatibleOrderIds.length) {
-            uint256 bestIndex = type(uint256).max;
-            uint256 bestPrice = type(uint256).max;
-            uint256 bestCreatedAt = type(uint256).max;
-
-            for (uint256 i = 0; i < compatibleOrderIds.length; i++) {
-                if (used[i] || remainingAmounts[i] == 0) {
-                    used[i] = true;
-                    continue;
-                }
-
-                uint256 effectivePrice = _effectiveTakerPriceCrossCurrency(orders[i], direction, LibDoefinStorage.MatchType.Complementary);
-
-                bool isBetter = false;
-                if (direction == LibDoefinStorage.OrderDirection.Buy) {
-                    if (effectivePrice < bestPrice || (effectivePrice == bestPrice && orders[i].createdAt < bestCreatedAt)) {
-                        isBetter = true;
-                    }
-                } else {
-                    if (effectivePrice > bestPrice || (effectivePrice == bestPrice && orders[i].createdAt < bestCreatedAt)) {
-                        isBetter = true;
-                    }
-                }
-
-                if (isBetter) {
-                    bestIndex = i;
-                    bestPrice = effectivePrice;
-                    bestCreatedAt = orders[i].createdAt;
-                }
-            }
-
-            if (bestIndex == type(uint256).max) break;
-
-            uint256 fillAmount = remaining < remainingAmounts[bestIndex] ? remaining : remainingAmounts[bestIndex];
-
-            tempMatches[matchCount] = LibDoefinStorage.Match({
-                matchedOrderId: orders[bestIndex].orderId,
-                matchType: LibDoefinStorage.MatchType.Complementary,
-                amount: fillAmount,
-                effectivePrice: bestPrice
-            });
-
-            route.totalInputAmount += fillAmount;
-            route.totalOutputAmount += Math.mulDiv(fillAmount, bestPrice, quoteUnitPerPair);
-            remaining -= fillAmount;
-            remainingAmounts[bestIndex] -= fillAmount;
-            matchCount++;
-            used[bestIndex] = true;
-        }
-
-        route.matches = _finalizeMatches(tempMatches, matchCount);
-        return route;
     }
 }

@@ -203,8 +203,8 @@ describe("RouteSimulationFacet - Advanced Test Cases", function () {
       // Verify price ordering (should start with lowest prices)
       for (let i = 0; i < route.matches.length - 1; i++) {
         if (
-          route.matches[i].matchType === 0 &&
-          route.matches[i + 1].matchType === 0
+          route.matches[i].matchType === 1 &&
+          route.matches[i + 1].matchType === 1
         ) {
           expect(
             route.matches[i].effectivePrice.lte(
@@ -296,7 +296,7 @@ describe("RouteSimulationFacet - Advanced Test Cases", function () {
 
       // First match should be at best price
       const firstComplementaryMatch = route.matches.find(
-        (m) => m.matchType === 0
+        (m) => m.matchType === 1
       );
       if (firstComplementaryMatch) {
         expect(firstComplementaryMatch.effectivePrice).to.equal(
@@ -365,9 +365,9 @@ describe("RouteSimulationFacet - Advanced Test Cases", function () {
 
       // Should have both complementary and mint matches
       const complementaryMatches = route.matches.filter(
-        (m) => m.matchType === 0
+        (m) => m.matchType === 1
       );
-      const mintMatches = route.matches.filter((m) => m.matchType === 1);
+      const mintMatches = route.matches.filter((m) => m.matchType === 2);
 
       expect(complementaryMatches.length).to.be.greaterThan(0);
       expect(mintMatches.length).to.be.greaterThan(0);
@@ -532,7 +532,7 @@ describe("RouteSimulationFacet - Advanced Test Cases", function () {
 
       // Should prioritize highest-price BUY orders first
       const complementaryMatches = route.matches.filter(
-        (m) => m.matchType === 0
+        (m) => m.matchType === 1
       );
       if (complementaryMatches.length > 1) {
         for (let i = 0; i < complementaryMatches.length - 1; i++) {
@@ -628,7 +628,7 @@ describe("RouteSimulationFacet - Advanced Test Cases", function () {
       });
 
       expect(route.matches.length).to.equal(1);
-      expect(route.matches[0].matchType).to.equal(1); // Mint match
+      expect(route.matches[0].matchType).to.equal(2); // Mint match
       expect(route.totalInputAmount).to.equal(maxAmount);
     });
 
@@ -975,11 +975,11 @@ describe("RouteSimulationFacet - Advanced Test Cases", function () {
       // Verify cost calculation
       let expectedCost = ethers.constants.Zero;
       for (const match of route.matches) {
-        if (match.matchType === 0) {
+        if (match.matchType === 1) {
           // Complementary match
           const baseCost = match.amount.mul(match.effectivePrice).div(ercUnit);
           expectedCost = expectedCost.add(baseCost);
-        } else if (match.matchType === 1) {
+        } else if (match.matchType === 2) {
           // Mint match
           const baseCost = match.amount.mul(match.effectivePrice).div(ercUnit);
           expectedCost = expectedCost.add(baseCost);

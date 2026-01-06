@@ -190,7 +190,7 @@ describe("RouteSimulationFacet", function () {
     expect(match.matchedOrderId).to.equal(expectedOrderId);
     expect(match.amount).to.equal(amount); // Should get the desired amount of shares
     expect(match.effectivePrice).to.equal(expectedEffectivePrice);
-    expect(match.matchType).to.equal(0);
+    expect(match.matchType).to.equal(1);
     
     // Verify route totals
     expect(parsedRoute.totalInputAmount).to.equal(amount); // shares received

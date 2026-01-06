@@ -178,8 +178,28 @@ library LibFeeManager {
     function batchWithdrawProtocolFees(address[] memory tokens, uint256[] memory amounts, address recipient) internal {
         if (tokens.length != amounts.length) revert Errors.ArrayLengthMismatch();
 
+        LibDiamond.enforceIsContractOwner();
+
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
+        address feeRecipient = recipient == address(0) ? ds.adminConfigStorage.feeReceiver : recipient;
+        if (feeRecipient == address(0)) revert Errors.InvalidFeeReceiver();
+
         for (uint256 i = 0; i < tokens.length; i++) {
-            withdrawProtocolFees(tokens[i], amounts[i], recipient);
+            address token = tokens[i];
+
+            // Gracefully skip invalid or empty entries to make batch ops resilient
+            if (token == address(0)) continue;
+
+            uint256 availableFees = ds.escrowStorage.protocolFees[token];
+            if (availableFees == 0) continue;
+
+            uint256 withdrawAmount = amounts[i] == 0 ? availableFees : amounts[i];
+            if (withdrawAmount > availableFees) revert Errors.InsufficientFeeBalance();
+
+            ds.escrowStorage.protocolFees[token] -= withdrawAmount;
+            IERC20(token).safeTransfer(feeRecipient, withdrawAmount);
+
+            emit Events.ProtocolFeesWithdrawn(token, feeRecipient, withdrawAmount, ds.escrowStorage.protocolFees[token]);
         }
     }
 

@@ -14,13 +14,12 @@ contract OrderCreationFacet is IOrderCreation {
         uint256 amount,
         uint256 pricePerToken,
         uint256 minFillAmount,
-        uint256 expiry,
+        uint32 expiry,
         bool fillOrKill,
         LibDoefinStorage.OrderDirection direction,
         LibDoefinStorage.ExecutionType executionType,
-        LibDoefinStorage.OrderType orderType,
-        LibDoefinStorage.CrossCurrencyConfig memory crossCurrencyConfig
-    ) external {
+        LibDoefinStorage.CrossCurrencyData memory crossCurrencyData
+    ) external override {
         LibOrderbook.createOrder(
             positionId,
             collateralToken,
@@ -31,8 +30,7 @@ contract OrderCreationFacet is IOrderCreation {
             fillOrKill,
             direction,
             executionType,
-            orderType,
-            crossCurrencyConfig
+            crossCurrencyData
         );
     }
 }

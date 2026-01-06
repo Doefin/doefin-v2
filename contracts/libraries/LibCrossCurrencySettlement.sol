@@ -8,91 +8,38 @@ import {LibDoefinStorage} from "./LibDoefinStorage.sol";
 import {LibQuoteCurrency} from "./LibQuoteCurrency.sol";
 import {Errors} from "./Errors.sol";
 
+/**
+ * @title LibCrossCurrencySettlement
+ * @notice Simplified library for cross-currency utilities
+ * @dev Most cross-currency logic is now handled by the unified approach in LibMatchEngine and LibSettlement
+ */
 library LibCrossCurrencySettlement {
     /**
      * @notice Check if trade involves cross-currency orders
+     * @dev This function is maintained for backward compatibility but the unified approach
+     *      in LibTradeSettlement._isCrossCurrencySettlement() is preferred
      */
     function isCrossCurrencyTrade(uint256 takerOrderId, uint256 makerOrderId) internal view returns (bool) {
-        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
-
         bool takerIsCrossCurrency = false;
         if (takerOrderId != 0) {
-            takerIsCrossCurrency = (ds.orderbookStorage.orders[takerOrderId].orderType == LibDoefinStorage.OrderType.CrossCurrency);
+            (LibDoefinStorage.OrderType takerOrderType, ) = LibQuoteCurrency.getOrderTypeAndCCData(takerOrderId);
+            takerIsCrossCurrency = (takerOrderType != LibDoefinStorage.OrderType.Standard);
         }
 
-        bool makerIsCrossCurrency = (ds.orderbookStorage.orders[makerOrderId].orderType == LibDoefinStorage.OrderType.CrossCurrency);
-
+        (LibDoefinStorage.OrderType makerOrderType, ) = LibQuoteCurrency.getOrderTypeAndCCData(makerOrderId);
+        bool makerIsCrossCurrency = (makerOrderType != LibDoefinStorage.OrderType.Standard);
         return takerIsCrossCurrency || makerIsCrossCurrency;
     }
 
     /**
-     * @notice Validate cross-currency match and calculate price
+     * @notice Calculate floor price in quote currency for Dynamic orders
+     * @dev Utility function for Dynamic order floor rate validation
      */
-    function validateCrossCurrencyMatch(
-        LibDoefinStorage.Order memory takerOrder,
-        LibDoefinStorage.Order memory makerOrder
-    ) internal view returns (bool crossing, LibDoefinStorage.MatchType matchType, uint256 price) {
-        // Only complementary matching supported
-        if (takerOrder.direction == makerOrder.direction || takerOrder.positionId != makerOrder.positionId) {
-            return (false, LibDoefinStorage.MatchType.Complementary, 0);
-        }
-
-        matchType = LibDoefinStorage.MatchType.Complementary;
-
-        // Validate compatibility
-        if (takerOrder.orderType == LibDoefinStorage.OrderType.CrossCurrency && makerOrder.orderType == LibDoefinStorage.OrderType.CrossCurrency) {
-            if (!LibQuoteCurrency.areOrdersCompatible(takerOrder, makerOrder)) {
-                return (false, matchType, 0);
-            }
-        } else if (takerOrder.orderType != makerOrder.orderType) {
-            return (false, matchType, 0); // Mixed types not allowed
-        }
-
-        // Calculate quote currency price
-        if (makerOrder.orderType == LibDoefinStorage.OrderType.CrossCurrency) {
-            bool useOracleRate = (makerOrder.exchangeRateType == LibDoefinStorage.ExchangeRateType.Dynamic);
-            (uint256 quoteCurrencyPrice, bool isStale) = LibQuoteCurrency.calculateQuoteCurrencyPrice(makerOrder, useOracleRate);
-
-            if (useOracleRate && isStale) {
-                return (false, matchType, 0);
-            }
-
-            if (takerOrder.direction == LibDoefinStorage.OrderDirection.Buy) {
-                price = (quoteCurrencyPrice * (10_000 + makerOrder.takerFeeBps)) / 10_000;
-            } else {
-                price = (quoteCurrencyPrice * (10_000 - makerOrder.takerFeeBps)) / 10_000;
-            }
-        } else {
-            revert Errors.InvalidOrderType();
-        }
-
-        // Check price crossing
-        if (takerOrder.executionType == LibDoefinStorage.ExecutionType.Market) {
-            crossing = true;
-        } else {
-            crossing = takerOrder.direction == LibDoefinStorage.OrderDirection.Buy
-                ? takerOrder.pricePerToken >= price
-                : takerOrder.pricePerToken <= price;
-        }
-    }
-
-    /**
-     * @notice Calculate required quote currency amount for cross-currency order
-     */
-    function calculateRequiredQuoteAmount(LibDoefinStorage.Order memory order, uint256 amount) internal view returns (uint256) {
-        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
-        uint256 collateralUnit = ds.adminConfigStorage.unitPerPair[order.collateralToken];
-        if (collateralUnit == 0) revert Errors.InvalidUnitPerPair();
-
-        uint256 exchangeRate;
-        if (order.exchangeRateType == LibDoefinStorage.ExchangeRateType.Dynamic) {
-            (exchangeRate, ) = LibQuoteCurrency.getOracleExchangeRate(order.quoteCurrencyToken, order.collateralToken);
-        } else {
-            exchangeRate = order.exchangeRate;
-        }
-
-        if (exchangeRate == 0) revert Errors.InvalidExchangeRate();
-        uint256 quoteAmount = (((amount * order.pricePerToken) / collateralUnit) * exchangeRate) / 1e18;
-        return quoteAmount + (quoteAmount * order.makerFeeBps) / 10000;
+    function calculateFloorPriceInQuoteForDynamicOrder(
+        LibDoefinStorage.Order memory order,
+        uint256 collateralUnit,
+        uint256 floorRate
+    ) internal pure returns (uint256) {
+        return (((order.pricePerToken) / collateralUnit) * floorRate) / 1e18;
     }
 }

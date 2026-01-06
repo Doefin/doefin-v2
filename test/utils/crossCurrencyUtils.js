@@ -1,5 +1,5 @@
 const { ethers } = require("hardhat");
-const { OrderDirection, ExecutionType, OrderType, ExchangeRateType } = require("./orderUtils.js");
+const { OrderDirection, ExecutionType } = require("./orderUtils.js");
 
 /**
  * Cross-currency testing utilities
@@ -80,17 +80,15 @@ async function setupCrossCurrencyTokens(adminConfig, owner) {
 }
 
 /**
- * Create cross-currency order configuration
+ * Create cross-currency order data
  */
-function createCrossCurrencyConfig({
+function createCrossCurrencyData({
   quoteCurrencyToken,
-  exchangeRateType = ExchangeRateType.Fixed,
-  exchangeRate,
+  floorRate = 0,
 }) {
   return {
     quoteCurrencyToken,
-    exchangeRateType,
-    exchangeRate,
+    floorRate,
   };
 }
 
@@ -142,8 +140,7 @@ async function createCrossCurrencyMarket({
   owner,
   questionId,
   mockOracleAdapter,
-  exchangeRate,
-  exchangeRateType = ExchangeRateType.Fixed,
+  floorRate = 0,
 }) {
   const { createCompleteMarket } = require("./marketUtils.js");
 
@@ -170,10 +167,9 @@ async function createCrossCurrencyMarket({
 
   return {
     ...market,
-    crossCurrencyConfig: createCrossCurrencyConfig({
+    crossCurrencyData: createCrossCurrencyData({
       quoteCurrencyToken: quoteCurrencyToken.address,
-      exchangeRateType,
-      exchangeRate,
+      floorRate,
     }),
   };
 }
@@ -186,29 +182,37 @@ const CrossCurrencyScenarios = {
     name: "BTC/USDT with Fixed Rate",
     collateral: "BTC",
     quoteCurrency: "USDT", 
-    exchangeRateType: ExchangeRateType.Fixed,
-    exchangeRate: ethers.utils.parseEther("96000"), // 96,000 USDT per BTC
+    isFixed: true,
+    floorRate: 0, // Fixed orders have floorRate = 0
+    referenceRate: ethers.utils.parseUnits("96000", 6), // 96,000 USDT per BTC (quote token has 6 decimals)
+    exchangeRate: ethers.utils.parseUnits("96000", 6),
   },
   BTC_USDC_FIXED: {
     name: "BTC/USDC with Fixed Rate", 
     collateral: "USDC",
     quoteCurrency: "BTC",
-    exchangeRateType: ExchangeRateType.Fixed,
-    exchangeRate: ethers.utils.parseEther("96000"), // 96,000 USDC per BTC
+    isFixed: true,
+    floorRate: 0, // Fixed orders have floorRate = 0
+    referenceRate: ethers.utils.parseUnits("96000", 6), // 96,000 USDC per BTC (quote token has 6 decimals)
+    exchangeRate: ethers.utils.parseUnits("96000", 6),
   },
   BTC_USDT_DYNAMIC: {
     name: "BTC/USDT with Dynamic Rate",
     collateral: "USDT", 
     quoteCurrency: "BTC",
-    exchangeRateType: ExchangeRateType.Dynamic,
-    exchangeRate: ethers.utils.parseEther("96000"), // Reference rate
+    isFixed: false,
+    floorRate: ethers.utils.parseUnits("95000", 6), // Minimum rate: 95,000 USDT per BTC (6 decimals)
+    referenceRate: ethers.utils.parseUnits("96000", 6), // Reference rate for oracle (6 decimals)
+    exchangeRate: ethers.utils.parseUnits("96000", 6),
   },
   USDT_USDC: {
     name: "USDT/USDC with Fixed Rate",
     collateral: "USDC",
     quoteCurrency: "USDT", 
-    exchangeRateType: ExchangeRateType.Fixed,
-    exchangeRate: ethers.utils.parseEther("1"), // 1:1 rate
+    isFixed: true,
+    floorRate: 0, // Fixed orders have floorRate = 0
+    referenceRate: ethers.utils.parseUnits("1", 6), // 1:1 rate
+    exchangeRate: ethers.utils.parseUnits("1", 6),
   },
 };
 
@@ -216,7 +220,7 @@ module.exports = {
   deployMockOracleAdapter,
   setupMockOracleManager,
   setupCrossCurrencyTokens,
-  createCrossCurrencyConfig,
+  createCrossCurrencyData,
   calculateQuoteCurrencyAmount,
   setupOraclePrices,
   createCrossCurrencyMarket,

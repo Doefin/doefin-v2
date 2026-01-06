@@ -54,7 +54,7 @@ async function main() {
         const parsed = diamond.interface.parseLog(marketMakerAddedEvent);
         console.log("🎉 MarketMakerStatusUpdated event:", {
             account: parsed.args.account,
-            isMarketMaker: parsed.args.isMarketMaker
+            status: parsed.args.status
         });
     }
     

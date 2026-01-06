@@ -16,7 +16,7 @@ async function main() {
     // ========================================
     // 🔧 CONFIGURE WHO TO MINT FOR HERE
     // ========================================
-    const MINT_FOR_TAKER = true; // Set to true for taker, false for market maker
+    const MINT_FOR_TAKER = false; // Set to true for taker, false for market maker
     
     const targetAddress = MINT_FOR_TAKER ? TAKER_ADDRESS : MARKET_MAKER_ADDRESS;
     const targetPrivateKey = MINT_FOR_TAKER ? TAKER_PRIVATE_KEY : null;

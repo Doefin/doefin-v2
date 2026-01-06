@@ -190,14 +190,11 @@ library Errors {
     /// @notice Thrown when order is created with past expiry
     error OrderCreatedWithPastExpiry();
 
-    /// @notice Thrown when cross currency configuration is unexpected for standard orders
-    error UnexpectedCrossCurrencyConfig();
-
     /// @notice Thrown when invalid quote currency token is provided
     error InvalidQuoteCurrencyToken();
 
     /// @notice Thrown when invalid exchange rate is provided
-    error InvalidExchangeRate();
+    error InvalidFloorExchangeRate();
 
     /// @notice Thrown when cross currency order has the same collateral and quote currency
     error SameCollateralAndQuoteCurrency();

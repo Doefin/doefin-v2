@@ -2,7 +2,7 @@
 pragma solidity ^0.8.6;
 
 import {LibDoefinStorage} from "./LibDoefinStorage.sol";
-import {IOracleManager} from "../interfaces/IOracleManager.sol";
+import {LibOrderbook} from "./LibOrderbook.sol";
 import {Errors} from "./Errors.sol";
 
 /**
@@ -14,7 +14,7 @@ library LibQuoteCurrency {
     using LibDoefinStorage for LibDoefinStorage.AppStorage;
 
     /**
-     * @notice Get exchange rate from oracle for quote currency conversion
+     * @notice Get exchange rate from oracle storage for quote currency conversion
      * @param quoteCurrencyToken Quote currency token address
      * @param baseCollateralToken Base collateral token address
      * @return exchangeRate Rate to convert base to quote currency (scaled by 1e18)
@@ -37,19 +37,34 @@ library LibQuoteCurrency {
             revert Errors.IncompatibleQuoteCurrencies();
         }
 
-        IOracleManager oracle = IOracleManager(address(this));
+        // ✅ OPTIMIZED: Direct storage access instead of function call
         uint256 cumulativeRate = 1e18;
 
         // Apply conversions in sequence
         for (uint256 i = 0; i < assetIds.length; i++) {
-            (uint256 price, , bool isPaused) = oracle.getPrice(assetIds[i]);
+            // ✅ Read directly from oracle storage
+            LibDoefinStorage.PriceData memory priceData = ds.oracleStorage.priceData[assetIds[i]];
+            LibDoefinStorage.AssetConfig memory assetConfig = ds.oracleStorage.assetConfigs[assetIds[i]];
 
-            if (isPaused) {
+            // Check if price is valid
+            if (!priceData.isValid) {
                 return (0, true);
             }
 
+            // Check if trading is paused
+            if (assetConfig.tradingPaused) {
+                return (0, true);
+            }
+
+            // Check staleness
+            uint256 maxStaleness = assetConfig.maxStaleness > 0 ? assetConfig.maxStaleness : ds.oracleStorage.maxManualUpdateAge;
+            uint256 age = block.timestamp - priceData.timestamp;
+            if (age > maxStaleness) {
+                isStale = true;
+            }
+
             // Normalize price and apply to cumulative rate
-            uint256 normalizedPrice = _normalizeOraclePrice(price, assetIds[i]);
+            uint256 normalizedPrice = _normalizeOraclePrice(priceData.price, assetIds[i]);
 
             // Guard against zero price to prevent division-by-zero
             if (normalizedPrice == 0) {
@@ -57,7 +72,6 @@ library LibQuoteCurrency {
             }
 
             // For inverse conversions (e.g., USD->USDC when we have USD-USDC rate)
-            // We need to determine the direction based on asset ID and our conversion path
             bool isInverse = _isInverseConversion(assetIds[i], quoteCurrencyToken);
 
             if (isInverse) {
@@ -69,7 +83,65 @@ library LibQuoteCurrency {
             }
         }
 
-        return (cumulativeRate, false);
+        return (cumulativeRate, isStale);
+    }
+
+    /**
+     * @notice Check if oracle data is stale for a currency pair
+     * @param quoteCurrencyToken Quote currency token address
+     * @param baseCollateralToken Base collateral token address
+     * @return isStale True if any oracle in the conversion path is stale or invalid
+     * @dev Much cheaper than getOracleExchangeRate - only checks timestamps, no math
+     * @dev Use this during order creation validation for dynamic CC orders
+     */
+    function isOracleStale(address quoteCurrencyToken, address baseCollateralToken) internal view returns (bool isStale) {
+        // Same currency - always fresh
+        if (quoteCurrencyToken == baseCollateralToken) {
+            return false;
+        }
+
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
+
+        // Get conversion path
+        bytes32[] memory assetIds = _getCrossCurrencyConversionPath(ds, baseCollateralToken, quoteCurrencyToken);
+
+        if (assetIds.length == 0) {
+            // No conversion path - consider stale
+            return true;
+        }
+
+        // Check each asset in the path
+        for (uint256 i = 0; i < assetIds.length; i++) {
+            LibDoefinStorage.PriceData memory priceData = ds.oracleStorage.priceData[assetIds[i]];
+            LibDoefinStorage.AssetConfig memory assetConfig = ds.oracleStorage.assetConfigs[assetIds[i]];
+
+            // Check if price is invalid
+            if (!priceData.isValid) {
+                return true;
+            }
+
+            // Check if trading is paused
+            if (assetConfig.tradingPaused) {
+                return true;
+            }
+
+            // Check staleness threshold
+            uint256 maxStaleness = assetConfig.maxStaleness > 0 ? assetConfig.maxStaleness : ds.oracleStorage.maxManualUpdateAge;
+
+            uint256 age = block.timestamp - priceData.timestamp;
+
+            if (age > maxStaleness) {
+                return true; // Stale!
+            }
+
+            // Check for zero price (invalid)
+            if (priceData.price == 0) {
+                return true;
+            }
+        }
+
+        // All checks passed - oracle is fresh
+        return false;
     }
 
     /**
@@ -78,40 +150,41 @@ library LibQuoteCurrency {
      * @param useOracleRate Whether to use oracle rate (for dynamic) or order rate (for fixed)
      * @return quoteCurrencyPrice Price per token in quote currency (scaled by quote currency decimals)
      * @return isStale Whether the calculation used stale oracle data
-     * @dev Uses 1e36 scaling to prevent precision loss with large exchange rates:
-     *      quoteCurrencyPrice = (pricePerToken × quoteUnitPerPair × 1e36) ÷ (collateralUnitPerPair × exchangeRate)
-     *      This maintains 1e18 scaling in the result for accurate order matching comparisons.
-     * @dev Example: For exchangeRate = 96000e18 (BTC/USD), without 1e36 scaling:
-     *      (650000 × 1e6 × 1e18) ÷ (1e8 × 96000e18) ≈ 0 (underflow)
-     *      With 1e36: (650000 × 1e6 × 1e36) ÷ (1e8 × 96000e18) = proper result
+     * @dev CRITICAL: Handles Fixed vs Dynamic orders differently:
+     *      - Fixed: pricePerToken already in quote currency, return directly (no conversion)
+     *      - Dynamic: pricePerToken in collateral currency, convert using oracle
+     * @dev For Dynamic orders, uses 1e36 scaling to prevent precision loss with large exchange rates
      */
     function calculateQuoteCurrencyPrice(
         LibDoefinStorage.Order memory order,
         bool useOracleRate
     ) internal view returns (uint256 quoteCurrencyPrice, bool isStale) {
-        if (order.orderType != LibDoefinStorage.OrderType.CrossCurrency) {
-            revert Errors.InvalidOrderType();
+        (LibDoefinStorage.OrderType orderType, LibDoefinStorage.CrossCurrencyData memory ccData) = getOrderTypeAndCCData(order.orderId);
+
+        if (orderType == LibDoefinStorage.OrderType.Fixed) {
+            // Fixed orders: pricePerToken is already in quote currency, no conversion needed
+            return (order.pricePerToken, false);
         }
 
+        // Dynamic orders: convert from collateral to quote currency using oracle
         uint256 exchangeRate;
-
         if (useOracleRate) {
-            (exchangeRate, isStale) = getOracleExchangeRate(order.quoteCurrencyToken, order.collateralToken);
+            (exchangeRate, isStale) = getOracleExchangeRate(ccData.quoteCurrencyToken, order.collateralToken);
             if (isStale) {
                 return (0, true);
             }
         } else {
-            exchangeRate = order.exchangeRate;
-            isStale = false;
+            // For Dynamic orders, we should always use oracle rate
+            revert Errors.InvalidOrderType();
         }
 
         LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
         uint256 collateralUnitPerPair = ds.adminConfigStorage.unitPerPair[order.collateralToken];
-        uint256 quoteUnitPerPair = ds.adminConfigStorage.unitPerPair[order.quoteCurrencyToken];
+        uint256 quoteUnitPerPair = ds.adminConfigStorage.unitPerPair[ccData.quoteCurrencyToken];
 
         // Validate unitPerPair values to prevent division by zero
         if (collateralUnitPerPair == 0 || quoteUnitPerPair == 0) revert Errors.InvalidUnitPerPair();
-        if (exchangeRate == 0) revert Errors.InvalidExchangeRate();
+        if (exchangeRate == 0) revert Errors.InvalidFloorExchangeRate();
 
         quoteCurrencyPrice = (order.pricePerToken * quoteUnitPerPair * 1e36) / (collateralUnitPerPair * exchangeRate);
     }
@@ -125,14 +198,20 @@ library LibQuoteCurrency {
     function areOrdersCompatible(
         LibDoefinStorage.Order memory makerOrder,
         LibDoefinStorage.Order memory takerOrder
-    ) internal pure returns (bool compatible) {
+    ) internal view returns (bool compatible) {
         // Both must be cross-currency orders
-        if (makerOrder.orderType != LibDoefinStorage.OrderType.CrossCurrency || takerOrder.orderType != LibDoefinStorage.OrderType.CrossCurrency) {
+        (LibDoefinStorage.OrderType makerOrderType, LibDoefinStorage.CrossCurrencyData memory makerCCData) = getOrderTypeAndCCData(
+            makerOrder.orderId
+        );
+        (LibDoefinStorage.OrderType takerOrderType, LibDoefinStorage.CrossCurrencyData memory takerCCData) = getOrderTypeAndCCData(
+            takerOrder.orderId
+        );
+        if (makerOrderType == LibDoefinStorage.OrderType.Standard || takerOrderType == LibDoefinStorage.OrderType.Standard) {
             return false;
         }
 
         // Must have same quote currency
-        if (makerOrder.quoteCurrencyToken != takerOrder.quoteCurrencyToken) {
+        if (makerCCData.quoteCurrencyToken != takerCCData.quoteCurrencyToken) {
             return false;
         }
 
@@ -147,33 +226,6 @@ library LibQuoteCurrency {
         }
 
         return true;
-    }
-
-    /**
-     * @notice Validate cross-currency order configuration
-     * @param order The order to validate
-     */
-    function validateCrossCurrencyOrder(LibDoefinStorage.Order memory order) internal view {
-        if (order.orderType != LibDoefinStorage.OrderType.CrossCurrency) {
-            return;
-        }
-
-        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
-
-        // Validate quote currency is allowed
-        if (ds.adminConfigStorage.unitPerPair[order.quoteCurrencyToken] == 0) {
-            revert Errors.TokenNotAllowed();
-        }
-
-        // Buy orders must use Fixed exchange rate
-        if (order.direction == LibDoefinStorage.OrderDirection.Buy && order.exchangeRateType != LibDoefinStorage.ExchangeRateType.Fixed) {
-            revert Errors.BuyOrdersMustUseFixedRate();
-        }
-
-        // Validate exchange rate for fixed-rate orders (dynamic rates use oracle)
-        if (order.exchangeRateType == LibDoefinStorage.ExchangeRateType.Fixed && order.exchangeRate == 0) {
-            revert Errors.InvalidExchangeRate();
-        }
     }
 
     // Internal helper functions
@@ -195,6 +247,20 @@ library LibQuoteCurrency {
         }
 
         return symbol;
+    }
+
+    function getOrderTypeAndCCData(
+        uint256 orderId
+    ) internal view returns (LibDoefinStorage.OrderType orderType, LibDoefinStorage.CrossCurrencyData memory ccData) {
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
+        ccData = ds.orderbookStorage.crossCurrencyData[orderId];
+        if (ccData.quoteCurrencyToken == address(0)) {
+            orderType = LibDoefinStorage.OrderType.Standard;
+        } else if (ccData.floorRate == 0) {
+            orderType = LibDoefinStorage.OrderType.Fixed;
+        } else {
+            orderType = LibDoefinStorage.OrderType.Dynamic;
+        }
     }
 
     /**

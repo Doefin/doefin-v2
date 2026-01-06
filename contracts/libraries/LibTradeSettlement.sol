@@ -453,7 +453,10 @@ library LibTradeSettlement {
         }
 
         // Match type specific validations
-        if (settlementExecCtx.matchType == LibDoefinStorage.MatchType.Complementary) {
+        if (
+            settlementExecCtx.matchType == LibDoefinStorage.MatchType.Complementary ||
+            settlementExecCtx.matchType == LibDoefinStorage.MatchType.CrossCurrency
+        ) {
             _validateComplementaryMatch(settlementExecCtx);
         } else {
             _validateMintMergeMatch(settlementExecCtx);
@@ -501,8 +504,12 @@ library LibTradeSettlement {
      */
     function _isCrossCurrencySettlement(
         LibDoefinStorage.SettlementExecutionContext memory settlementExecCtx
-    ) private pure returns (bool isCrossCurrency) {
-        return (settlementExecCtx.makerOrder.orderType == LibDoefinStorage.OrderType.CrossCurrency);
+    ) private view returns (bool isCrossCurrency) {
+        // Check if either taker or maker is cross-currency
+        (LibDoefinStorage.OrderType takerOrderType, ) = LibQuoteCurrency.getOrderTypeAndCCData(settlementExecCtx.takerOrder.orderId);
+        (LibDoefinStorage.OrderType makerOrderType, ) = LibQuoteCurrency.getOrderTypeAndCCData(settlementExecCtx.makerOrder.orderId);
+
+        return (takerOrderType != LibDoefinStorage.OrderType.Standard || makerOrderType != LibDoefinStorage.OrderType.Standard);
     }
 
     /**
@@ -510,25 +517,32 @@ library LibTradeSettlement {
      * @param settlementExecCtx The settlement execution context
      */
     function _handleCrossCurrencySettlement(LibDoefinStorage.SettlementExecutionContext memory settlementExecCtx) private {
-        if (settlementExecCtx.matchType != LibDoefinStorage.MatchType.Complementary) {
+        if (
+            settlementExecCtx.matchType != LibDoefinStorage.MatchType.Complementary &&
+            settlementExecCtx.matchType != LibDoefinStorage.MatchType.CrossCurrency
+        ) {
             revert Errors.NonComplementaryCrossCurrencyMatch();
         }
+
+        (LibDoefinStorage.OrderType makerOrderType, LibDoefinStorage.CrossCurrencyData memory makerOrderCCData) = LibQuoteCurrency
+            .getOrderTypeAndCCData(settlementExecCtx.makerOrder.orderId);
 
         LibDoefinStorage.Order memory makerOrder = settlementExecCtx.makerOrder;
         LibDoefinStorage.Order memory takerOrder = settlementExecCtx.takerOrder;
         uint256 fillAmount = settlementExecCtx.fillableAmount;
-        address quoteCurrencyToken = makerOrder.quoteCurrencyToken;
         address collateralToken = makerOrder.collateralToken;
 
-        bool useOracleRate = (makerOrder.exchangeRateType == LibDoefinStorage.ExchangeRateType.Dynamic);
         uint256 exchangeRate;
 
-        if (useOracleRate) {
-            (uint256 oracleRate, bool isStale) = LibQuoteCurrency.getOracleExchangeRate(quoteCurrencyToken, collateralToken);
+        if (makerOrderType == LibDoefinStorage.OrderType.Fixed) {
+            // Fixed orders: pricePerToken is already in quote currency, no conversion needed
+            // Exchange rate is only used for fee calculations, so we use 1:1 for Fixed orders
+            exchangeRate = 1e18;
+        } else {
+            // Dynamic orders: use oracle rate for BTC->USDT conversion
+            (uint256 oracleRate, bool isStale) = LibQuoteCurrency.getOracleExchangeRate(makerOrderCCData.quoteCurrencyToken, collateralToken);
             if (isStale) revert Errors.OraclePriceStale();
             exchangeRate = oracleRate;
-        } else {
-            exchangeRate = makerOrder.exchangeRate;
         }
 
         (uint256 makerQuoteFee, uint256 takerQuoteFee, uint256 makerQuotePayment, uint256 takerQuotePayment) = _computeCrossCurrencyFees(
@@ -536,27 +550,37 @@ library LibTradeSettlement {
             fillAmount,
             exchangeRate
         );
+
         LibDoefinStorage.ExecutionType executionType = settlementExecCtx.executionType;
         if (makerOrder.direction == LibDoefinStorage.OrderDirection.Buy) {
-            _settleCrossCurrencyBuyMaker(makerOrder, takerOrder, fillAmount, executionType, quoteCurrencyToken, makerQuotePayment, takerQuotePayment);
+            _settleCrossCurrencyBuyMaker(
+                makerOrder,
+                takerOrder,
+                fillAmount,
+                executionType,
+                makerOrderCCData.quoteCurrencyToken,
+                makerQuotePayment,
+                takerQuotePayment
+            );
         } else {
             _settleCrossCurrencySellMaker(
                 makerOrder,
                 takerOrder,
                 fillAmount,
                 executionType,
-                quoteCurrencyToken,
+                makerOrderCCData.quoteCurrencyToken,
                 makerQuotePayment,
                 takerQuotePayment
             );
         }
+
         LibFeeManager.accrueFees(makerQuoteFee, takerQuoteFee, settlementExecCtx);
 
         emit Events.CrossCurrencySettlement(
             takerOrder.maker,
             makerOrder.maker,
             makerOrder.orderId,
-            quoteCurrencyToken,
+            makerOrderCCData.quoteCurrencyToken,
             fillAmount,
             exchangeRate,
             makerQuoteFee + takerQuoteFee
@@ -567,17 +591,14 @@ library LibTradeSettlement {
      * @notice Compute fees for cross-currency settlement
      * @param makerOrder The maker order
      * @param fillAmount The fill amount
+     * @param exchangeRate The exchange rate (only used for Dynamic orders)
      * @return makerQuoteFee Maker fee in quote currency units
      * @return takerQuoteFee Taker fee in quote currency units
      * @return makerQuotePayment Maker payment in quote currency units
      * @return takerQuotePayment Taker payment in quote currency units
-     * @dev Uses the same conversion formula as lockCollateral to avoid precision loss:
-     *      collateralValue = (fillAmount × pricePerToken) ÷ collateralUnitPerPair
-     *      totalQuoteValue = (collateralValue × exchangeRate) ÷ 1e18
-     * @dev Payment direction:
-     *      Buy maker: pays totalQuoteValue + fee
-     *      Sell maker: receives totalQuoteValue - fee
-     *      Taker receives/pays inverse amounts
+     * @dev CRITICAL: Handles Fixed vs Dynamic orders differently:
+     *      - Fixed: pricePerToken already in quote currency, no conversion needed
+     *      - Dynamic: pricePerToken in collateral currency, needs oracle conversion
      */
     function _computeCrossCurrencyFees(
         LibDoefinStorage.Order memory makerOrder,
@@ -585,12 +606,27 @@ library LibTradeSettlement {
         uint256 exchangeRate
     ) private view returns (uint256 makerQuoteFee, uint256 takerQuoteFee, uint256 makerQuotePayment, uint256 takerQuotePayment) {
         LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
-        uint256 collateralUnitPerPair = ds.adminConfigStorage.unitPerPair[makerOrder.collateralToken];
+        (LibDoefinStorage.OrderType makerOrderType, LibDoefinStorage.CrossCurrencyData memory ccData) = LibQuoteCurrency.getOrderTypeAndCCData(
+            makerOrder.orderId
+        );
 
-        if (collateralUnitPerPair == 0) revert Errors.InvalidUnitPerPair();
+        // Use the correct unit depending on pricing currency
+        uint256 pricingUnit = makerOrderType == LibDoefinStorage.OrderType.Fixed
+            ? ds.adminConfigStorage.unitPerPair[ccData.quoteCurrencyToken] // Fixed: price in quote currency units
+            : ds.adminConfigStorage.unitPerPair[makerOrder.collateralToken]; // Dynamic: price in collateral units
 
-        uint256 collateralValue = (fillAmount * makerOrder.pricePerToken) / collateralUnitPerPair;
-        uint256 totalQuoteValue = (collateralValue * exchangeRate) / 1e18;
+        if (pricingUnit == 0) revert Errors.InvalidUnitPerPair();
+
+        uint256 totalQuoteValue;
+
+        if (makerOrderType == LibDoefinStorage.OrderType.Fixed) {
+            // Fixed orders: pricePerToken is already in quote currency
+            totalQuoteValue = (fillAmount * makerOrder.pricePerToken) / pricingUnit;
+        } else {
+            // Dynamic orders: pricePerToken is in collateral currency, convert using oracle
+            uint256 collateralValue = (fillAmount * makerOrder.pricePerToken) / pricingUnit;
+            totalQuoteValue = (collateralValue * exchangeRate) / 1e18;
+        }
 
         makerQuoteFee = (totalQuoteValue * makerOrder.makerFeeBps) / 10_000;
         takerQuoteFee = (totalQuoteValue * makerOrder.takerFeeBps) / 10_000;
@@ -671,7 +707,8 @@ library LibTradeSettlement {
             // Limit order: Determine payment source
             bool needsExternalTransfer = false;
 
-            if (takerOrder.orderType == LibDoefinStorage.OrderType.CrossCurrency && takerOrder.direction == LibDoefinStorage.OrderDirection.Buy) {
+            (LibDoefinStorage.OrderType takerOrderType, ) = LibQuoteCurrency.getOrderTypeAndCCData(takerOrder.orderId);
+            if (takerOrderType != LibDoefinStorage.OrderType.Standard && takerOrder.direction == LibDoefinStorage.OrderDirection.Buy) {
                 LibCollateralManager.consumeERC20Collateral(takerOrder.maker, quoteCurrencyToken, takerQuotePayment);
             } else if (takerOrder.collateralToken == quoteCurrencyToken) {
                 LibCollateralManager.consumeERC20Collateral(takerOrder.maker, quoteCurrencyToken, takerQuotePayment);

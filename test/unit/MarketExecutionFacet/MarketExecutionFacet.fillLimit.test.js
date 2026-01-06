@@ -33,6 +33,7 @@ describe("MarketExecutionFacet limit order matching", function () {
   let yesId, noId;
   const erc20Decimals = 6;
   let buyDir, sellDir, ercUnit, feeConfig;
+  const MATCH_TYPE_COMPLEMENTARY = 1; // LibDoefinStorage.MatchType.Complementary
   let snapshotId;
 
   before(async function () {
@@ -206,7 +207,7 @@ describe("MarketExecutionFacet limit order matching", function () {
         amount,
         expectedMakerPrice,
         takerExpectedPrice,
-        0, // Complementary
+        MATCH_TYPE_COMPLEMENTARY,
         0,
         0,
         true,
@@ -296,7 +297,7 @@ describe("MarketExecutionFacet limit order matching", function () {
         maker1Amount,
         expectedMakerPrice1,
         takerExpectedPrice1,
-        0,
+        MATCH_TYPE_COMPLEMENTARY,
         0,
         takerAmount.sub(maker1Amount),
         true,
@@ -317,7 +318,7 @@ describe("MarketExecutionFacet limit order matching", function () {
         ethers.utils.parseUnits("2", erc20Decimals),
         expectedMakerPrice2,
         takerExpectedPrice2,
-        0,
+        MATCH_TYPE_COMPLEMENTARY,
         maker2Amount.sub(ethers.utils.parseUnits("2", erc20Decimals)),
         0,
         false,

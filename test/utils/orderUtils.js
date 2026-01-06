@@ -7,36 +7,95 @@ const ExecutionType = {
   Limit: 1,
 };
 
-const OrderType = {
-  Standard: 0,
-  CrossCurrency: 1,
-};
-
 const OrderDirection = {
   Buy: 0,
   Sell: 1,
 };
 
-const ExchangeRateType = {
-  Fixed: 0,
-  Dynamic: 1,
-};
-
-const EMPTY_CROSS_CURRENCY_CONFIG = {
+// Standard (empty) cross-currency data for non-cross-currency orders
+const STANDARD_CROSS_CURRENCY_DATA = {
   quoteCurrencyToken: ethers.constants.AddressZero,
-  exchangeRateType: ExchangeRateType.Fixed,
-  exchangeRate: 0,
+  floorRate: 0,
 };
 
-const buildCrossCurrencyConfig = ({
+const buildCrossCurrencyData = ({
   quoteCurrencyToken,
-  exchangeRateType = ExchangeRateType.Fixed,
-  exchangeRate = 0,
+  floorRate = 0,
 }) => ({
-  quoteCurrencyToken,
-  exchangeRateType,
-  exchangeRate,
+  quoteCurrencyToken: quoteCurrencyToken || ethers.constants.AddressZero,
+  floorRate: floorRate || 0,
 });
+
+// Helper function to create Fixed cross-currency orders (floorRate = 0)
+async function createFixedCrossCurrencyOrder(
+  facet,
+  maker,
+  {
+    positionId,
+    collateralToken,
+    amount,
+    pricePerToken, // For Fixed orders, this should already be in quote currency
+    minFillAmount = 0,
+    expiry = 0,
+    direction,
+    fillOrKill = false,
+    quoteCurrencyToken,
+    executionType = ExecutionType.Limit,
+  }
+) {
+  return facet
+    .connect(maker)
+    .createOrder(
+      positionId,
+      collateralToken,
+      amount,
+      pricePerToken,
+      minFillAmount,
+      expiry,
+      fillOrKill,
+      direction,
+      executionType,
+      buildCrossCurrencyData({ quoteCurrencyToken, floorRate: 0 })
+    );
+}
+
+// Helper function to create Dynamic cross-currency orders (floorRate > 0)
+async function createDynamicCrossCurrencyOrder(
+  facet,
+  maker,
+  {
+    positionId,
+    collateralToken,
+    amount,
+    pricePerToken, // For Dynamic orders, this should be in collateral currency
+    minFillAmount = 0,
+    expiry = 0,
+    direction,
+    fillOrKill = false,
+    quoteCurrencyToken,
+    floorRate, // Required for Dynamic orders
+    executionType = ExecutionType.Limit,
+  }
+) {
+  if (!floorRate || floorRate === 0) {
+    throw new Error("Dynamic cross-currency orders require a non-zero floorRate");
+  }
+  
+  return facet
+    .connect(maker)
+    .createOrder(
+      positionId,
+      collateralToken,
+      amount,
+      pricePerToken,
+      minFillAmount,
+      expiry,
+      fillOrKill,
+      direction,
+      executionType,
+      buildCrossCurrencyData({ quoteCurrencyToken, floorRate })
+    );
+}
 
 async function createLimitOrder(
   facet,
@@ -65,8 +124,7 @@ async function createLimitOrder(
       fillOrKill,
       direction,
       ExecutionType.Limit,
-      OrderType.Standard,
-      EMPTY_CROSS_CURRENCY_CONFIG
+      STANDARD_CROSS_CURRENCY_DATA
     );
 }
 
@@ -96,8 +154,7 @@ async function createMarketOrder(
       fillOrKill,
       direction,
       ExecutionType.Market,
-      OrderType.Standard,
-      EMPTY_CROSS_CURRENCY_CONFIG
+      STANDARD_CROSS_CURRENCY_DATA
     );
 }
 
@@ -114,11 +171,10 @@ async function createCrossCurrencyLimitOrder(
     direction,
     fillOrKill = false,
     quoteCurrencyToken,
-    exchangeRateType,
-    exchangeRate,
+    floorRate = 0,
   }
 ) {
-  // Cross-currency limit order uses the provided FX config
+  // Cross-currency limit order uses the provided cross-currency data
   return facet
     .connect(maker)
     .createOrder(
@@ -131,8 +187,7 @@ async function createCrossCurrencyLimitOrder(
       fillOrKill,
       direction,
       ExecutionType.Limit,
-      OrderType.CrossCurrency,
-      buildCrossCurrencyConfig({ quoteCurrencyToken, exchangeRateType, exchangeRate })
+      buildCrossCurrencyData({ quoteCurrencyToken, floorRate })
     );
 }
 
@@ -149,8 +204,7 @@ async function createCrossCurrencyMarketOrder(
     direction,
     fillOrKill = false,
     quoteCurrencyToken,
-    exchangeRateType,
-    exchangeRate,
+    floorRate = 0,
   }
 ) {
   return facet
@@ -165,8 +219,7 @@ async function createCrossCurrencyMarketOrder(
       fillOrKill,
       direction,
       ExecutionType.Market,
-      OrderType.CrossCurrency,
-      buildCrossCurrencyConfig({ quoteCurrencyToken, exchangeRateType, exchangeRate })
+      buildCrossCurrencyData({ quoteCurrencyToken, floorRate })
     );
 }
 
@@ -183,9 +236,11 @@ module.exports = {
   createMarketOrder,
   createCrossCurrencyLimitOrder,
   createCrossCurrencyMarketOrder,
+  createFixedCrossCurrencyOrder,
+  createDynamicCrossCurrencyOrder,
   validateOrderState,
+  buildCrossCurrencyData,
   ExecutionType,
-  OrderType,
   OrderDirection,
-  ExchangeRateType,
+  STANDARD_CROSS_CURRENCY_DATA,
 };

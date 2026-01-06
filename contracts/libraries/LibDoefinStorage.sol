@@ -145,7 +145,8 @@ library LibDoefinStorage {
 
     enum OrderType {
         Standard, // Regular buy/sell in collateral token
-        CrossCurrency // Orders that use quote currency for pricing/settlement
+        Fixed, // Orders that use quote currency for pricing/settlement
+        Dynamic // Orders that use dynamic exchange rates from oracles, priced in collateral token
     }
 
     struct OrderFeeConfig {
@@ -153,20 +154,14 @@ library LibDoefinStorage {
         uint16 takerFeeBps;
     }
 
-    enum ExchangeRateType {
-        Fixed, // Fixed exchange rate (allowed for both buy and sell orders)
-        Dynamic // Dynamic rate (only allowed for sell orders)
-    }
-
-    struct CrossCurrencyConfig {
+    struct CrossCurrencyData {
         /// @notice Quote currency token address (e.g., ETH, BTC, WETH)
         address quoteCurrencyToken;
-        /// @notice Exchange rate type (fixed or dynamic)
-        ExchangeRateType exchangeRateType;
-        /// @notice Exchange rate (quote currency per collateral token)
-        /// @dev For Fixed: the fixed exchange rate to use
-        /// @dev For Dynamic: the target/reference exchange rate for dynamic pricing
-        uint256 exchangeRate;
+        /// @notice Floor exchange rate to use for pricing
+        /// @dev For Fixed: It's always 0, since the price is in Quote Currency
+        /// @dev For Dynamic Buy it's the max rate (worst case for buyer)
+        /// @dev For Dynamic Sell it's the min rate (worst case for seller)
+        uint64 floorRate;
     }
 
     struct SettlementExecutionContext {
@@ -213,47 +208,73 @@ library LibDoefinStorage {
     }
 
     enum MatchType {
+        None,
         Complementary,
         Mint, // Via split (matching against sibling Buy)
-        Merge // Via merge (matching against sibling Sell)
+        Merge, // Via merge (matching against sibling Sell)
+        CrossCurrency // Cross-currency matches
     }
 
     /// @notice Struct representing a single limit or market order
     /// @dev Each order maps to a specific ERC1155 position token and can be either a buy or a sell
-    /// @dev Optimized packing: 15 slots (was 19), saves 128 bytes per order
+    /// @notice Struct representing a single limit or market order
+    /// @dev Optimized storage packing: 7 slots (224 bytes), saves 96 bytes per order
+    /// @dev Slot layout ensures efficient gas usage through careful field ordering and size selection
     struct Order {
-        /// @notice Unique order identifier (incremental)
-        uint256 orderId;
-        /// @notice Position Id of the token
+        /// @notice Position ID of the outcome token being traded
+        /// @dev Maps to ERC1155 token ID in the Conditional Tokens Framework
         uint256 positionId;
-        /// @notice Total size of the order
+        /// @notice Total size of the order in outcome tokens
+        /// @dev Immutable after creation (unless modified via modifyOrder)
         uint256 amount;
-        /// @notice Amount remaining to be filled
+        /// @notice Amount of tokens remaining to be filled
+        /// @dev Decreases as the order is matched; 0 means fully filled
         uint256 remainingAmount;
-        /// @notice Minimum amount that must be filled in a single fill (0 for no minimum)
+        /// @notice Minimum amount that must be filled in a single match
+        /// @dev Set to 0 for no minimum; prevents dust fills
         uint256 minFillAmount;
-        /// @notice Price per token (in collateral units, e.g., 1.25 USDC per YES)
+        /// @notice Price per outcome token
+        /// @dev For Standard orders: denominated in collateral token (e.g., 0.65 USDC per YES token)
+        /// @dev For CC Fixed orders: denominated in quote currency (e.g., 0.66 USDT per YES token)
+        /// @dev For CC Dynamic orders: floor price in collateral token (e.g., 0.000007 BTC per YES token)
         uint256 pricePerToken;
-        /// @notice Timestamp after which the order becomes invalid (0 = no expiry)
-        uint256 expiry;
-        /// @notice Timestamp of the order creation time
-        uint256 createdAt;
-        /// @notice Exchange rate (quote currency per collateral token)
-        uint256 exchangeRate;
-        /// @notice Creator of the order (20 bytes) + direction (1 byte) + executionType (1 byte) + orderType (1 byte) + exchangeRateType (1 byte) + active (1 byte) + fillOrKill (1 byte) = 26 bytes packed
-        address maker;
-        OrderDirection direction;
-        ExecutionType executionType;
-        OrderType orderType;
-        ExchangeRateType exchangeRateType;
-        bool active;
-        bool fillOrKill;
-        /// @notice Address of the requested ERC20 token (20 bytes) + makerFeeBps (2 bytes) + takerFeeBps (2 bytes) = 24 bytes packed
-        address collateralToken;
-        uint16 makerFeeBps;
-        uint16 takerFeeBps;
-        /// @notice Quote currency token address (only used for CrossCurrency orders)
-        address quoteCurrencyToken;
+        /// @notice Address of the order creator
+        /// @dev Has permission to cancel or modify the order
+        address maker; // 20 bytes
+        /// @notice Timestamp after which the order becomes invalid
+        /// @dev Set to 0 for no expiry; uint32 supports dates until February 2106
+        uint32 expiry; // 4 bytes
+        /// @notice Timestamp when the order was created
+        /// @dev Used for FIFO tiebreaking when prices are equal; uint32 until year 2106
+        uint32 createdAt; // 4 bytes
+        /// @notice Maker fee in basis points (1 bp = 0.01%)
+        /// @dev Applied when this order is the passive side (maker) in a trade
+        uint16 makerFeeBps; // 2 bytes
+        /// @notice Taker fee in basis points (1 bp = 0.01%)
+        /// @dev Applied when this order is the aggressive side (taker) in a trade
+        uint16 takerFeeBps; // 2 bytes
+        /// @notice Address of the collateral token (e.g., USDC, WETH, BTC)
+        /// @dev Standard/Dynamic orders: token used for pricing and settlement
+        /// @dev Fixed CC orders: base token, but settlement occurs in quote currency
+        address collateralToken; // 20 bytes
+        /// @notice Unique identifier for this order
+        /// @dev Incrementally assigned; uint64 supports 18 quintillion orders
+        uint256 orderId; // 8 bytes
+        /// @notice Whether this is a Buy or Sell order
+        /// @dev Buy: user provides collateral, receives outcome tokens
+        /// @dev Sell: user provides outcome tokens, receives collateral
+        OrderDirection direction; // 1 byte
+        /// @notice Order execution type
+        /// @dev Market: executes immediately at best available price
+        /// @dev Limit: only executes at specified price or better
+        ExecutionType executionType; // 1 byte
+        /// @notice Whether the order is currently active and matchable
+        /// @dev Set to false when cancelled or fully filled
+        bool active; // 1 byte
+        /// @notice Fill-or-Kill flag
+        /// @dev If true, order must be completely filled immediately or it's cancelled
+        /// @dev If false, partial fills are allowed
+        bool fillOrKill; // 1 byte
     }
 
     /// @notice Global storage layout for the Orderbook facet/module
@@ -261,10 +282,16 @@ library LibDoefinStorage {
         uint256 nextOrderId;
         /// @notice Mapping from order ID to Order struct
         mapping(uint256 => Order) orders;
-        /// @notice Mapping of position ID to array of active buy order IDs
-        mapping(uint256 => uint256[]) buyOrdersByPosition;
-        /// @notice Mapping of position ID to array of active sell order IDs
-        mapping(uint256 => uint256[]) sellOrdersByPosition;
+        // ========================================
+        // Single Mapping for All Orderbooks
+        // Key: keccak256(abi.encodePacked(positionId, quoteCurrencyToken));
+        // ========================================
+        /// @notice Mapping of position ID and Currency to array of active buy order IDs
+        mapping(bytes32 => uint256[]) buyOrdersByPositionAndCurrency;
+        /// @notice Mapping of position ID and Currency to array of active sell order IDs
+        mapping(bytes32 => uint256[]) sellOrdersByPositionAndCurrency;
+        /// @notice Mapping of order ID to CrossCurrencyData
+        mapping(uint256 => CrossCurrencyData) crossCurrencyData;
         /// @notice Added Extra Gaps for safe upgrades
         uint256[10] __gap;
     }
