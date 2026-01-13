@@ -149,7 +149,30 @@ async function main() {
         console.log("MM Allowance:", ethers.utils.formatEther(allowance));
         
         if (allowance.lt(SPLIT_AMOUNT)) {
-            throw new Error("❌ Insufficient allowance for splitting. Please run the token approval script.");
+            console.log("⚠️ Insufficient allowance for splitting. Setting up approval...");
+            
+            // Connect with market maker signer for approval
+            const collateralWithMM = collateralToken.connect(marketMakerSigner);
+            
+            // Approve Diamond to spend tokens
+            console.log(`🔓 Approving Diamond to spend ${ethers.utils.formatEther(SPLIT_AMOUNT)} tokens...`);
+            const approveTx = await collateralWithMM.approve(DIAMOND_ADDRESS, SPLIT_AMOUNT.mul(2), {
+                gasLimit: 100000
+            });
+            console.log("📤 Approval transaction sent:", approveTx.hash);
+            
+            const approveReceipt = await approveTx.wait();
+            console.log("✅ Approval confirmed in block:", approveReceipt.blockNumber);
+            
+            // Verify new allowance
+            const newAllowance = await collateralToken.allowance(MARKET_MAKER_ADDRESS, DIAMOND_ADDRESS);
+            console.log("✅ New allowance:", ethers.utils.formatEther(newAllowance));
+            
+            if (newAllowance.lt(SPLIT_AMOUNT)) {
+                throw new Error("❌ Approval failed - still insufficient allowance");
+            }
+        } else {
+            console.log("✅ Sufficient allowance available");
         }
         
         // Prepare partition for binary condition (indexSets: [1, 2] for outcome 0 and 1)

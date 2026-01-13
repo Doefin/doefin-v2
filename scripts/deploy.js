@@ -19,6 +19,7 @@ async function verifyContract(address, constructorArguments = []) {
 async function deployDiamond() {
   const accounts = await ethers.getSigners();
   const contractOwner = accounts[0];
+  const provider = ethers.provider;
 
   console.log("Deploying contracts with the account:", contractOwner.address);
 
@@ -27,6 +28,18 @@ async function deployDiamond() {
   const diamondCutFacet = await DiamondCutFacet.deploy();
   await diamondCutFacet.deployed();
   console.log("DiamondCutFacet deployed:", diamondCutFacet.address);
+  
+  // Wait for additional confirmations to ensure contract is fully deployed
+  console.log("Waiting for additional confirmations...");
+  await diamondCutFacet.deployTransaction.wait(2); // Wait for 2 confirmations
+  
+  // Verify contract has code deployed
+  const code = await provider.getCode(diamondCutFacet.address);
+  if (code === "0x") {
+    throw new Error(`DiamondCutFacet has no code at address ${diamondCutFacet.address}`);
+  }
+  console.log("DiamondCutFacet contract verified with code");
+  
   await verifyContract(diamondCutFacet.address);
 
   // deploy Diamond
@@ -37,6 +50,18 @@ async function deployDiamond() {
   );
   await diamond.deployed();
   console.log("Diamond deployed:", diamond.address);
+  
+  // Wait for additional confirmations to ensure contract is fully deployed
+  console.log("Waiting for Diamond deployment confirmations...");
+  await diamond.deployTransaction.wait(2); // Wait for 2 confirmations
+  
+  // Verify contract has code deployed
+  const diamondCode = await provider.getCode(diamond.address);
+  if (diamondCode === "0x") {
+    throw new Error(`Diamond has no code at address ${diamond.address}`);
+  }
+  console.log("Diamond contract verified with code");
+  
   await verifyContract(diamond.address, [contractOwner.address, diamondCutFacet.address]);
 
   // deploy DiamondInit
@@ -47,6 +72,18 @@ async function deployDiamond() {
   const diamondInit = await DiamondInit.deploy();
   await diamondInit.deployed();
   console.log("DiamondInit deployed:", diamondInit.address);
+  
+  // Wait for additional confirmations to ensure contract is fully deployed
+  console.log("Waiting for DiamondInit deployment confirmations...");
+  await diamondInit.deployTransaction.wait(2);
+  
+  // Verify contract has code deployed
+  const diamondInitCode = await provider.getCode(diamondInit.address);
+  if (diamondInitCode === "0x") {
+    throw new Error(`DiamondInit has no code at address ${diamondInit.address}`);
+  }
+  console.log("DiamondInit contract verified with code");
+  
   await verifyContract(diamondInit.address);
 
   // deploy facets
@@ -57,6 +94,14 @@ async function deployDiamond() {
   const blockHeaderUtils = await BlockHeaderUtilsLib.deploy();
   await blockHeaderUtils.deployed();
   console.log("BlockHeaderUtils deployed:", blockHeaderUtils.address);
+  
+  // Wait for confirmations
+  await blockHeaderUtils.deployTransaction.wait(2);
+  const blockHeaderUtilsCode = await provider.getCode(blockHeaderUtils.address);
+  if (blockHeaderUtilsCode === "0x") {
+    throw new Error(`BlockHeaderUtils has no code at address ${blockHeaderUtils.address}`);
+  }
+  
   await verifyContract(blockHeaderUtils.address);
 
   const FacetNames = [
@@ -89,6 +134,14 @@ async function deployDiamond() {
     const facet = await factories.deploy();
     await facet.deployed();
     console.log(`${FacetName} deployed: ${facet.address}`);
+    
+    // Wait for confirmations and verify code exists
+    await facet.deployTransaction.wait(2);
+    const facetCode = await provider.getCode(facet.address);
+    if (facetCode === "0x") {
+      throw new Error(`${FacetName} has no code at address ${facet.address}`);
+    }
+    
     await verifyContract(facet.address);
     cut.push({
       facetAddress: facet.address,
@@ -119,7 +172,9 @@ async function deployDiamond() {
       console.error("Diamond cut transaction failed:", receipt);
       throw Error(`Diamond upgrade failed: ${tx.hash}`);
     }
-    console.log("Completed diamond cut");
+    console.log("✅ Completed diamond cut successfully");
+    console.log(`   Gas used: ${receipt.gasUsed.toString()}`);
+    console.log(`   Block: ${receipt.blockNumber}`);
   } catch (err) {
     console.error("Diamond cut failed:", err);
     throw err;
@@ -127,11 +182,32 @@ async function deployDiamond() {
 
   // Verify facets after deployment
   try {
+    // Wait a bit for the diamond cut to be fully processed
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    
+    // Try to get the loupe interface
     const loupe = await ethers.getContractAt("DiamondLoupeFacet", diamond.address);
+    
+    // Test if the interface is accessible first
+    console.log("Testing if DiamondLoupe interface is accessible...");
     const facets = await loupe.facets();
-    console.log("Facets registered in diamond:", facets);
+    console.log("✅ Facets registered in diamond:", facets.length);
+    
+    // Show first few facets for verification
+    facets.slice(0, 3).forEach((facet, i) => {
+      console.log(`  Facet ${i + 1}: ${facet.facetAddress} with ${facet.functionSelectors.length} functions`);
+    });
   } catch (loupeErr) {
-    console.error("Error reading facets from loupe:", loupeErr);
+    console.warn("⚠️ Warning: Could not read facets from loupe (this may be normal):", loupeErr.message);
+    
+    // Try a more direct approach to verify diamond is working
+    try {
+      const diamondOwner = await ethers.getContractAt("OwnershipFacet", diamond.address);
+      const owner = await diamondOwner.owner();
+      console.log("✅ Diamond is functional - owner is:", owner);
+    } catch (ownerErr) {
+      console.error("❌ Diamond may not be properly initialized:", ownerErr.message);
+    }
   }
 
   return diamond.address;
