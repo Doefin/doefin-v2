@@ -13,6 +13,8 @@ const MATCH_TYPE_LABELS = {
  * @param {string} positionId - The ERC1155 position token ID
  * @param {BigNumber} amount - The desired amount to fill
  * @param {number} direction - 0 for BUY, 1 for SELL
+ * @param {Object} crossCurrencyData - Optional cross-currency configuration.
+ *   If not provided, defaults to standard order (quoteCurrencyToken = address(0))
  * @returns {{
  *   matches: {
  *     matchedOrderId: BigNumber,
@@ -29,11 +31,19 @@ async function simulateAndParseMatchRoute({
   positionId,
   amount,
   direction,
+  crossCurrencyData
 }) {
+  // Default to standard order if no cross-currency data provided
+  const ccData = crossCurrencyData || {
+    quoteCurrencyToken: "0x0000000000000000000000000000000000000000", // address(0) for standard orders
+    floorRate: 0
+  };
+
   const matchRoute = await routeSimFacet.simulateMarketOrder(
     positionId,
     amount,
-    direction
+    direction,
+    ccData
   );
 
   const structuredMatches = matchRoute.matches.map(
