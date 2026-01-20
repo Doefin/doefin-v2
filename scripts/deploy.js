@@ -4,6 +4,17 @@
 const { getSelectors, FacetCutAction } = require("./libraries/diamond.js");
 const hre = require("hardhat");
 
+// Helper function to check if we're on a local network
+function isLocalNetwork() {
+  const networkName = hre.network.name;
+  return networkName === "hardhat" || networkName === "localhost";
+}
+
+// Get appropriate confirmation count based on network
+function getConfirmationCount() {
+  return isLocalNetwork() ? 1 : 2; // Local: 1, Remote: 2
+}
+
 async function verifyContract(address, constructorArguments = []) {
   try {
     await hre.run("verify:verify", {
@@ -29,9 +40,12 @@ async function deployDiamond() {
   await diamondCutFacet.deployed();
   console.log("DiamondCutFacet deployed:", diamondCutFacet.address);
   
-  // Wait for additional confirmations to ensure contract is fully deployed
-  console.log("Waiting for additional confirmations...");
-  await diamondCutFacet.deployTransaction.wait(2); // Wait for 2 confirmations
+  const confirmations = getConfirmationCount();
+  if (!isLocalNetwork()) {
+    // Wait for additional confirmations only on non-local networks
+    console.log(`Waiting for ${confirmations} confirmations...`);
+    await diamondCutFacet.deployTransaction.wait(confirmations);
+  }
   
   // Verify contract has code deployed
   const code = await provider.getCode(diamondCutFacet.address);
@@ -51,9 +65,11 @@ async function deployDiamond() {
   await diamond.deployed();
   console.log("Diamond deployed:", diamond.address);
   
-  // Wait for additional confirmations to ensure contract is fully deployed
-  console.log("Waiting for Diamond deployment confirmations...");
-  await diamond.deployTransaction.wait(2); // Wait for 2 confirmations
+  if (!isLocalNetwork()) {
+    // Wait for additional confirmations only on non-local networks
+    console.log("Waiting for Diamond deployment confirmations...");
+    await diamond.deployTransaction.wait(confirmations);
+  }
   
   // Verify contract has code deployed
   const diamondCode = await provider.getCode(diamond.address);
@@ -73,9 +89,11 @@ async function deployDiamond() {
   await diamondInit.deployed();
   console.log("DiamondInit deployed:", diamondInit.address);
   
-  // Wait for additional confirmations to ensure contract is fully deployed
-  console.log("Waiting for DiamondInit deployment confirmations...");
-  await diamondInit.deployTransaction.wait(2);
+  if (!isLocalNetwork()) {
+    // Wait for additional confirmations only on non-local networks
+    console.log("Waiting for DiamondInit deployment confirmations...");
+    await diamondInit.deployTransaction.wait(confirmations);
+  }
   
   // Verify contract has code deployed
   const diamondInitCode = await provider.getCode(diamondInit.address);
@@ -95,8 +113,10 @@ async function deployDiamond() {
   await blockHeaderUtils.deployed();
   console.log("BlockHeaderUtils deployed:", blockHeaderUtils.address);
   
-  // Wait for confirmations
-  await blockHeaderUtils.deployTransaction.wait(2);
+  if (!isLocalNetwork()) {
+    // Wait for confirmations only on non-local networks
+    await blockHeaderUtils.deployTransaction.wait(confirmations);
+  }
   const blockHeaderUtilsCode = await provider.getCode(blockHeaderUtils.address);
   if (blockHeaderUtilsCode === "0x") {
     throw new Error(`BlockHeaderUtils has no code at address ${blockHeaderUtils.address}`);
@@ -135,8 +155,10 @@ async function deployDiamond() {
     await facet.deployed();
     console.log(`${FacetName} deployed: ${facet.address}`);
     
-    // Wait for confirmations and verify code exists
-    await facet.deployTransaction.wait(2);
+    if (!isLocalNetwork()) {
+      // Wait for confirmations only on non-local networks
+      await facet.deployTransaction.wait(confirmations);
+    }
     const facetCode = await provider.getCode(facet.address);
     if (facetCode === "0x") {
       throw new Error(`${FacetName} has no code at address ${facet.address}`);
