@@ -187,12 +187,12 @@ library LibDoefinStorage {
     struct SimulationContext {
         uint256[] complementaryOrders;
         uint256[] mintOrMergeOrders;
-        LibDoefinStorage.MatchType siblingMatchType;
-        LibDoefinStorage.OrderDirection direction;
+        MatchType siblingMatchType;
+        OrderDirection direction;
         uint256 collateralUnit;
         uint256 sharesOrBudgetAmount;
         uint256 matchCount;
-        LibDoefinStorage.OrderType orderType;
+        OrderType orderType;
     }
 
     struct Match {
