@@ -192,6 +192,7 @@ library LibDoefinStorage {
         uint256 collateralUnit;
         uint256 sharesOrBudgetAmount;
         uint256 matchCount;
+        LibDoefinStorage.OrderType orderType;
     }
 
     struct Match {
