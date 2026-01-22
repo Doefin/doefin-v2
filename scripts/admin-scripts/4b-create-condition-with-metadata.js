@@ -39,7 +39,7 @@ async function main() {
     console.log("📊 Current block height:", currentBlockHeight.toString());
     
     // === SIMPLE CONFIGURATION - EDIT THESE VALUES DIRECTLY ===
-    const TARGET_BLOCK_HEIGHT = 933408;  // Bitcoin block number to target
+    const TARGET_BLOCK_HEIGHT = 933408;  // Bitcoin block number to target (next difficulty adjustment)
     const TARGET_DIFFICULTY = "147000000000000";  // Target difficulty (147T)
     
     // Configuration for question creation
