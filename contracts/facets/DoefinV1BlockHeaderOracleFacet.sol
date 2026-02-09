@@ -154,9 +154,8 @@ contract DoefinV1BlockHeaderOracle is IDoefinBlockHeaderOracle {
             ds.blockHeaderOracleStorage.nextBlockIndex = (ds.blockHeaderOracleStorage.nextBlockIndex + 1) % LibDoefinStorage.NUM_OF_BLOCK_HEADERS;
 
             emit Events.BlockSubmitted(newBlockHeader.blockHash, newBlockHeader.timestamp);
-        }
 
-        for (uint256 i = 0; i < newBlockHeaders.length; i++) {
+            // Settlement call after each block is applied
             _settleCondition();
         }
     }
