@@ -181,7 +181,7 @@ contract DoefinV1BlockHeaderOracle is IDoefinBlockHeaderOracle {
         uint256 currentHeight = ds.blockHeaderOracleStorage.currentBlockHeight;
 
         // Allow reorg replacement if new block is within our buffer range
-        if (newBlockHeight > currentHeight - LibDoefinStorage.NUM_OF_BLOCK_HEADERS && newBlockHeight <= currentHeight) {
+        if (newBlockHeight > currentHeight - LibDoefinStorage.NUM_OF_BLOCK_HEADERS + 1 && newBlockHeight <= currentHeight) {
             // Calculate hypothetical fork point - assume fork is one block before new chain
             return newBlockHeight - 1;
         }
