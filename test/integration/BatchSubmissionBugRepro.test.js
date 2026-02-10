@@ -201,13 +201,15 @@ describe("Batch Submission Settlement Fix Verification", function () {
         }
       }
       
-      // If still not found, try hardcoded topic search
+      // If still not found, try computed topic search
       if (!conditionId && createReceipt.logs) {
         // Look for the ConditionPreparation event signature
+        // Compute the canonical topic for ConditionPreparation(bytes32,address,bytes32,uint8)
+        const conditionPreparationTopic = ethers.utils.id("ConditionPreparation(bytes32,address,bytes32,uint8)");
         // Based on the logs, the third log has the pattern we expect
         for (const log of createReceipt.logs) {
           if (log.topics && log.topics.length >= 2 && 
-              log.topics[0] === "0xd3d3115b46ec6326d6eef52692459e56bd1d7a52e2b6cda5945664ca7c1fe47b") {
+              log.topics[0] === conditionPreparationTopic) {
             conditionId = log.topics[1]; // First indexed parameter is conditionId
             console.log(`🆔 Found condition ID via topic: ${conditionId}`);
             break;
@@ -257,6 +259,9 @@ describe("Batch Submission Settlement Fix Verification", function () {
       // Get the transaction receipt to analyze settlement events
       const batchReceipt = await batchTx.wait();
       
+      // Define canonical topic for ConditionResolution event
+      const CONDITION_RESOLUTION_TOPIC = ethers.utils.id("ConditionResolution(bytes32,address,bytes32,uint8,uint256[])");
+      
       // Count settlement events that occurred during batch processing
       // Note: May fail to parse due to Gnosis ConditionalTokens interface mismatches
       let settlementEventCount = 0;
@@ -265,7 +270,7 @@ describe("Batch Submission Settlement Fix Verification", function () {
       if (batchReceipt.events) {
         for (const event of batchReceipt.events) {
           // Look for ConditionResolution events (settlement events)
-          if (event.topics && event.topics[0] === "0x88d8b84d0ebfadf7ad85a87068e86de5f49715ebf5ad5fb6ca5a166c3c5e72c5") {
+          if (event.topics && event.topics[0] === CONDITION_RESOLUTION_TOPIC) {
             settlementEventCount++;
             settlementEvents.push({
               eventName: "ConditionResolution",

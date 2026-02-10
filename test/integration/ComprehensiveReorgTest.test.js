@@ -265,14 +265,11 @@ describe("Block Header Oracle - Comprehensive Reorg Test", function () {
 
       console.log(`🚫 Attempting reorg with shorter chain`);
 
-      // This might not revert if the reorg logic accepts same-length or shorter chains
-      // The test verifies the behavior but doesn't necessarily expect it to revert
-      try {
-        await oracle.connect(owner).submitBatchBlocks(shorterReorg);
-        console.log(`⚠️ Shorter reorg was accepted (implementation allows this)`);
-      } catch (error) {
-        console.log(`✅ Shorter reorg correctly rejected: ${error.message}`);
-      }
+      // Shorter reorgs should be deterministically rejected
+      await expect(oracle.connect(owner).submitBatchBlocks(shorterReorg))
+        .to.be.revertedWith("BlockHeaderOracle_NewChainNotLonger");
+      
+      console.log(`✅ Shorter reorg correctly rejected as expected`);
     });
   });
 });
