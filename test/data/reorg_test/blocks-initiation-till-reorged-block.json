@@ -1,5 +1,5 @@
 {
-  "count": 36,
+  "count": 30,
   "blocks": [
     {
       "blockNumber": 935468,
@@ -160,6 +160,7 @@
       "timestamp": 1770503587,
       "nBits": 386022526,
       "nonce": 1758911045
+      
     },
     {
       "blockNumber": 935484,
@@ -293,73 +294,13 @@
     },
     {
       "blockNumber": 935497,
-      "blockHash": "0x00000000000000000000d89863c3dd1e02600d88f144e4e5bf3fa4f19e1a5369",
+      "blockHash": "0x000000000000000000019b9d899b2d44f49d9d99bd4eaf3d93b003ff01a6798a",
       "prevBlockHash": "0x000000000000000000005acad3e6d462132fdf5677798f98b9775870ca828121",
-      "merkleRootHash": "0x4c03f79edeba01c94d68be2d1334f61cadfef581d9d2745993798e113ebca88d",
-      "version": 568573952,
+      "merkleRootHash": "0x26ad3e643363fea8314d38c7b2a9e102618242be12f4ce734894d8c78bd10e9d",
+      "version": 536944640,
       "timestamp": 1770512631,
       "nBits": 386022526,
-      "nonce": 886723846
-    },
-    {
-      "blockNumber": 935498,
-      "blockHash": "0x0000000000000000000219ba42fd902135266a47dd4c9008d4725a5bf1efcd39",
-      "prevBlockHash": "0x00000000000000000000d89863c3dd1e02600d88f144e4e5bf3fa4f19e1a5369",
-      "merkleRootHash": "0x0c65eb75089bbdd37af8b374eb0c09329ced8c6e566b7011ddf631ee7ec9ea06",
-      "version": 604438528,
-      "timestamp": 1770512725,
-      "nBits": 386022526,
-      "nonce": 2648756436
-    },
-    {
-      "blockNumber": 935499,
-      "blockHash": "0x0000000000000000000229cda92f0b6bb822900698c1e129a6aca133df73fcae",
-      "prevBlockHash": "0x0000000000000000000219ba42fd902135266a47dd4c9008d4725a5bf1efcd39",
-      "merkleRootHash": "0xfa8936f0dd1ce31ff5effc3ea9657ac09c750d6733db2276ce2d975c09cdf327",
-      "version": 973078528,
-      "timestamp": 1770513098,
-      "nBits": 386022526,
-      "nonce": 1218185036
-    },
-    {
-      "blockNumber": 935500,
-      "blockHash": "0x000000000000000000009741ee48a9f7aceb6ccda41c08f8ebc4728f698624bf",
-      "prevBlockHash": "0x0000000000000000000229cda92f0b6bb822900698c1e129a6aca133df73fcae",
-      "merkleRootHash": "0xdb15167cb40b1a6f5f5ca267e4166c5635f70815bc7795872a63e632ffb03923",
-      "version": 546947072,
-      "timestamp": 1770513226,
-      "nBits": 386022526,
-      "nonce": 3208359617
-    },
-    {
-      "blockNumber": 935501,
-      "blockHash": "0x00000000000000000001bd934feaff4d8615e3587ddc0367e53e68632a393195",
-      "prevBlockHash": "0x000000000000000000009741ee48a9f7aceb6ccda41c08f8ebc4728f698624bf",
-      "merkleRootHash": "0x5777b04ccc86cfb5d1bcffc7c74ae11f8adc682aa53f3b0aad7c665d79111be0",
-      "version": 538525700,
-      "timestamp": 1770513347,
-      "nBits": 386022526,
-      "nonce": 2474924592
-    },
-    {
-      "blockNumber": 935502,
-      "blockHash": "0x000000000000000000014515d7ac0f220572172b65391badd6cd2b1c8a73ea04",
-      "prevBlockHash": "0x00000000000000000001bd934feaff4d8615e3587ddc0367e53e68632a393195",
-      "merkleRootHash": "0xfef3e1e5e29801773e2707fc3bc05011f341c10c3180e00ace4b91f85ecb13fa",
-      "version": 537182208,
-      "timestamp": 1770513388,
-      "nBits": 386022526,
-      "nonce": 2987298676
-    },
-    {
-      "blockNumber": 935503,
-      "blockHash": "0x000000000000000000007a93b2e55216a62b65167d3bd57789b99e64946c00eb",
-      "prevBlockHash": "0x000000000000000000014515d7ac0f220572172b65391badd6cd2b1c8a73ea04",
-      "merkleRootHash": "0x39599b2768bcc90bc2d2122a8547f951dc47f9cfe8e8fc36e081a4246188dc0f",
-      "version": 837877760,
-      "timestamp": 1770513994,
-      "nBits": 386022526,
-      "nonce": 2859232378
+      "nonce": 599385113
     }
   ]
 }

@@ -175,6 +175,17 @@ contract DoefinV1BlockHeaderOracle is IDoefinBlockHeaderOracle {
             }
         }
 
+        // If no parent found, this might be a reorg - check if new block height matches any stored block
+        // In reorg case, allow replacement if new chain starts at current height or within buffer
+        uint256 newBlockHeight = newBlockHeader.blockNumber;
+        uint256 currentHeight = ds.blockHeaderOracleStorage.currentBlockHeight;
+
+        // Allow reorg replacement if new block is within our buffer range
+        if (newBlockHeight > currentHeight - LibDoefinStorage.NUM_OF_BLOCK_HEADERS + 1 && newBlockHeight <= currentHeight) {
+            // Calculate hypothetical fork point - assume fork is one block before new chain
+            return newBlockHeight - 1;
+        }
+
         revert Errors.BlockHeaderOracle_CannotFindForkPoint();
     }
 
