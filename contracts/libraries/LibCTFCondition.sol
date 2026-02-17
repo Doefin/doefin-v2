@@ -19,11 +19,7 @@ library LibCTFCondition {
 
     /// @dev Prepares a new condition by initializing payout numerators.
     /// Can be called from both low-level (CTF-compatible) and high-level (managed) flows.
-    function prepareCondition(
-        address oracle,
-        bytes32 questionId,
-        uint8 outcomeSlotCount
-    ) internal returns (bytes32 conditionId) {
+    function prepareCondition(address oracle, bytes32 questionId, uint8 outcomeSlotCount) internal returns (bytes32 conditionId) {
         if (oracle == address(0)) {
             revert Errors.InvalidOracleAddress();
         }
@@ -83,7 +79,9 @@ library LibCTFCondition {
         uint256 amount,
         uint256[] memory partition
     ) internal {
-        _validateCollateral(collateralToken, amount);
+        if (!LibAccessControl.isCollateralTokenAllowed(collateralToken)) {
+            revert Errors.TokenNotAllowed();
+        }
 
         (uint256 fullIndexSet, uint256 freeIndexSet, uint256[] memory positionIds, uint256[] memory amounts) = _validateAndBuildPartitionPositions(
             collateralToken,
@@ -130,11 +128,7 @@ library LibCTFCondition {
         }
     }
 
-    function _reportPayouts(
-        address oracle,
-        bytes32 questionId,
-        uint256[] memory payouts
-    ) internal {
+    function _reportPayouts(address oracle, bytes32 questionId, uint256[] memory payouts) internal {
         if (payouts.length == 0 || payouts.length > type(uint8).max) {
             revert Errors.InvalidPayoutLength();
         }
@@ -175,16 +169,7 @@ library LibCTFCondition {
         bytes32 conditionId,
         uint256[] memory partition,
         uint256 amount
-    )
-        internal
-        view
-        returns (
-            uint256 fullIndexSet,
-            uint256 freeIndexSet,
-            uint256[] memory positionIds,
-            uint256[] memory amounts
-        )
-    {
+    ) internal view returns (uint256 fullIndexSet, uint256 freeIndexSet, uint256[] memory positionIds, uint256[] memory amounts) {
         if (partition.length <= 1) {
             revert Errors.TrivialPartition();
         }
