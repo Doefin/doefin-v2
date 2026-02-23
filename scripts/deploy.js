@@ -54,7 +54,9 @@ async function deployDiamond() {
   }
   console.log("DiamondCutFacet contract verified with code");
   
-  await verifyContract(diamondCutFacet.address);
+  if (!isLocalNetwork()) {
+    await verifyContract(diamondCutFacet.address);
+  }
 
   // deploy Diamond
   const Diamond = await ethers.getContractFactory("Diamond");
@@ -78,7 +80,9 @@ async function deployDiamond() {
   }
   console.log("Diamond contract verified with code");
   
-  await verifyContract(diamond.address, [contractOwner.address, diamondCutFacet.address]);
+  if (!isLocalNetwork()) {
+    await verifyContract(diamond.address, [contractOwner.address, diamondCutFacet.address]);
+  }
 
   // deploy DiamondInit
   // DiamondInit provides a function that is called when the diamond is upgraded to initialize state variables
@@ -102,7 +106,9 @@ async function deployDiamond() {
   }
   console.log("DiamondInit contract verified with code");
   
-  await verifyContract(diamondInit.address);
+  if (!isLocalNetwork()) {
+    await verifyContract(diamondInit.address);
+  }
 
   // deploy facets
   console.log("");
@@ -122,7 +128,9 @@ async function deployDiamond() {
     throw new Error(`BlockHeaderUtils has no code at address ${blockHeaderUtils.address}`);
   }
   
-  await verifyContract(blockHeaderUtils.address);
+  if (!isLocalNetwork()) {
+    await verifyContract(blockHeaderUtils.address);
+  }
 
   const FacetNames = [
     "DiamondLoupeFacet",
@@ -164,7 +172,9 @@ async function deployDiamond() {
       throw new Error(`${FacetName} has no code at address ${facet.address}`);
     }
     
-    await verifyContract(facet.address);
+    if (!isLocalNetwork()) {
+      await verifyContract(facet.address);
+    }
     cut.push({
       facetAddress: facet.address,
       action: FacetCutAction.Add,
