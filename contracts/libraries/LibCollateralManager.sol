@@ -9,7 +9,10 @@ import {Events} from "./Events.sol";
 
 /**
  * @title LibCollateralManager
- * @notice Handles all collateral management operations for ERC20 and ERC1155 tokens
+ * @author Doefin
+ * @notice Manages collateral operations for both ERC20 tokens and ERC1155 position tokens
+ * @dev Handles locking, releasing, and consuming collateral during order lifecycle
+ * @dev Supports fee calculations and escrow balance tracking for safe order execution
  */
 library LibCollateralManager {
     using SafeERC20 for IERC20;
@@ -19,12 +22,19 @@ library LibCollateralManager {
     // ----------------------------------------
 
     /**
-     * @notice Lock ERC20 collateral for a buy order
-     * @param user The user whose collateral to lock
-     * @param collateralToken The ERC20 token address
-     * @param amount The amount of tokens to lock (in position units)
-     * @param pricePerToken The price per token
-     * @param makerFeeBps The maker fee in basis points
+     * @notice Locks ERC20 collateral for a buy order, including maker fees
+     * @dev Validates allowance, transfers tokens, and updates escrow balances
+     * @dev Calculates total required amount including maker fees and transfers atomically
+     * @param user Address of the user providing collateral
+     * @param collateralToken ERC20 token address to be locked (e.g., USDC, WETH)
+     * @param amount Number of position tokens to buy (used in cost calculation)
+     * @param pricePerToken Price per position token in collateral token units
+     * @param makerFeeBps Maker fee in basis points (100 = 1%)
+     * @custom:emits ERC20CollateralLocked with user, token, amount, and new balance
+     * @custom:reverts TokenNotAllowed if collateralToken not whitelisted
+     * @custom:reverts InsufficientERC20Allowance if user hasn't approved enough tokens
+     * @custom:security Validates allowance before attempting transfer to prevent revert
+     * @custom:gas Cost includes ERC20 transfer and storage updates
      */
     function lockERC20Collateral(address user, address collateralToken, uint256 amount, uint256 pricePerToken, uint256 makerFeeBps) internal {
         if (amount == 0) return;
@@ -65,12 +75,19 @@ library LibCollateralManager {
     }
 
     /**
-     * @notice Release ERC20 collateral for a buy order
-     * @param user The user whose collateral to release
-     * @param collateralToken The ERC20 token address
-     * @param amount The amount of tokens to release (in position units)
-     * @param pricePerToken The price per token
-     * @param makerFeeBps The maker fee in basis points
+     * @notice Releases previously locked ERC20 collateral for a buy order cancellation
+     * @dev Calculates total amount to release including fees and transfers back to user
+     * @dev Updates escrow balance tracking and emits event for off-chain monitoring
+     * @param user Address of the user whose collateral is being released
+     * @param collateralToken ERC20 token address to be released
+     * @param amount Number of position tokens (used to calculate collateral to release)
+     * @param pricePerToken Price per position token used in original locking
+     * @param makerFeeBps Maker fee in basis points used in original calculation
+     * @custom:emits ERC20CollateralReleased with user, token, amount, and remaining balance
+     * @custom:reverts TokenNotAllowed if collateralToken not whitelisted
+     * @custom:note Does nothing if amount is 0 (gas optimization)
+     * @custom:security Uses _consumeERC20Collateral to validate sufficient locked balance
+     * @custom:gas Cost includes ERC20 transfer and storage updates
      */
     function releaseERC20Collateral(address user, address collateralToken, uint256 amount, uint256 pricePerToken, uint256 makerFeeBps) internal {
         if (amount == 0) return;
@@ -102,10 +119,16 @@ library LibCollateralManager {
     // ----------------------------------------
 
     /**
-     * @notice Lock ERC1155 position tokens for a sell order
-     * @param user The user whose tokens to lock
-     * @param positionId The position token ID
-     * @param amount The amount of tokens to lock
+     * @notice Locks ERC1155 position tokens for a sell order
+     * @dev Transfers position tokens from user to contract and updates internal tracking
+     * @dev Uses LibERC1155.safeTransferFrom for secure token transfer with validation
+     * @param user Address of the user providing position tokens
+     * @param positionId ERC1155 token ID representing the outcome position
+     * @param amount Number of position tokens to lock for the sell order
+     * @custom:emits ERC1155CollateralLocked with user, positionId, amount, and new balance
+     * @custom:note Does nothing if amount is 0 (gas optimization)
+     * @custom:security Uses safe transfer to prevent token loss and validate ownership
+     * @custom:gas Cost includes ERC1155 transfer and internal balance updates
      */
     function lockERC1155Collateral(address user, uint256 positionId, uint256 amount) internal {
         if (amount == 0) return;
@@ -123,10 +146,16 @@ library LibCollateralManager {
     }
 
     /**
-     * @notice Release ERC1155 position tokens for a sell order
-     * @param user The user whose tokens to release
-     * @param positionId The position token ID
-     * @param amount The amount of tokens to release
+     * @notice Releases previously locked ERC1155 position tokens for sell order cancellation
+     * @dev Updates internal balance tracking and transfers tokens back to user
+     * @dev Uses safe transfer to ensure tokens reach user's wallet safely
+     * @param user Address of the user whose position tokens are being released
+     * @param positionId ERC1155 token ID representing the outcome position
+     * @param amount Number of position tokens to release
+     * @custom:emits ERC1155CollateralReleased with user, positionId, amount, and remaining balance
+     * @custom:note Does nothing if amount is 0 (gas optimization)
+     * @custom:security Validates sufficient locked balance before release via _consumeERC1155Collateral
+     * @custom:gas Cost includes ERC1155 transfer and internal balance updates
      */
     function releaseERC1155Collateral(address user, uint256 positionId, uint256 amount) internal {
         if (amount == 0) return;

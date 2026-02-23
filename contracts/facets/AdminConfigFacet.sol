@@ -11,11 +11,27 @@ import {Events} from "../libraries/Events.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 
 /**
- * @title AdminConfigFacetV2
- * @notice Enhanced admin configuration facet with fee withdrawal functionality
- * @dev Extends the original AdminConfigFacet with new fee management capabilities
+ * @title AdminConfigFacet
+ * @author Doefin
+ * @notice Diamond facet for protocol administration and configuration management
+ * @dev Handles collateral tokens, fee configuration, protocol fee withdrawal, and cross-currency conversion paths
+ * @dev Only contract owner can modify configuration settings
+ * @dev Enhanced version with comprehensive fee management and token symbol support
  */
 contract AdminConfigFacet is IAdminConfig {
+    /**
+     * @notice Adds a new collateral token to the protocol with specified unit configuration
+     * @dev Automatically fetches and stores token symbol from ERC20Metadata interface
+     * @dev Unit per pair represents the decimal scaling factor for price calculations
+     * @param token The ERC20 token address to add as collateral
+     * @param unitPerPair The scaling unit for price calculations (e.g., 10^18 for 18-decimal tokens)
+     * @custom:emits CollateralTokenAdded with token address and unit configuration
+     * @custom:reverts InvalidTokenAddress if token is zero address
+     * @custom:reverts InvalidUnitPerPair if unitPerPair is zero
+     * @custom:reverts TokenAlreadyAllowed if token is already configured
+     * @custom:security Only callable by contract owner
+     * @custom:note Fallback symbol "UNKNOWN" used if token doesn't implement symbol()
+     */
     function addCollateralToken(address token, uint256 unitPerPair) external override {
         LibDiamond.enforceIsContractOwner();
         if (token == address(0)) revert Errors.InvalidTokenAddress();
@@ -44,6 +60,16 @@ contract AdminConfigFacet is IAdminConfig {
         emit Events.CollateralTokenAdded(token, unitPerPair);
     }
 
+    /**
+     * @notice Removes a collateral token from the protocol
+     * @dev Disables the token for new orders but doesn't affect existing positions
+     * @dev Clears both the allowed flag and unit configuration
+     * @param token The ERC20 token address to remove from allowed collaterals
+     * @custom:emits CollateralTokenRemoved with token address
+     * @custom:reverts TokenNotAllowed if token was not previously allowed
+     * @custom:security Only callable by contract owner
+     * @custom:note Existing orders and positions remain valid after removal
+     */
     function removeCollateralToken(address token) external override {
         LibDiamond.enforceIsContractOwner();
         LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
@@ -56,6 +82,17 @@ contract AdminConfigFacet is IAdminConfig {
         emit Events.CollateralTokenRemoved(token);
     }
 
+    /**
+     * @notice Sets the protocol fee receiver address
+     * @dev Address that will receive all protocol fees collected from trades and redemptions
+     * @dev Prevents setting the same address to avoid unnecessary gas consumption
+     * @param feeReceiver The address that will receive protocol fees
+     * @custom:emits FeeReceiverUpdated with old and new receiver addresses
+     * @custom:reverts InvalidFeeReceiver if feeReceiver is zero address
+     * @custom:reverts NoChangeRequired if feeReceiver is the same as current
+     * @custom:security Only callable by contract owner
+     * @custom:note Fee receiver change affects future fee distributions immediately
+     */
     function setFeeReceiver(address feeReceiver) external override {
         LibDiamond.enforceIsContractOwner();
         if (feeReceiver == address(0)) revert Errors.InvalidFeeReceiver();
@@ -66,6 +103,17 @@ contract AdminConfigFacet is IAdminConfig {
         emit Events.FeeReceiverUpdated(oldReceiver, feeReceiver);
     }
 
+    /**
+     * @notice Sets the resolution fee charged when redeeming winning positions
+     * @dev Fee is charged as a percentage of the payout amount in basis points
+     * @dev Resolution fee is deducted when users redeem their winning positions
+     * @param bps Fee percentage in basis points (100 bps = 1%, max 10000 bps = 100%)
+     * @custom:emits ResolutionFeeUpdated with old and new fee amounts
+     * @custom:reverts FeeTooHigh if bps exceeds 10,000 (100%)
+     * @custom:reverts NoChangeRequired if bps is the same as current setting
+     * @custom:security Only callable by contract owner
+     * @custom:note Fee change affects future redemptions immediately
+     */
     function setResolutionFeeBps(uint16 bps) external override {
         LibDiamond.enforceIsContractOwner();
         if (bps > 10_000) revert Errors.FeeTooHigh();
@@ -77,6 +125,18 @@ contract AdminConfigFacet is IAdminConfig {
         emit Events.ResolutionFeeUpdated(oldFeeBps, bps);
     }
 
+    /**
+     * @notice Sets trading fees for makers and takers
+     * @dev Maker fee applies to passive orders providing liquidity
+     * @dev Taker fee applies to aggressive orders consuming liquidity
+     * @dev Fees are charged as percentage of trade value in basis points
+     * @param makerBps Maker fee in basis points (100 bps = 1%, max 10000 bps = 100%)
+     * @param takerBps Taker fee in basis points (100 bps = 1%, max 10000 bps = 100%)
+     * @custom:emits TradingFeesUpdated with old and new maker/taker fees
+     * @custom:reverts FeeTooHigh if either fee exceeds 10,000 basis points
+     * @custom:security Only callable by contract owner
+     * @custom:note Fee changes affect new orders immediately; existing orders retain original fees
+     */
     function setTradingFeesBps(uint16 makerBps, uint16 takerBps) external override {
         LibDiamond.enforceIsContractOwner();
         if (makerBps > 10_000 || takerBps > 10_000) revert Errors.FeeTooHigh();
@@ -114,19 +174,29 @@ contract AdminConfigFacet is IAdminConfig {
     // ----------------------------------------
 
     /**
-     * @notice Withdraw accumulated protocol fees for a specific token
-     * @param token The token to withdraw fees for
-     * @param amount The amount to withdraw (0 = withdraw all)
+     * @notice Withdraws accumulated protocol fees for a specific token
+     * @dev Delegates to LibFeeManager for fee withdrawal logic and validation
+     * @dev If amount is 0, withdraws all available fees for the token
+     * @param token The ERC20 token address to withdraw fees for
+     * @param amount The amount to withdraw (0 = withdraw all available)
+     * @custom:security Only callable by contract owner
+     * @custom:note Fees are sent to the currently configured fee receiver
+     * @custom:gas Gas cost varies with withdrawal amount and token type
      */
     function withdrawProtocolFees(address token, uint256 amount) external override {
         LibFeeManager.withdrawProtocolFees(token, amount, address(0));
     }
 
     /**
-     * @notice Withdraw accumulated protocol fees to a specific recipient
-     * @param token The token to withdraw fees for
-     * @param amount The amount to withdraw (0 = withdraw all)
-     * @param recipient The address to send fees to
+     * @notice Withdraws accumulated protocol fees to a specific recipient address
+     * @dev Allows sending fees to a different address than the configured fee receiver
+     * @dev Useful for custom fee distribution or emergency withdrawal scenarios
+     * @param token The ERC20 token address to withdraw fees for
+     * @param amount The amount to withdraw (0 = withdraw all available)
+     * @param recipient The address to receive the withdrawn fees
+     * @custom:security Only callable by contract owner
+     * @custom:note Bypasses the configured fee receiver for this specific withdrawal
+     * @custom:gas Gas cost includes token transfer to custom recipient
      */
     function withdrawProtocolFeesTo(address token, uint256 amount, address recipient) external override {
         LibFeeManager.withdrawProtocolFees(token, amount, recipient);
@@ -150,19 +220,31 @@ contract AdminConfigFacet is IAdminConfig {
     }
 
     /**
-     * @notice Batch withdraw fees for multiple tokens
-     * @param tokens Array of token addresses
+     * @notice Batch withdraws protocol fees for multiple tokens in a single transaction
+     * @dev More gas-efficient than individual withdrawals when dealing with multiple tokens
+     * @dev Arrays must have equal length; amount[i] applies to tokens[i]
+     * @param tokens Array of ERC20 token addresses to withdraw fees for
      * @param amounts Array of amounts to withdraw (0 = withdraw all for that token)
+     * @custom:security Only callable by contract owner
+     * @custom:note All fees sent to the currently configured fee receiver
+     * @custom:gas Significant gas savings for multiple token withdrawals
+     * @custom:reverts If arrays have mismatched lengths
      */
     function batchWithdrawProtocolFees(address[] calldata tokens, uint256[] calldata amounts) external override {
         LibFeeManager.batchWithdrawProtocolFees(tokens, amounts, address(0));
     }
 
     /**
-     * @notice Batch withdraw fees for multiple tokens to a specific recipient
-     * @param tokens Array of token addresses
+     * @notice Batch withdraws protocol fees for multiple tokens to a specific recipient
+     * @dev Combines batch efficiency with custom recipient functionality
+     * @dev All withdrawn fees are sent to the single specified recipient address
+     * @param tokens Array of ERC20 token addresses to withdraw fees for
      * @param amounts Array of amounts to withdraw (0 = withdraw all for that token)
-     * @param recipient The address to send fees to
+     * @param recipient The address to receive all withdrawn fees
+     * @custom:security Only callable by contract owner
+     * @custom:note Bypasses configured fee receiver for all tokens in batch
+     * @custom:gas Most efficient method for multi-token fee withdrawal to custom address
+     * @custom:reverts If arrays have mismatched lengths or recipient is invalid
      */
     function batchWithdrawProtocolFeesTo(address[] calldata tokens, uint256[] calldata amounts, address recipient) external override {
         LibFeeManager.batchWithdrawProtocolFees(tokens, amounts, recipient);
@@ -173,18 +255,26 @@ contract AdminConfigFacet is IAdminConfig {
     // ----------------------------------------
 
     /**
-     * @notice Get accumulated protocol fees for a token
-     * @param token The token address
-     * @return The accumulated fee amount
+     * @notice Retrieves the accumulated protocol fee balance for a specific token
+     * @dev Returns the total amount of fees available for withdrawal
+     * @dev Does not include fees that have already been withdrawn
+     * @param token The ERC20 token address to query fee balance for
+     * @return The accumulated fee amount available for withdrawal
+     * @custom:view Read-only function with no state changes
+     * @custom:note Balance is updated in real-time as trades and redemptions occur
      */
     function getProtocolFeesBalance(address token) external view override returns (uint256) {
         return LibFeeManager.getAccumulatedFees(token);
     }
 
     /**
-     * @notice Get accumulated fees for multiple tokens
-     * @param tokens Array of token addresses
-     * @return fees Array of accumulated fee amounts
+     * @notice Retrieves accumulated protocol fee balances for multiple tokens
+     * @dev More gas-efficient than calling getProtocolFeesBalance multiple times
+     * @dev Returns array with same length and order as input tokens array
+     * @param tokens Array of ERC20 token addresses to query
+     * @return fees Array of accumulated fee amounts corresponding to input tokens
+     * @custom:view Read-only batch query function
+     * @custom:gas Optimized for querying multiple token balances simultaneously
      */
     function getProtocolFeesBalances(address[] calldata tokens) external view override returns (uint256[] memory fees) {
         return LibFeeManager.getAccumulatedFeesForTokens(tokens);
@@ -254,11 +344,19 @@ contract AdminConfigFacet is IAdminConfig {
     // ========================================
 
     /**
-     * @notice Set a custom conversion path between two tokens
-     * @param fromToken The source token address
-     * @param toToken The target token address
+     * @notice Sets a custom oracle asset conversion path between two tokens
+     * @dev Enables cross-currency trading by defining oracle price feed routes
+     * @dev Asset IDs correspond to oracle price feed identifiers for the conversion chain
+     * @dev Allows adding new currency pairs without contract redeployment
+     * @param fromToken The source token address for conversion
+     * @param toToken The target token address for conversion
      * @param assetIds Array of oracle asset IDs representing the conversion path
-     * @dev Enables adding new currency pairs without code changes or redeployment
+     * @custom:emits ConversionPathSet with token addresses and asset ID array
+     * @custom:reverts TokenNotAllowed if either token is not whitelisted as collateral
+     * @custom:reverts InvalidConversionPath if fromToken equals toToken
+     * @custom:security Only callable by contract owner
+     * @custom:note Path overwrites any existing configuration for the token pair
+     * @custom:example For USDC→BTC: assetIds could be ["ETH/USD", "BTC/ETH"] for routing
      */
     function setConversionPath(address fromToken, address toToken, bytes32[] calldata assetIds) external override {
         LibDiamond.enforceIsContractOwner();

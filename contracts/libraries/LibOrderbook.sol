@@ -16,7 +16,35 @@ import {Events} from "./Events.sol";
 library LibOrderbook {
     using LibDoefinStorage for LibDoefinStorage.AppStorage;
 
-    /// @notice Create a new limit order and lock collateral
+    /**
+     * @notice Creates a new order and handles collateral locking and order matching
+     * @dev Main entry point for order creation - handles all order types and validation
+     * @dev Determines order type based on crossCurrencyData configuration:
+     *      - Standard: quoteCurrencyToken == address(0)
+     *      - Fixed: quoteCurrencyToken != address(0) && floorRate == 0
+     *      - Dynamic: quoteCurrencyToken != address(0) && floorRate > 0
+     * @dev For limit orders, locks collateral immediately and adds to sorted orderbook
+     * @dev For market orders, attempts immediate matching after creation
+     * @param positionId ERC1155 token ID representing the outcome position
+     * @param collateralToken ERC20 token address used for trading (e.g., USDC, WETH)
+     * @param amount Total quantity of outcome tokens to trade
+     * @param pricePerToken Price per token in appropriate denomination based on order type
+     * @param minFillAmount Minimum fill size to prevent dust trades (0 = no minimum)
+     * @param expiry Unix timestamp for order expiration (0 = no expiry)
+     * @param fillOrKill If true, order must fill completely or be cancelled
+     * @param direction Buy (provide collateral, get tokens) or Sell (provide tokens, get collateral)
+     * @param executionType Market (immediate execution) or Limit (passive orderbook)
+     * @param crossCurrencyData Configuration for cross-currency orders
+     * @return orderId Unique identifier assigned to the created order
+     * @custom:emits OrderCreated with complete order details including fees and type
+     * @custom:reverts InvalidAmounts if amount < minFillAmount or amount == 0
+     * @custom:reverts OrderCreatedWithPastExpiry if expiry is in the past
+     * @custom:reverts TokenNotAllowed if collateral/quote token not whitelisted
+     * @custom:reverts InvalidPrice if price is 0 or >= token unit
+     * @custom:reverts OraclePriceStale for dynamic orders with stale oracle data
+     * @custom:reverts SameCollateralAndQuoteCurrency if tokens match
+     * @custom:gas Limit orders lock collateral; Market orders also attempt matching
+     */
     function createOrder(
         uint256 positionId,
         address collateralToken,
@@ -143,7 +171,21 @@ library LibOrderbook {
         }
     }
 
-    /// @notice Cancel an open order and release collateral
+    /**
+     * @notice Cancels an active order and releases locked collateral
+     * @dev Validates caller authorization and releases appropriate collateral type
+     * @dev For buy orders: releases ERC20 collateral (collateral token or quote token)
+     * @dev For sell orders: releases ERC1155 position tokens
+     * @dev Handles collateral calculation for cross-currency orders with floor pricing
+     * @dev Removes order from sorted orderbook and cleans up cross-currency data
+     * @param orderId Unique identifier of the order to cancel
+     * @param sender Address requesting cancellation (must be order maker)
+     * @custom:emits OrderCancelled with order ID, sender, and remaining amount
+     * @custom:reverts NotAuthorizedToCancel if sender is not the order maker
+     * @custom:reverts OrderNotActive if order is already cancelled or filled
+     * @custom:security Only order creator can cancel their own orders
+     * @custom:gas Releases collateral locks and updates storage mappings
+     */
     function cancelOrder(uint256 orderId, address sender) internal {
         LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
         LibDoefinStorage.Order storage order = ds.orderbookStorage.orders[orderId];
@@ -183,7 +225,26 @@ library LibOrderbook {
         emit Events.OrderCancelled(orderId, sender, remainingAmount);
     }
 
-    /// @notice Modify an open order
+    /**
+     * @notice Modifies parameters of an existing unfilled order
+     * @dev Can only modify orders that haven't been partially filled
+     * @dev Validates authorization and adjusts collateral based on parameter changes
+     * @dev If price changes, removes and re-inserts order to maintain sorted orderbook
+     * @dev Collateral adjustment handles both increases and decreases in requirements
+     * @param maker Address of the order creator (authorization check)
+     * @param orderId Unique identifier of the order to modify
+     * @param newAmount New total order size in outcome tokens
+     * @param newPricePerToken New price per token
+     * @param newMinFillAmount New minimum fill amount (0 for no minimum)
+     * @param newExpiry New expiry timestamp (0 for no expiry)
+     * @custom:emits OrderModified with old and new parameter values
+     * @custom:reverts NotAuthorizedToCancel if maker doesn't own the order
+     * @custom:reverts OrderNotActive if order is cancelled or expired
+     * @custom:reverts OrderExpired if current timestamp >= expiry
+     * @custom:reverts PartiallyFilledOrdersNotModifiable if order has been partially filled
+     * @custom:security Strict authorization - only order maker can modify
+     * @custom:gas Price changes trigger orderbook re-sorting operations
+     */
     function modifyOrder(
         address maker,
         uint256 orderId,

@@ -10,17 +10,37 @@ import {LibMatchEngine} from "../libraries/LibMatchEngine.sol";
 import {LibPositionRegistry} from "../libraries/LibPositionRegistry.sol";
 import {Errors} from "../libraries/Errors.sol";
 
+/**
+ * @title RouteSimulationFacet
+ * @author Doefin
+ * @notice Diamond facet providing market order simulation capabilities without execution
+ * @dev Implements IRouteSimulation interface for trade route analysis and market impact assessment
+ * @dev Part of the Diamond pattern implementation enabling modular simulation functionality
+ * @dev Delegates to LibMatchEngine for comprehensive market order simulation logic
+ * @custom:facet Market order simulation and route analysis
+ * @custom:diamond Part of the EIP-2535 Diamond Standard implementation
+ * @custom:simulation View-only simulation without state changes or actual execution
+ * @custom:delegation Uses LibMatchEngine for all simulation logic and calculations
+ */
 contract RouteSimulationFacet is IRouteSimulation {
-    /// @notice Simulate a market order and return the best match route without executing it
-    /// @dev Unified simulation for both standard and cross-currency orders
-    /// @dev SELL path: shares → collateral revenue | BUY path: budget → shares received
-    /// @dev For standard orders: set crossCurrencyData.quoteCurrencyToken to address(0)
-    /// @dev For cross-currency orders: provide valid quoteCurrencyToken and floorRate
-    /// @param positionId The position token ID to trade
-    /// @param sharesOrBudgetAmount For BUY: collateral budget to spend. For SELL: token shares to sell
-    /// @param direction The order direction (Buy or Sell)
-    /// @param crossCurrencyData Cross-currency configuration. Use address(0) quoteCurrencyToken for standard orders
-    /// @return route The match route with totalInputAmount and totalOutputAmount
+    /**
+     * @notice Simulates a market order execution and returns optimal match route without execution
+     * @dev Unified simulation supporting both standard and cross-currency trading scenarios
+     * @dev SELL simulation: calculates collateral revenue from selling position token shares
+     * @dev BUY simulation: calculates position token shares received from collateral budget
+     * @dev For standard orders: set crossCurrencyData.quoteCurrencyToken to address(0) to disable cross-currency
+     * @dev For cross-currency orders: provide valid quoteCurrencyToken and floorRate configuration
+     * @param positionId The position token ID to simulate trading for
+     * @param sharesOrBudgetAmount For BUY orders: collateral budget to spend. For SELL orders: position token shares to sell
+     * @param direction The order direction (Buy or Sell) for simulation
+     * @param crossCurrencyData Cross-currency trading configuration. Use address(0) quoteCurrencyToken for standard orders
+     * @return route Complete match route with totalInputAmount and totalOutputAmount calculations
+     * @custom:simulation View-only operation with no state changes or actual trade execution
+     * @custom:route Provides comprehensive route analysis including input/output amounts
+     * @custom:cross-currency Supports both standard and cross-currency trading simulation
+     * @custom:delegation Delegates to LibMatchEngine.simulateMarketOrder for implementation
+     * @custom:gas Read-only operation optimized for efficient route calculation
+     */
     function simulateMarketOrder(
         uint256 positionId,
         uint256 sharesOrBudgetAmount,

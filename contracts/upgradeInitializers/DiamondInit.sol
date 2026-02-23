@@ -32,7 +32,29 @@ import {IDoefinBlockHeaderOracle} from "../interfaces/IDoefinBlockHeaderOracle.s
 // with data from a deployment script. Use the init function to initialize state variables
 // of your diamond. Add parameters to the init function if you need to.
 
+/**
+ * @title DiamondInit
+ * @author Nick Mudge (Modified for Doefin)
+ * @notice Initialization contract for diamond proxy deployment and upgrades
+ * @dev Provides one-time initialization setup for the Doefin diamond including ownership, fees, and interfaces
+ * @dev Called via delegatecall during diamond deployment to configure initial state
+ * @dev Customizable for specific deployment requirements and state variable initialization
+ * @custom:deployment Used during initial diamond proxy deployment phase
+ * @custom:upgrade Can be used for state migrations during diamond upgrades
+ * @custom:pattern Standard EIP-2535 initialization contract pattern
+ */
 contract DiamondInit {
+    /**
+     * @notice Initializes the diamond with owner, fee configuration, and ERC-165 interfaces
+     * @dev Sets up complete diamond state including ownership, trading fees, and supported interfaces
+     * @dev Called via delegatecall from DiamondCutFacet during deployment
+     * @param _owner Address to be set as the contract owner with administrative privileges
+     * @custom:delegation Executed via delegatecall to maintain diamond storage context
+     * @custom:fees Initializes protocol fees: 5% resolution, 1% maker, 2% taker
+     * @custom:interfaces Registers all supported ERC-165 interfaces for protocol compliance
+     * @custom:deployment One-time setup function for diamond initialization
+     * @custom:owner Sets contract owner for administrative operations
+     */
     // You can add parameters to this function in order to pass in
     // data to set your own state variables
     function init(address _owner) external {
