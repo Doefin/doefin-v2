@@ -24,5 +24,5 @@ interface IOrderManagement {
      * @param newMinFillAmount The new minimum fill amount (0 for no minimum)
      * @param newExpiry The new expiry timestamp (0 for no expiry)
      */
-    function modifyLimitOrder(uint256 orderId, uint256 newAmount, uint256 newPricePerToken, uint256 newMinFillAmount, uint256 newExpiry) external;
+    function modifyLimitOrder(uint256 orderId, uint256 newAmount, uint256 newPricePerToken, uint256 newMinFillAmount, uint32 newExpiry) external;
 }

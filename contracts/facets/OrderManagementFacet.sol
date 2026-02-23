@@ -36,7 +36,7 @@ contract OrderManagementFacet is IOrderManagement {
      * @custom:emits OrderModified event with old and new order parameters
      * @custom:requirements Order must exist, be active, be a limit order, and caller must be the order creator
      */
-    function modifyLimitOrder(uint256 orderId, uint256 newAmount, uint256 newPricePerToken, uint256 newMinFillAmount, uint256 newExpiry) external {
+    function modifyLimitOrder(uint256 orderId, uint256 newAmount, uint256 newPricePerToken, uint256 newMinFillAmount, uint32 newExpiry) external {
         LibOrderbook.modifyOrder(msg.sender, orderId, newAmount, newPricePerToken, newMinFillAmount, newExpiry);
     }
 }

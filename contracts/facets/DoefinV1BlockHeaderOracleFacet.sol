@@ -43,6 +43,11 @@ contract DoefinV1BlockHeaderOracle is IDoefinBlockHeaderOracle {
     function initializeBlockHeaderOracle(LibDoefinStorage.BlockHeader[] calldata initialBlockHistory, uint256 initialBlockHeight) external {
         LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
 
+        // Prevent re-initialization
+        if (ds.blockHeaderOracleStorage.currentBlockHeight != 0) {
+            revert Errors.AlreadyInitialized();
+        }
+
         if (initialBlockHistory.length != LibDoefinStorage.NUM_OF_BLOCK_HEADERS) {
             revert Errors.BlockHeaderOracle_InvalidInitialHistoryLength();
         }
@@ -171,21 +176,20 @@ contract DoefinV1BlockHeaderOracle is IDoefinBlockHeaderOracle {
             uint256 index = (ds.blockHeaderOracleStorage.nextBlockIndex + LibDoefinStorage.NUM_OF_BLOCK_HEADERS - i - 1) %
                 LibDoefinStorage.NUM_OF_BLOCK_HEADERS;
             if (ds.blockHeaderOracleStorage.blockHeaders[index].blockHash == newBlockHeader.prevBlockHash) {
-                return ds.blockHeaderOracleStorage.currentBlockHeight - i;
+                uint256 parentHeight = ds.blockHeaderOracleStorage.currentBlockHeight - i;
+                uint256 expectedNewBlockHeight = parentHeight + 1;
+
+                // Validate that the user-supplied block number matches expected height
+                if (newBlockHeader.blockNumber != expectedNewBlockHeight) {
+                    revert Errors.BlockHeaderOracle_CannotFindForkPoint();
+                }
+
+                return parentHeight;
             }
         }
 
-        // If no parent found, this might be a reorg - check if new block height matches any stored block
-        // In reorg case, allow replacement if new chain starts at current height or within buffer
-        uint256 newBlockHeight = newBlockHeader.blockNumber;
-        uint256 currentHeight = ds.blockHeaderOracleStorage.currentBlockHeight;
-
-        // Allow reorg replacement if new block is within our buffer range
-        if (newBlockHeight > currentHeight - LibDoefinStorage.NUM_OF_BLOCK_HEADERS + 1 && newBlockHeight <= currentHeight) {
-            // Calculate hypothetical fork point - assume fork is one block before new chain
-            return newBlockHeight - 1;
-        }
-
+        // If no parent found in our buffer, reject the submission
+        // This prevents manipulation via arbitrary block numbers
         revert Errors.BlockHeaderOracle_CannotFindForkPoint();
     }
 

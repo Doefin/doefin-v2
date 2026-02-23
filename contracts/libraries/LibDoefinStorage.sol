@@ -260,7 +260,7 @@ library LibDoefinStorage {
         address collateralToken; // 20 bytes
         /// @notice Unique identifier for this order
         /// @dev Incrementally assigned; uint64 supports 18 quintillion orders
-        uint256 orderId; // 8 bytes
+        uint256 orderId; // 32 bytes
         /// @notice Whether this is a Buy or Sell order
         /// @dev Buy: user provides collateral, receives outcome tokens
         /// @dev Sell: user provides outcome tokens, receives collateral

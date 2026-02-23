@@ -336,7 +336,7 @@ library Errors {
 
     /// @notice Thrown when oracle price is stale for dynamic exchange rate calculation
     error OraclePriceStale();
-    
+
     // ========================================
     // BLOCK HEADER ORACLE ERRORS
     // ========================================
@@ -352,16 +352,19 @@ library Errors {
 
     error BlockHeaderOracle_InvalidInitialHistoryLength();
 
+    /// @notice Thrown when nBits coefficient is zero resulting in invalid target
+    error BlockHeaderOracle_InvalidTargetNBits();
+
     // ========================================
     // ORACLE ADAPTER ERRORS
     // ========================================
-    
+
     /// @notice Thrown when bucket configuration is invalid
     error OracleAdapter_InvalidBucketConfiguration();
-    
+
     /// @notice Thrown when block not found for timestamp
     error OracleAdapter_BlockNotFoundForTimestamp();
-    
+
     /// @notice Thrown when block is not in buffer
     error OracleAdapter_BlockNotInBuffer();
 

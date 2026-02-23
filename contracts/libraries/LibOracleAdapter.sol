@@ -8,7 +8,7 @@ import {Errors} from "./Errors.sol";
 import {Events} from "./Events.sol";
 import {LibDoefinStorage} from "./LibDoefinStorage.sol";
 import {BlockHeaderUtils} from "./BlockHeaderUtils.sol";
-import {LibCTFCondition} from "./LibCTFCondition.sol"; 
+import {LibCTFCondition} from "./LibCTFCondition.sol";
 
 /// @title LibOracleAdapter
 /// @notice Coordinates resolution of Bitcoin difficulty conditions
@@ -23,12 +23,7 @@ library LibOracleAdapter {
     /// @param conditionId Associated CTF condition ID
     /// @param threshold Difficulty threshold value
     /// @param targetBlockHeight Block height to measure difficulty at
-    function createDifficultyThresholdQuestion(
-        bytes32 questionId,
-        bytes32 conditionId,
-        uint256 threshold,
-        uint256 targetBlockHeight
-    ) internal {
+    function createDifficultyThresholdQuestion(bytes32 questionId, bytes32 conditionId, uint256 threshold, uint256 targetBlockHeight) internal {
         LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
 
         // Apply settlement delay
@@ -48,23 +43,10 @@ library LibOracleAdapter {
         ds.oracleAdapterStorage.totalQuestionsCreated++;
 
         // Emit generic event
-        emit Events.QuestionCreated(
-            questionId,
-            conditionId,
-            LibDoefinStorage.QuestionType.DifficultyThreshold,
-            settlementBlock,
-            msg.sender
-        );
+        emit Events.QuestionCreated(questionId, conditionId, LibDoefinStorage.QuestionType.DifficultyThreshold, settlementBlock, msg.sender);
 
         // Emit specialized event with all question parameters
-        emit Events.DifficultyThresholdQuestionCreated(
-            questionId,
-            conditionId,
-            threshold,
-            targetBlockHeight,
-            settlementBlock,
-            msg.sender
-        );
+        emit Events.DifficultyThresholdQuestionCreated(questionId, conditionId, threshold, targetBlockHeight, settlementBlock, msg.sender);
     }
 
     /// @notice Create a DifficultyRange question
@@ -72,12 +54,7 @@ library LibOracleAdapter {
     /// @param conditionId Associated CTF condition ID
     /// @param targetBlockHeight Block height to measure difficulty at
     /// @param buckets Difficulty range boundaries (must be sorted ascending)
-    function createDifficultyRangeQuestion(
-        bytes32 questionId,
-        bytes32 conditionId,
-        uint256 targetBlockHeight,
-        uint256[] memory buckets
-    ) internal {
+    function createDifficultyRangeQuestion(bytes32 questionId, bytes32 conditionId, uint256 targetBlockHeight, uint256[] memory buckets) internal {
         LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
 
         // Apply settlement delay
@@ -97,23 +74,10 @@ library LibOracleAdapter {
         ds.oracleAdapterStorage.totalQuestionsCreated++;
 
         // Emit generic event
-        emit Events.QuestionCreated(
-            questionId,
-            conditionId,
-            LibDoefinStorage.QuestionType.DifficultyRange,
-            settlementBlock,
-            msg.sender
-        );
+        emit Events.QuestionCreated(questionId, conditionId, LibDoefinStorage.QuestionType.DifficultyRange, settlementBlock, msg.sender);
 
         // Emit specialized event with all question parameters
-        emit Events.DifficultyRangeQuestionCreated(
-            questionId,
-            conditionId,
-            targetBlockHeight,
-            buckets,
-            settlementBlock,
-            msg.sender
-        );
+        emit Events.DifficultyRangeQuestionCreated(questionId, conditionId, targetBlockHeight, buckets, settlementBlock, msg.sender);
     }
 
     /// @notice Create a BlockCount question
@@ -149,24 +113,10 @@ library LibOracleAdapter {
         ds.oracleAdapterStorage.totalQuestionsCreated++;
 
         // Emit generic event
-        emit Events.QuestionCreated(
-            questionId,
-            conditionId,
-            LibDoefinStorage.QuestionType.BlockCount,
-            bucket,
-            msg.sender
-        );
+        emit Events.QuestionCreated(questionId, conditionId, LibDoefinStorage.QuestionType.BlockCount, bucket, msg.sender);
 
         // Emit specialized event with all question parameters
-        emit Events.BlockCountQuestionCreated(
-            questionId,
-            conditionId,
-            startTimestamp,
-            endTimestamp,
-            countBuckets,
-            bucket,
-            msg.sender
-        );
+        emit Events.BlockCountQuestionCreated(questionId, conditionId, startTimestamp, endTimestamp, countBuckets, bucket, msg.sender);
     }
 
     /// @notice Create a MiningDuration question
@@ -203,13 +153,7 @@ library LibOracleAdapter {
         ds.oracleAdapterStorage.totalQuestionsCreated++;
 
         // Emit generic event
-        emit Events.QuestionCreated(
-            questionId,
-            conditionId,
-            LibDoefinStorage.QuestionType.MiningDuration,
-            settlementBlock,
-            msg.sender
-        );
+        emit Events.QuestionCreated(questionId, conditionId, LibDoefinStorage.QuestionType.MiningDuration, settlementBlock, msg.sender);
 
         // Emit specialized event with all question parameters
         emit Events.MiningDurationQuestionCreated(
@@ -426,6 +370,10 @@ library LibOracleAdapter {
     /// @param buckets The sorted bucket boundaries
     /// @return The index of the bucket (0 to buckets.length)
     function _findBucketIndex(uint256 value, uint256[] storage buckets) private view returns (uint256) {
+        if (buckets.length == 0) {
+            revert Errors.OracleAdapter_InvalidBucketConfiguration();
+        }
+
         // Check if below first bucket
         if (value < buckets[0]) {
             return 0;

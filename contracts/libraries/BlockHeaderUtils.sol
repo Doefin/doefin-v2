@@ -5,6 +5,7 @@
 pragma solidity ^0.8.6;
 
 import {LibDoefinStorage} from "./LibDoefinStorage.sol";
+import {Errors} from "./Errors.sol";
 
 /// @title BlockHeaderUtils
 /// @notice Library that implements utils for bitcoin block header hashing
@@ -20,11 +21,7 @@ library BlockHeaderUtils {
     function isValidBlockHeaderHash(
         LibDoefinStorage.BlockHeader memory currentBlockHeader,
         LibDoefinStorage.BlockHeader memory nextBlockHeader
-    )
-        internal
-        pure
-        returns (bool)
-    {
+    ) internal pure returns (bool) {
         uint256 target = calculateDifficultyTarget(currentBlockHeader);
         bytes32 hash = nextBlockHeader.blockHash;
         return uint256(hash) < target;
@@ -40,11 +37,7 @@ library BlockHeaderUtils {
      * implementation of the bitcoin double-hash algorithm. Note that we reverse the byte order
      * to allow the result to be interpreted as a uint256 value in big-endian byte order.
      */
-    function calculateBlockHash(LibDoefinStorage.BlockHeader memory blockHeader)
-        internal
-        pure
-        returns (bytes32)
-    {
+    function calculateBlockHash(LibDoefinStorage.BlockHeader memory blockHeader) internal pure returns (bytes32) {
         //1. Reverse the byte order of each block header field to match the little-endian format required by Bitcoin
         //2. Serialize the block header into an 80-byte array: (4 + 32 + 32 + 4 + 4 + 4) bytes
         bytes memory data = abi.encodePacked(
@@ -59,16 +52,10 @@ library BlockHeaderUtils {
         require(data.length == 80, "incorrect data length");
 
         //3. Calculate the SHA-256 hash of the serialized data
-        //4. Convert bytes32 of the first hash to bytes array for second SHA-256 hash
-        //5. Calculate the second SHA-256 hash of the bytes array
+        //4. Calculate the second SHA-256 hash of the first hash
+        //5. Reverse the byte order to match Bitcoin's big-endian result format
         bytes32 blockHashBytes32 = sha256(abi.encodePacked(sha256(data)));
 
-        bytes memory blockHash = new bytes(32);
-        assembly {
-            mstore(add(blockHash, 32), blockHashBytes32)
-        }
-
-        //6. refer to step1
         return reverseBytes32(blockHashBytes32);
     }
 
@@ -87,20 +74,24 @@ library BlockHeaderUtils {
         uint256 v = uint256(input);
 
         // swap bytes
-        v = ((v & 0xFF00FF00FF00FF00FF00FF00FF00FF00FF00FF00FF00FF00FF00FF00FF00FF00) >> 8)
-            | ((v & 0x00FF00FF00FF00FF00FF00FF00FF00FF00FF00FF00FF00FF00FF00FF00FF00FF) << 8);
+        v =
+            ((v & 0xFF00FF00FF00FF00FF00FF00FF00FF00FF00FF00FF00FF00FF00FF00FF00FF00) >> 8) |
+            ((v & 0x00FF00FF00FF00FF00FF00FF00FF00FF00FF00FF00FF00FF00FF00FF00FF00FF) << 8);
 
         // swap 2-byte long pairs
-        v = ((v & 0xFFFF0000FFFF0000FFFF0000FFFF0000FFFF0000FFFF0000FFFF0000FFFF0000) >> 16)
-            | ((v & 0x0000FFFF0000FFFF0000FFFF0000FFFF0000FFFF0000FFFF0000FFFF0000FFFF) << 16);
+        v =
+            ((v & 0xFFFF0000FFFF0000FFFF0000FFFF0000FFFF0000FFFF0000FFFF0000FFFF0000) >> 16) |
+            ((v & 0x0000FFFF0000FFFF0000FFFF0000FFFF0000FFFF0000FFFF0000FFFF0000FFFF) << 16);
 
         // swap 4-byte long pairs
-        v = ((v & 0xFFFFFFFF00000000FFFFFFFF00000000FFFFFFFF00000000FFFFFFFF00000000) >> 32)
-            | ((v & 0x00000000FFFFFFFF00000000FFFFFFFF00000000FFFFFFFF00000000FFFFFFFF) << 32);
+        v =
+            ((v & 0xFFFFFFFF00000000FFFFFFFF00000000FFFFFFFF00000000FFFFFFFF00000000) >> 32) |
+            ((v & 0x00000000FFFFFFFF00000000FFFFFFFF00000000FFFFFFFF00000000FFFFFFFF) << 32);
 
         // swap 8-byte long pairs
-        v = ((v & 0xFFFFFFFFFFFFFFFF0000000000000000FFFFFFFFFFFFFFFF0000000000000000) >> 64)
-            | ((v & 0x0000000000000000FFFFFFFFFFFFFFFF0000000000000000FFFFFFFFFFFFFFFF) << 64);
+        v =
+            ((v & 0xFFFFFFFFFFFFFFFF0000000000000000FFFFFFFFFFFFFFFF0000000000000000) >> 64) |
+            ((v & 0x0000000000000000FFFFFFFFFFFFFFFF0000000000000000FFFFFFFFFFFFFFFF) << 64);
 
         // swap 16-byte long pairs
         v = (v >> 128) | (v << 128);
@@ -120,11 +111,7 @@ library BlockHeaderUtils {
      * The function extracts the first bytes (8-bits) of the nBits value by shifting the value 24 bits to the right and
      * extracts the last 3 bytes (24-bits) of the nBits by doing a bitwise AND with a 24-bit mask 0xFFFFFF.
      */
-    function calculateDifficultyTarget(LibDoefinStorage.BlockHeader memory blockHeader)
-        internal
-        pure
-        returns (uint256)
-    {
+    function calculateDifficultyTarget(LibDoefinStorage.BlockHeader memory blockHeader) internal pure returns (uint256) {
         uint256 exponent = uint256(blockHeader.nBits) >> 24;
         uint256 coefficient = uint256(blockHeader.nBits & 0xffffff);
 
@@ -143,12 +130,12 @@ library BlockHeaderUtils {
      * The base target is a constant value defined in the contract and the block target is calculated
      * from the block header nBits value.
      */
-    function calculateDifficulty(LibDoefinStorage.BlockHeader memory blockHeader)
-        public
-        pure
-        returns (uint256)
-    {
-        return BASE_DIFFICULTY_TARGET / calculateDifficultyTarget(blockHeader);
+    function calculateDifficulty(LibDoefinStorage.BlockHeader memory blockHeader) public pure returns (uint256) {
+        uint256 target = calculateDifficultyTarget(blockHeader);
+        if (target == 0) {
+            revert Errors.BlockHeaderOracle_InvalidTargetNBits();
+        }
+        return BASE_DIFFICULTY_TARGET / target;
     }
 
     function swap(uint256[11] memory array, uint256 i, uint256 j) internal pure {

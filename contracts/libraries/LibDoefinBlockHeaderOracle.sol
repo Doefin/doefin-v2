@@ -28,6 +28,9 @@ library LibDoefinBlockHeaderOracle {
     /// @param index The index in the ring buffer
     /// @return The block header at that index
     function getBlockHeaderAt(uint256 index) internal view returns (LibDoefinStorage.BlockHeader memory) {
+        if (index >= LibDoefinStorage.NUM_OF_BLOCK_HEADERS) {
+            revert Errors.ValueOutOfRange();
+        }
         return LibDoefinStorage.appStorage().blockHeaderOracleStorage.blockHeaders[index];
     }
 
@@ -55,6 +58,9 @@ library LibDoefinBlockHeaderOracle {
     /// @return The latest block header
     function getLatestBlockHeader() internal view returns (LibDoefinStorage.BlockHeader memory) {
         LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
+        if (ds.blockHeaderOracleStorage.currentBlockHeight == 0) {
+            revert Errors.ValueOutOfRange();
+        }
         uint256 currentBlockIndex = ((ds.blockHeaderOracleStorage.nextBlockIndex + LibDoefinStorage.NUM_OF_BLOCK_HEADERS) - 1) %
             LibDoefinStorage.NUM_OF_BLOCK_HEADERS;
         return ds.blockHeaderOracleStorage.blockHeaders[currentBlockIndex];

@@ -6,6 +6,7 @@ pragma solidity ^0.8.6;
 
 import {LibDoefinStorage} from "./LibDoefinStorage.sol";
 import {LibQuoteCurrency} from "./LibQuoteCurrency.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {Errors} from "./Errors.sol";
 
 /**
@@ -40,6 +41,6 @@ library LibCrossCurrencySettlement {
         uint256 collateralUnit,
         uint256 floorRate
     ) internal pure returns (uint256) {
-        return (((order.pricePerToken) / collateralUnit) * floorRate) / 1e18;
+        return Math.mulDiv(order.pricePerToken, floorRate, 1e18 * collateralUnit);
     }
 }

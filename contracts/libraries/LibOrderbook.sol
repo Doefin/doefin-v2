@@ -62,7 +62,7 @@ library LibOrderbook {
         LibDoefinStorage.OrderFeeConfig memory orderFeeConfig = LibFeeManager.getMarketFees();
 
         LibDoefinStorage.Order memory order = LibDoefinStorage.Order({
-            orderId: uint64(orderId),
+            orderId: orderId,
             positionId: positionId,
             amount: amount,
             remainingAmount: amount,
@@ -190,7 +190,7 @@ library LibOrderbook {
         uint256 newAmount,
         uint256 newPricePerToken,
         uint256 newMinFillAmount,
-        uint256 newExpiry
+        uint32 newExpiry
     ) internal {
         LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
         LibDoefinStorage.Order storage order = ds.orderbookStorage.orders[orderId];
@@ -220,7 +220,7 @@ library LibOrderbook {
         order.remainingAmount = newAmount;
         order.pricePerToken = newPricePerToken;
         order.minFillAmount = newMinFillAmount;
-        order.expiry = uint32(newExpiry);
+        order.expiry = newExpiry;
 
         if (newPricePerToken != modifyCtx.oldPrice) {
             removeOrderFromOrderbook(order);
