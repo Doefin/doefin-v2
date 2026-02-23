@@ -19,6 +19,7 @@ const {
   getInitializationBlocks,
   getTestingBlocks,
   getInitialBlockHeight,
+  initializeBlockHeaderOracle,
   submitBlockHeader,
 } = require("../utils/blockHeaderOracleUtils.js");
 
@@ -69,6 +70,14 @@ describe("Oracle Auto-Resolution - End-to-End", function () {
     initBlocks = getInitializationBlocks();
     testBlocks = getTestingBlocks();
     initialHeight = getInitialBlockHeight();
+
+    // Initialize the oracle with block data
+    await initializeBlockHeaderOracle({
+      oracle: blockHeaderOracle,
+      caller: owner,
+      initBlocks,
+      initialHeight,
+    });
   });
 
   describe("DifficultyThreshold Auto-Resolution", function () {

@@ -28,7 +28,11 @@ describe("Full Market Lifecycle Integration Tests", function () {
 
     contracts = {
       exchangeFacet: await ethers.getContractAt(
-        "ExchangeFacet",
+        "ExchangeViewFacet",
+        diamondAddress
+      ),
+      orderCreationFacet: await ethers.getContractAt(
+        "OrderCreationFacet",
         diamondAddress
       ),
       erc1155: await ethers.getContractAt("ERC1155Facet", diamondAddress),
@@ -334,6 +338,7 @@ describe("Full Market Lifecycle Integration Tests", function () {
     });
 
     it("should handle market with high trading volume and multiple participants", async () => {
+      const { createLimitOrder } = require("../utils/orderUtils.js");
       const questionId = ethers.utils.id("high-volume-market");
 
       // Create market with high initial liquidity
@@ -366,8 +371,9 @@ describe("Full Market Lifecycle Integration Tests", function () {
 
         if (direction === 0) {
           // BUY
+          const pricePerToken = ethers.utils.parseEther("0.7"); // Match the price used in the limit order
           const cost = tradeAmount
-            .mul(ethers.utils.parseEther("0.6"))
+            .mul(pricePerToken)
             .div(ethers.utils.parseEther("1"));
           const fee = cost.mul(feeConfig.takerBps).div(10000);
           const totalCost = cost.add(fee);
@@ -392,31 +398,17 @@ describe("Full Market Lifecycle Integration Tests", function () {
             .setApprovalForAll(diamondAddress, true);
         }
 
-        const route = await simulateAndParseMatchRoute({
-          routeSimFacet: contracts.routeSimFacet,
-          positionId: market.yesId,
-          amount: tradeAmount,
-          direction,
-        });
-
+        // Create limit order and measure gas
         const { gasUsed } = await measureGas(
-          contracts.marketExecutionFacet
-            .connect(trader)
-            .fillMarketOrderWithRoute(
-              market.yesId,
-              tradeAmount,
-              direction === 0
-                ? ethers.utils.parseEther("0.7")
-                : ethers.utils.parseEther("0.3"),
-              false,
-              direction,
-              route.matches.map((m) => [
-                m.matchedOrderId,
-                m.amount,
-                m.effectivePrice,
-                m.matchType,
-              ])
-            )
+          createLimitOrder(contracts.orderCreationFacet, trader, {
+            positionId: market.yesId,
+            collateralToken: contracts.erc20.address,
+            amount: tradeAmount,
+            pricePerToken: direction === 0
+              ? ethers.utils.parseEther("0.52") // Match existing sell orders for auto-execution
+              : ethers.utils.parseEther("0.48"), // Match existing buy orders for auto-execution
+            direction,
+          })
         );
 
         tradeResults.push({
@@ -599,6 +591,7 @@ describe("Full Market Lifecycle Integration Tests", function () {
 
   describe("Performance and Scalability Integration", function () {
     it("should handle multiple concurrent markets efficiently", async () => {
+      const { createMarketOrder } = require("../utils/orderUtils.js");
       const numMarkets = 5;
       const markets = [];
 
@@ -697,23 +690,25 @@ describe("Full Market Lifecycle Integration Tests", function () {
           direction: 0,
         });
 
-        tradePromises.push(
-          contracts.marketExecutionFacet
+        // Create market order and execute it
+        const tradeExecution = async () => {
+          const createOrderTx = await createMarketOrder(contracts.orderCreationFacet, trader, {
+            positionId: market.yesId,
+            collateralToken: contracts.erc20.address,
+            amount,
+            pricePerToken: maxPrice,
+            direction: 0,
+          });
+          const createOrderReceipt = await createOrderTx.wait();
+          const takerId = createOrderReceipt.events.find(e => e.event === "OrderCreated").args.orderId;
+          
+          const makerIds = route.matches.map(m => m.matchedOrderId);
+          return contracts.marketExecutionFacet
             .connect(trader)
-            .fillMarketOrderWithRoute(
-              market.yesId,
-              amount,
-              maxPrice,
-              false,
-              0,
-              route.matches.map((m) => [
-                m.matchedOrderId,
-                m.amount,
-                m.effectivePrice,
-                m.matchType,
-              ])
-            )
-        );
+            .fillOrders(takerId, makerIds);
+        };
+        
+        tradePromises.push(tradeExecution());
       }
 
       const tradeStartTime = Date.now();
@@ -767,7 +762,7 @@ describe("Full Market Lifecycle Integration Tests", function () {
       
       const expiry = Math.floor(Date.now() / 1000) + 3600; // 1 hour from now
       
-      const marketBuyOrderTx = await createMarketOrder(contracts.exchangeFacet, trader1, {
+      const marketBuyOrderTx = await createMarketOrder(contracts.orderCreationFacet, trader1, {
         positionId: market.yesId,
         collateralToken: contracts.erc20.address,
         amount: ethers.utils.parseEther("50"), // Smaller amount for AMM
@@ -865,7 +860,7 @@ describe("Full Market Lifecycle Integration Tests", function () {
       // Test 1: Standard market buy order
       console.log("Test 1: Creating standard market buy order...");
       
-      const buyOrderTx = await createMarketOrder(contracts.exchangeFacet, trader1, {
+      const buyOrderTx = await createMarketOrder(contracts.orderCreationFacet, trader1, {
         positionId: market.yesId,
         collateralToken: contracts.erc20.address,
         amount: ethers.utils.parseEther("25"),
@@ -888,7 +883,7 @@ describe("Full Market Lifecycle Integration Tests", function () {
       // Test 2: Market order with different parameters
       console.log("Test 2: Creating market order with higher price...");
       
-      const buyOrderTx2 = await createMarketOrder(contracts.exchangeFacet, trader2, {
+      const buyOrderTx2 = await createMarketOrder(contracts.orderCreationFacet, trader2, {
         positionId: market.yesId,
         collateralToken: contracts.erc20.address,
         amount: ethers.utils.parseEther("40"),
@@ -905,7 +900,7 @@ describe("Full Market Lifecycle Integration Tests", function () {
       // Test 3: Market order with minimal amount
       console.log("Test 3: Creating market order with minimal amount...");
       
-      const buyOrderTx3 = await createMarketOrder(contracts.exchangeFacet, trader3, {
+      const buyOrderTx3 = await createMarketOrder(contracts.orderCreationFacet, trader3, {
         positionId: market.yesId,
         collateralToken: contracts.erc20.address,
         amount: ethers.utils.parseEther("5"),
@@ -944,7 +939,7 @@ describe("Full Market Lifecycle Integration Tests", function () {
       // Test different minimum fill amounts
       console.log("Test: Market order with strict minimum fill...");
       
-      const strictOrderTx = await createMarketOrder(contracts.exchangeFacet, trader1, {
+      const strictOrderTx = await createMarketOrder(contracts.orderCreationFacet, trader1, {
         positionId: market.yesId,
         collateralToken: contracts.erc20.address,
         amount: ethers.utils.parseEther("100"),
@@ -967,7 +962,7 @@ describe("Full Market Lifecycle Integration Tests", function () {
       
       const futureExpiry = Math.floor(Date.now() / 1000) + 7200; // 2 hours from now
       
-      const expiryOrderTx = await createMarketOrder(contracts.exchangeFacet, trader2, {
+      const expiryOrderTx = await createMarketOrder(contracts.orderCreationFacet, trader2, {
         positionId: market.yesId,
         collateralToken: contracts.erc20.address,
         amount: ethers.utils.parseEther("30"),
@@ -998,7 +993,7 @@ describe("Full Market Lifecycle Integration Tests", function () {
       // Test 1: Normal market order (non-FOK)
       console.log("Test 1: Creating normal market order...");
       
-      const normalOrderTx = await createMarketOrder(contracts.exchangeFacet, trader1, {
+      const normalOrderTx = await createMarketOrder(contracts.orderCreationFacet, trader1, {
         positionId: market.yesId,
         collateralToken: contracts.erc20.address,
         amount: ethers.utils.parseEther("50"),
@@ -1020,7 +1015,7 @@ describe("Full Market Lifecycle Integration Tests", function () {
       console.log("Test 2: Creating Fill-or-Kill market order...");
       
       try {
-        const fokOrderTx = await createMarketOrder(contracts.exchangeFacet, trader2, {
+        const fokOrderTx = await createMarketOrder(contracts.orderCreationFacet, trader2, {
           positionId: market.yesId,
           collateralToken: contracts.erc20.address,
           amount: ethers.utils.parseEther("100"),
@@ -1086,7 +1081,7 @@ describe("Full Market Lifecycle Integration Tests", function () {
         const order = orders[i];
         console.log(`Creating market order ${i + 1}/3...`);
 
-        const orderTx = await createMarketOrder(contracts.exchangeFacet, order.trader, {
+        const orderTx = await createMarketOrder(contracts.orderCreationFacet, order.trader, {
           positionId: market.yesId,
           collateralToken: contracts.erc20.address,
           amount: order.amount,

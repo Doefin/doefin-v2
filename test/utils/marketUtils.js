@@ -82,6 +82,7 @@ async function createCompleteMarket({
  * Creates multiple limit orders at different price levels
  * @param {Object} params
  * @param {Contract} params.exchangeFacet
+ * @param {Contract} params.orderCreationFacet
  * @param {Contract} params.erc1155
  * @param {Contract} params.erc20
  * @param {Signer} params.maker
@@ -93,6 +94,7 @@ async function createCompleteMarket({
  */
 async function createMultipleLimitOrders({
   exchangeFacet,
+  orderCreationFacet,
   erc1155,
   erc20,
   maker,
@@ -136,7 +138,7 @@ async function createMultipleLimitOrders({
     }
 
     try {
-      await createLimitOrder(exchangeFacet, maker, {
+      await createLimitOrder(orderCreationFacet, maker, {
         positionId,
         collateralToken: erc20.address,
         amount,
@@ -172,6 +174,7 @@ async function createMultipleLimitOrders({
  */
 async function setupComplexOrderbook({
   exchangeFacet,
+  orderCreationFacet,
   erc1155,
   erc20,
   makers,
@@ -193,6 +196,7 @@ async function setupComplexOrderbook({
     try {
       const [orderId] = await createMultipleLimitOrders({
         exchangeFacet,
+        orderCreationFacet,
         erc1155,
         erc20,
         maker,
@@ -216,6 +220,7 @@ async function setupComplexOrderbook({
     try {
       const [orderId] = await createMultipleLimitOrders({
         exchangeFacet,
+        orderCreationFacet,
         erc1155,
         erc20,
         maker,
@@ -331,9 +336,25 @@ async function createMarketScenario({
     conditionManagerFacet,
     conditionalFacet,
     exchangeFacet,
+    orderCreationFacet,
     erc20,
     erc1155,
   } = contracts;
+  
+  // Validate all contracts are properly defined
+  if (!orderCreationFacet) {
+    throw new Error("orderCreationFacet is missing from contracts object");
+  }
+  if (!exchangeFacet) {
+    throw new Error("exchangeFacet is missing from contracts object");
+  }
+  if (!erc1155) {
+    throw new Error("erc1155 is missing from contracts object");
+  }
+  if (!erc20) {
+    throw new Error("erc20 is missing from contracts object");
+  }
+  
   const [owner, oracle, ...makers] = signers;
 
   let market;
@@ -452,6 +473,7 @@ async function createMarketScenario({
 
   const orderbook = await setupComplexOrderbook({
     exchangeFacet,
+    orderCreationFacet,
     erc1155,
     erc20,
     makers,

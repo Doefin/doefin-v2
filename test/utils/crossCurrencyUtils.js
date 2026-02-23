@@ -104,13 +104,20 @@ function calculateQuoteCurrencyAmount(amount, pricePerToken, exchangeRate) {
 /**
  * Setup mock oracle prices for testing scenarios
  */
-async function setupOraclePrices({ mockOracle, prices, owner = null, oracleManager = null }) {
+async function setupOraclePrices({ mockOracle, prices, owner = null, oracleManager = null, makeStale = false }) {
   // Set prices on the mock oracle first
   const oracleContract = owner ? mockOracle.connect(owner) : mockOracle;
 
   for (const [assetKey, price] of Object.entries(prices)) {
     const assetId = ethers.utils.keccak256(ethers.utils.toUtf8Bytes(assetKey));
-    await oracleContract.setPrice(assetId, price);
+    
+    if (makeStale) {
+      // Set stale timestamp (2+ hours old)  
+      const staleTimestamp = Math.floor(Date.now() / 1000) - (3 * 60 * 60); // 3 hours ago
+      await oracleContract.setPriceWithTimestamp(assetId, price, staleTimestamp);
+    } else {
+      await oracleContract.setPrice(assetId, price);
+    }
     
     // If oracle manager is provided, trigger an update to refresh the cached price
     if (oracleManager && typeof oracleManager.updatePrice === 'function') {

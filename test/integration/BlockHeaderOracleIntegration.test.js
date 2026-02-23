@@ -15,6 +15,7 @@ const {
   getInitializationBlocks,
   getTestingBlocks,
   getInitialBlockHeight,
+  initializeBlockHeaderOracle,
 } = require("../utils/blockHeaderOracleUtils.js");
 
 describe("Block Header Oracle - Integration Tests", function () {
@@ -39,6 +40,14 @@ describe("Block Header Oracle - Integration Tests", function () {
     initBlocks = getInitializationBlocks();
     testBlocks = getTestingBlocks();
     initialHeight = getInitialBlockHeight();
+
+    // Initialize the oracle with block data
+    await initializeBlockHeaderOracle({
+      oracle,
+      caller: owner,
+      initBlocks,
+      initialHeight,
+    });
 
     console.log(`✅ Diamond deployed at ${diamondAddress}`);
     console.log(`✅ Oracle initialized with ${initBlocks.length} blocks`);

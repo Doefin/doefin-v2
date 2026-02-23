@@ -101,7 +101,7 @@ describe("Batch Submission Settlement Fix Verification", function () {
 
   describe("Settlement Fix Verification: Batch Submission", function () {
     it("should verify that settlement-per-block timing fix works correctly", async function () {
-      console.log("\\n=== VERIFYING SETTLEMENT-PER-BLOCK FIX ===");
+      console.log("\n=== VERIFYING SETTLEMENT-PER-BLOCK FIX ===");
       console.log("This test verifies that _settleCondition() is called after each block");
       console.log("instead of batching all settlements at the end.");
       

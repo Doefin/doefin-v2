@@ -24,16 +24,15 @@ function loadProductionBlocks() {
 
     // Convert Bitcoin block format to contract format
     const contractBlocks = blocks
-      .reverse() // Reverse because blocks are in descending height order
       .map((block) => ({
         version: block.version,
-        prevBlockHash: "0x" + block.parentHash,
-        merkleRootHash: "0x" + block.merkleRoot,
+        prevBlockHash: block.prevBlockHash,
+        merkleRootHash: block.merkleRootHash,
         timestamp: block.timestamp,
-        nBits: block.bits,
+        nBits: block.nBits,
         nonce: block.nonce,
-        blockHash: "0x" + block.hash,
-        blockNumber: block.height,
+        blockHash: block.blockHash,
+        blockNumber: block.blockNumber,
       }));
 
     // Split: first 17 for initialization, rest for testing

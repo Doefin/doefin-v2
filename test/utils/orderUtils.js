@@ -12,6 +12,14 @@ const OrderDirection = {
   Sell: 1,
 };
 
+const OrderType = {
+  Standard: 0,
+  Fixed: 1,
+  Dynamic: 2,
+};
+
+const ExchangeRateType = OrderType; // Alias for backward compatibility
+
 // Standard (empty) cross-currency data for non-cross-currency orders
 const STANDARD_CROSS_CURRENCY_DATA = {
   quoteCurrencyToken: ethers.constants.AddressZero,
@@ -242,5 +250,7 @@ module.exports = {
   buildCrossCurrencyData,
   ExecutionType,
   OrderDirection,
+  OrderType,
+  ExchangeRateType,
   STANDARD_CROSS_CURRENCY_DATA,
 };

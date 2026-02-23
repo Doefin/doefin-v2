@@ -393,7 +393,8 @@ describe("Cross-Currency Integration Tests", function () {
           "BTC-USD": ethers.utils.parseUnits("45000", 8),
           "USD-USDT": ethers.utils.parseUnits("1", 6),
           "USD-USDC": ethers.utils.parseUnits("1", 6)
-        }
+        },
+        makeStale: true // This will set stale timestamps
       });
 
       console.log("\\n⏰ Oracle prices set to stale (2+ hours old)");
@@ -407,8 +408,7 @@ describe("Cross-Currency Integration Tests", function () {
           pricePerToken: ethers.utils.parseUnits("0.65", 6),
           direction: OrderDirection.Sell,
           quoteCurrencyToken: btcToken.address,
-          exchangeRateType: ExchangeRateType.Dynamic,
-          exchangeRate: ethers.utils.parseEther("45000"),
+          floorRate: ethers.utils.parseUnits("45000", 0), // Dynamic order uses floorRate > 0, no decimals
         })
       ).to.be.revertedWith("OraclePriceStale");
 
@@ -433,8 +433,7 @@ describe("Cross-Currency Integration Tests", function () {
           pricePerToken: ethers.utils.parseUnits("0.65", 6),
           direction: OrderDirection.Buy,
           quoteCurrencyToken: btcToken.address,
-          exchangeRateType: ExchangeRateType.Fixed,
-          exchangeRate: ethers.utils.parseEther("45000"),
+          floorRate: 0, // Fixed order uses floorRate = 0
         }
       );
 
