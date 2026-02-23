@@ -32,38 +32,14 @@ contract ConditionalTokensFacet is IConditionalTokens {
     }
 
     function reportPayouts(bytes32 questionId, uint256[] calldata payouts) external override {
-        if (payouts.length == 0 || payouts.length > type(uint8).max) {
-            revert Errors.InvalidPayoutLength();
-        }
-        uint8 outcomeSlotCount = uint8(payouts.length);
-
-        bytes32 conditionId = LibCTHelpers.getConditionId(msg.sender, questionId, outcomeSlotCount);
-        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
-        uint256[] storage numerators = ds.conditionalTokens.payoutNumerators[conditionId];
-
-        if (numerators.length != outcomeSlotCount) {
-            revert Errors.ConditionNotPrepared();
-        }
-        if (ds.conditionalTokens.payoutDenominator[conditionId] != 0) {
-            revert Errors.ConditionAlreadyResolved();
+        // Convert calldata to memory for library call
+        uint256[] memory payoutsMemory = new uint256[](payouts.length);
+        for (uint256 i = 0; i < payouts.length; i++) {
+            payoutsMemory[i] = payouts[i];
         }
 
-        uint256 den = 0;
-        for (uint256 i = 0; i < outcomeSlotCount; i++) {
-            uint256 num = payouts[i];
-            if (numerators[i] != 0) {
-                revert Errors.PayoutAlreadySet();
-            }
-            numerators[i] = num;
-            den += num;
-        }
-
-        if (den == 0) {
-            revert Errors.AllZeroPayouts();
-        }
-        ds.conditionalTokens.payoutDenominator[conditionId] = den;
-
-        emit Events.ConditionResolution(conditionId, msg.sender, questionId, outcomeSlotCount, numerators);
+        // Call library function with msg.sender as oracle
+        LibCTFCondition._reportPayouts(msg.sender, questionId, payoutsMemory);
     }
 
     function splitPosition(
@@ -143,11 +119,7 @@ contract ConditionalTokensFacet is IConditionalTokens {
         emit Events.PayoutRedemption(msg.sender, collateralToken, parentCollectionId, conditionId, indexSets, totalPayout);
     }
 
-    function _handlePayoutTransfer(
-        address collateralToken,
-        address recipient,
-        uint256 amount
-    ) internal {
+    function _handlePayoutTransfer(address collateralToken, address recipient, uint256 amount) internal {
         LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
 
         address feeReceiver = ds.adminConfigStorage.feeReceiver;
@@ -184,19 +156,11 @@ contract ConditionalTokensFacet is IConditionalTokens {
         return LibCTHelpers.getPositionId(collateralToken, collId);
     }
 
-    function getConditionId(
-        address oracle,
-        bytes32 questionId,
-        uint8 outcomeSlotCount
-    ) external pure returns (bytes32) {
+    function getConditionId(address oracle, bytes32 questionId, uint8 outcomeSlotCount) external pure returns (bytes32) {
         return LibCTHelpers.getConditionId(oracle, questionId, outcomeSlotCount);
     }
 
-    function getCollectionId(
-        bytes32 parentCollectionId,
-        bytes32 conditionId,
-        uint256 indexSet
-    ) external view returns (bytes32) {
+    function getCollectionId(bytes32 parentCollectionId, bytes32 conditionId, uint256 indexSet) external view returns (bytes32) {
         return LibCTHelpers.getCollectionId(parentCollectionId, conditionId, indexSet);
     }
 

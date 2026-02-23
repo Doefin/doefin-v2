@@ -117,20 +117,26 @@ describe("MarketDataFacet", function () {
   });
 
   describe("getMarketsByCondition", function () {
-    it("should return position IDs for a valid condition", async () => {
+    it("should return market metadata entries for a valid condition", async () => {
       const markets = await marketDataFacet.getMarketsByCondition(conditionId);
 
-      expect(markets).to.have.lengthOf(2);
-      expect(markets[0]).to.equal(yesId);
-      expect(markets[1]).to.equal(noId);
+      expect(markets).to.have.lengthOf(1);
+      const [market] = markets;
+      expect(market.collateralToken).to.equal(erc20.address);
+      expect(market.parentCollectionId).to.equal(ethers.constants.HashZero);
+      expect(market.positionIds).to.have.lengthOf(2);
+      expect(market.positionIds[0]).to.equal(yesId);
+      expect(market.positionIds[1]).to.equal(noId);
+      expect(market.partitions.map((p) => p.toNumber())).to.deep.equal([1, 2]);
     });
 
-    it("should revert for non-existent condition", async () => {
+    it("should return an empty array for non-existent condition", async () => {
       const invalidConditionId = ethers.utils.id("invalid-condition");
 
-      await expect(
-        marketDataFacet.getMarketsByCondition(invalidConditionId)
-      ).to.be.revertedWith("ConditionDoesNotExist");
+      const markets = await marketDataFacet.getMarketsByCondition(
+        invalidConditionId
+      );
+      expect(markets).to.have.lengthOf(0);
     });
   });
 
@@ -173,10 +179,12 @@ describe("MarketDataFacet", function () {
     });
   });
 
-  describe("getMarketMetadataByCondition", function () {
-    it("should return metadata directly by condition ID", async () => {
-      const metadata = await marketDataFacet.getMarketMetadataByCondition(
-        conditionId
+  describe("getMarketMetadataByMarket", function () {
+    it("should return metadata for a market key", async () => {
+      const metadata = await marketDataFacet.getMarketMetadataByMarket(
+        conditionId,
+        ethers.constants.HashZero,
+        erc20.address
       );
 
       expect(metadata.collateralToken).to.equal(erc20.address);
@@ -186,30 +194,37 @@ describe("MarketDataFacet", function () {
     });
 
     it("should return same data as getMarketMetadata", async () => {
-      const metadataByCondition =
-        await marketDataFacet.getMarketMetadataByCondition(conditionId);
+      const metadataByMarket = await marketDataFacet.getMarketMetadataByMarket(
+        conditionId,
+        ethers.constants.HashZero,
+        erc20.address
+      );
       const metadataByPosition = await marketDataFacet.getMarketMetadata(yesId);
 
-      expect(metadataByCondition.collateralToken).to.equal(
+      expect(metadataByMarket.collateralToken).to.equal(
         metadataByPosition.collateralToken
       );
-      expect(metadataByCondition.parentCollectionId).to.equal(
+      expect(metadataByMarket.parentCollectionId).to.equal(
         metadataByPosition.parentCollectionId
       );
-      expect(metadataByCondition.positionIds.length).to.equal(
+      expect(metadataByMarket.positionIds.length).to.equal(
         metadataByPosition.positionIds.length
       );
-      expect(metadataByCondition.partitions.length).to.equal(
+      expect(metadataByMarket.partitions.length).to.equal(
         metadataByPosition.partitions.length
       );
     });
 
-    it("should revert for non-existent condition", async () => {
+    it("should revert for non-existent market", async () => {
       const invalidConditionId = ethers.utils.id("invalid-condition");
 
       await expect(
-        marketDataFacet.getMarketMetadataByCondition(invalidConditionId)
-      ).to.be.revertedWith("ConditionDoesNotExist");
+        marketDataFacet.getMarketMetadataByMarket(
+          invalidConditionId,
+          ethers.constants.HashZero,
+          erc20.address
+        )
+      ).to.be.revertedWith("ConditionDoesNotExist()");
     });
   });
 
@@ -390,9 +405,19 @@ describe("MarketDataFacet", function () {
         secondConditionId
       );
 
-      expect(markets1).to.have.lengthOf(2);
-      expect(markets2).to.have.lengthOf(2);
-      expect(markets1[0]).to.not.equal(markets2[0]);
+      expect(markets1).to.have.lengthOf(1);
+      expect(markets2).to.have.lengthOf(1);
+      expect(markets1[0].positionIds.map((p) => p.toString())).to.include.members([
+        yesId.toString(),
+        noId.toString(),
+      ]);
+      expect(markets2[0].positionIds.map((p) => p.toString())).to.include.members([
+        secondYesId.toString(),
+        secondNoId.toString(),
+      ]);
+      expect(markets1[0].positionIds[0]).to.not.equal(
+        markets2[0].positionIds[0]
+      );
     });
 
     it("should return correct condition IDs for different positions", async () => {

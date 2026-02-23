@@ -57,6 +57,9 @@ library Errors {
     /// @notice Thrown when no change is made for fees/receiver
     error NoChangeRequired();
 
+    /// @notice Thrown when conversion path is invalid (e.g., same from/to tokens)
+    error InvalidConversionPath();
+
     // ========================================
     // CONDITION MANAGER ERRORS
     // ========================================
@@ -187,20 +190,15 @@ library Errors {
     /// @notice Thrown when order is created with past expiry
     error OrderCreatedWithPastExpiry();
 
-    /// @notice Thrown when cross currency configuration is unexpected for standard orders
-    error UnexpectedCrossCurrencyConfig();
-
     /// @notice Thrown when invalid quote currency token is provided
     error InvalidQuoteCurrencyToken();
 
     /// @notice Thrown when invalid exchange rate is provided
-    error InvalidExchangeRate();
+    error InvalidFloorExchangeRate();
 
     /// @notice Thrown when cross currency order has the same collateral and quote currency
     error SameCollateralAndQuoteCurrency();
 
-    /// @notice Thrown when dynamic exchange rate is used with buy orders (only allowed for sell orders)
-    error DynamicRateNotAllowedForBuyOrders();
     // ========================================
     // SETTLEMENT ERRORS
     // ========================================
@@ -278,6 +276,111 @@ library Errors {
     error InvalidParentCollectionId();
 
     // ========================================
+    // ORACLE ERRORS
+    // ========================================
+
+    /// @notice Thrown when oracle adapter is not registered
+    error AdapterNotRegistered(bytes32 adapterId);
+
+    /// @notice Thrown when oracle adapter already exists
+    error AdapterAlreadyExists(bytes32 adapterId);
+
+    /// @notice Thrown when asset is not configured for oracle
+    error AssetNotConfigured(bytes32 assetId);
+
+    /// @notice Thrown when adapter priority array is empty
+    error EmptyAdapterPriority();
+
+    /// @notice Thrown when all configured oracle adapters fail to provide a valid price
+    error AllOracleAdaptersFailed(bytes32 assetId);
+
+    /// @notice Thrown when oracle timestamp is invalid
+    error InvalidTimestamp();
+
+    /// @notice Thrown when signature signer is not authorized
+    error UnauthorizedSigner();
+
+    /// @notice Thrown when nonce has already been used for replay protection
+    error NonceAlreadyUsed();
+
+    /// @notice Thrown when signature has expired
+    error SignatureExpired();
+
+    /// @notice Thrown when signature is invalid or ecrecover fails
+    error InvalidSignature();
+
+    /// @notice Thrown when oracle decimals configuration is invalid (must be 0-18)
+    error InvalidOracleDecimals(bytes32 assetId, uint8 decimals);
+
+    /// @notice Thrown when feed ID is invalid (zero)
+    error InvalidFeedId();
+
+    /// @notice Thrown when decimals value is invalid (zero or greater than 18)
+    error InvalidDecimals();
+
+    // ========================================
+    // CROSS-CURRENCY ERRORS
+    // ========================================
+
+    /// @notice Thrown when invalid order type is used for cross-currency operations
+    error InvalidOrderType();
+
+    /// @notice Thrown when buy orders attempt to use dynamic exchange rate (only fixed allowed)
+    error BuyOrdersMustUseFixedRate();
+
+    /// @notice Thrown when cross-currency orders have incompatible quote currencies
+    error IncompatibleQuoteCurrencies();
+
+    /// @notice Thrown when cross-currency order matching is attempted with non-complementary orders
+    error NonComplementaryCrossCurrencyMatch();
+
+    /// @notice Thrown when oracle price is stale for dynamic exchange rate calculation
+    error OraclePriceStale();
+
+    // ========================================
+    // BLOCK HEADER ORACLE ERRORS
+    // ========================================
+    error BlockHeaderOracle_NewChainNotLonger();
+
+    error BlockHeaderOracle_CannotFindForkPoint();
+
+    error BlockHeaderOracle_PrevBlockHashMismatch();
+
+    error BlockHeaderOracle_InvalidTimestamp();
+
+    error BlockHeaderOracle_InvalidBlockHash();
+
+    error BlockHeaderOracle_InvalidInitialHistoryLength();
+
+    /// @notice Thrown when nBits coefficient is zero resulting in invalid target
+    error BlockHeaderOracle_InvalidTargetNBits();
+
+    // ========================================
+    // ORACLE ADAPTER ERRORS
+    // ========================================
+
+    /// @notice Thrown when bucket configuration is invalid
+    error OracleAdapter_InvalidBucketConfiguration();
+
+    /// @notice Thrown when block not found for timestamp
+    error OracleAdapter_BlockNotFoundForTimestamp();
+
+    /// @notice Thrown when block is not in buffer
+    error OracleAdapter_BlockNotInBuffer();
+
+    /// @notice Thrown when question already exists with same parameters
+    error OracleAdapter_QuestionAlreadyExists();
+
+    /// @notice Thrown when question type is invalid
+    error OracleAdapter_InvalidQuestionType();
+
+    /// @notice Thrown when bucket values are not sorted in ascending order
+    error OracleAdapter_BucketsNotSorted();
+
+    /// @notice Thrown when duplicate bucket values are provided
+    error OracleAdapter_DuplicateBucketValue();
+
+    // ========================================
     // VALIDATION ERRORS
     // ========================================
 
@@ -295,4 +398,68 @@ library Errors {
 
     /// @notice Thrown when operation would cause underflow
     error ArithmeticUnderflow();
+
+    // ========================================
+    // INITIALIZATION ERRORS
+    // ========================================
+
+    /// @notice Thrown when contract is already initialized
+    error AlreadyInitialized();
+
+    // ========================================
+    // DIAMOND ERRORS
+    // ========================================
+
+    /// @notice Thrown when function does not exist in diamond
+    error FunctionDoesNotExist();
+
+    /// @notice Thrown when no function selectors provided for facet cut
+    error NoSelectorsInFacet();
+
+    /// @notice Thrown when facet address is zero for add operation
+    error AddFacetCannotBeZero();
+
+    /// @notice Thrown when trying to add function that already exists
+    error CannotAddExistingFunction();
+
+    /// @notice Thrown when trying to replace function with same function
+    error CannotReplaceWithSameFunction();
+
+    /// @notice Thrown when remove facet address is not zero
+    error RemoveFacetAddressMustBeZero();
+
+    /// @notice Thrown when trying to remove function that doesn't exist
+    error CannotRemoveNonExistentFunction();
+
+    /// @notice Thrown when trying to remove immutable function
+    error CannotRemoveImmutableFunction();
+
+    /// @notice Thrown when contract code size is zero during initialization
+    error ContractCodeSizeZero();
+
+    // ========================================
+    // SIGNATURE ERRORS
+    // ========================================
+
+    /// @notice Thrown when signature length is invalid
+    error InvalidSignatureLength();
+
+    // ========================================
+    // MOCK CONTRACT ERRORS
+    // ========================================
+
+    /// @notice Thrown when caller is not owner in mock contracts
+    error NotOwner();
+
+    /// @notice Thrown when trying to set owner to invalid address
+    error InvalidAddress();
+
+    /// @notice Thrown when mock adapter is configured to fail for testing
+    error MockAdapterConfiguredToFail();
+
+    /// @notice Thrown when caller is not the pending owner
+    error NotPendingOwner();
+
+    /// @notice Thrown when max manual update age is invalid (too short or too long)
+    error InvalidMaxManualUpdateAge();
 }

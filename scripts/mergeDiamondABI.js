@@ -8,6 +8,7 @@ const path = require('path');
 // List all facet contract names and the Diamond contract
 const contracts = [
   'Diamond',
+  'DiamondCutFacet',
   'DiamondLoupeFacet',
   'OwnershipFacet',
   'ERC1155Facet',
@@ -16,10 +17,16 @@ const contracts = [
   'ConditionManagerFacet',
   'AccessControlFacet',
   'AdminConfigFacet',
-  'ExchangeFacet',
-  'MarketExecutionFacet',
-  'RouteSimulationFacet',
+  'ExchangeViewFacet',
   'MarketDataFacet',
+  'MarketExecutionFacet',
+  'OracleAdapterFacet',
+  'OracleManagerFacet',
+  'BlockScholesOracleAdapter',
+  'DoefinV1BlockHeaderOracle',
+  'OrderCreationFacet',
+  'OrderManagementFacet',
+  'RouteSimulationFacet',
 ];
 
 const artifactsDir = path.join(__dirname, '../artifacts/contracts');
@@ -30,6 +37,8 @@ for (const contract of contracts) {
   let artifactPath;
   if (contract === 'Diamond') {
     artifactPath = path.join(artifactsDir, 'Diamond.sol', 'Diamond.json');
+  } else if (contract === 'DoefinV1BlockHeaderOracle') {
+    artifactPath = path.join(artifactsDir, 'facets', 'DoefinV1BlockHeaderOracleFacet.sol', 'DoefinV1BlockHeaderOracle.json');
   } else {
     artifactPath = path.join(artifactsDir, 'facets', `${contract}.sol`, `${contract}.json`);
   }

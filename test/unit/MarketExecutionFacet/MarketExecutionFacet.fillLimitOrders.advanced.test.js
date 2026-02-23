@@ -22,7 +22,8 @@ const {
 describe("MarketExecutionFacet - fillLimitOrders Advanced Tests", function () {
   let owner, maker1, maker2, maker3, taker1, taker2, oracle;
   let diamondAddress,
-    exchangeFacet,
+    orderCreationFacet,
+    exchangeViewFacet,
     marketExecutionFacet,
     erc20,
     erc1155,
@@ -43,7 +44,14 @@ describe("MarketExecutionFacet - fillLimitOrders Advanced Tests", function () {
     sellDir = 1;
 
     diamondAddress = await deployDiamond();
-    exchangeFacet = await ethers.getContractAt("ExchangeFacet", diamondAddress);
+    orderCreationFacet = await ethers.getContractAt(
+      "OrderCreationFacet",
+      diamondAddress
+    );
+    exchangeViewFacet = await ethers.getContractAt(
+      "ExchangeViewFacet",
+      diamondAddress
+    );
     marketExecutionFacet = await ethers.getContractAt(
       "MarketExecutionFacet",
       diamondAddress
@@ -156,8 +164,8 @@ describe("MarketExecutionFacet - fillLimitOrders Advanced Tests", function () {
       // Create maximum number of maker orders
       for (let i = 0; i < maxMakers; i++) {
         const maker = i % 3 === 0 ? maker1 : i % 3 === 1 ? maker2 : maker3;
-        const makerOrderId = await exchangeFacet.getNextOrderId();
-        await createLimitOrder(exchangeFacet, maker, {
+        const makerOrderId = await exchangeViewFacet.getNextOrderId();
+        await createLimitOrder(orderCreationFacet, maker, {
           positionId: yesId,
           collateralToken: erc20.address,
           amount: makerAmount,
@@ -169,10 +177,10 @@ describe("MarketExecutionFacet - fillLimitOrders Advanced Tests", function () {
         makerOrderIds.push(makerOrderId);
       }
 
-      const takerOrderId = await exchangeFacet.getNextOrderId();
+      const takerOrderId = await exchangeViewFacet.getNextOrderId();
       const startTime = Date.now();
 
-      tx = await createLimitOrder(exchangeFacet, taker1, {
+      tx = await createLimitOrder(orderCreationFacet, taker1, {
         positionId: yesId,
         collateralToken: erc20.address,
         amount: takerAmount,
@@ -189,7 +197,7 @@ describe("MarketExecutionFacet - fillLimitOrders Advanced Tests", function () {
       console.log(`Gas used: ${receipt.gasUsed.toString()}`);
 
       // Verify execution completed successfully
-      const takerOrder = await exchangeFacet.getOrder(takerOrderId);
+      const takerOrder = await exchangeViewFacet.getOrder(takerOrderId);
       expect(takerOrder.active).to.equal(false);
 
       // Should complete within reasonable limits
@@ -254,8 +262,8 @@ describe("MarketExecutionFacet - fillLimitOrders Advanced Tests", function () {
         "Maker ERC1155 Balance Before:",
         await erc1155.balanceOf(maker1.address, largeYesId)
       );
-      const makerOrderId = await exchangeFacet.getNextOrderId();
-      await createLimitOrder(exchangeFacet, maker1, {
+      const makerOrderId = await exchangeViewFacet.getNextOrderId();
+      await createLimitOrder(orderCreationFacet, maker1, {
         positionId: largeYesId,
         collateralToken: erc20.address,
         amount: largeAmount,
@@ -265,7 +273,7 @@ describe("MarketExecutionFacet - fillLimitOrders Advanced Tests", function () {
         direction: sellDir,
       });
 
-      const makerOrderDetail = await exchangeFacet.getOrder(makerOrderId);
+      const makerOrderDetail = await exchangeViewFacet.getOrder(makerOrderId);
       console.log("makerOrderDetail:", makerOrderDetail);
 
       console.log(
@@ -278,8 +286,8 @@ describe("MarketExecutionFacet - fillLimitOrders Advanced Tests", function () {
         await erc20.balanceOf(taker1.address)
       );
 
-      const takerOrderId = await exchangeFacet.getNextOrderId();
-      await createLimitOrder(exchangeFacet, taker1, {
+      const takerOrderId = await exchangeViewFacet.getNextOrderId();
+      await createLimitOrder(orderCreationFacet, taker1, {
         positionId: largeYesId,
         collateralToken: erc20.address,
         amount: largeAmount,
@@ -288,7 +296,7 @@ describe("MarketExecutionFacet - fillLimitOrders Advanced Tests", function () {
         expiry: 0,
         direction: buyDir,
       });
-      const takerOrderDetail = await exchangeFacet.getOrder(takerOrderId);
+      const takerOrderDetail = await exchangeViewFacet.getOrder(takerOrderId);
       console.log("takerOrderDetail:", takerOrderDetail);
 
       console.log(
@@ -296,7 +304,7 @@ describe("MarketExecutionFacet - fillLimitOrders Advanced Tests", function () {
         await erc20.balanceOf(taker1.address)
       );
 
-      const takerOrder = await exchangeFacet.getOrder(takerOrderId);
+      const takerOrder = await exchangeViewFacet.getOrder(takerOrderId);
       expect(takerOrder.active).to.equal(false);
     });
 
@@ -305,8 +313,8 @@ describe("MarketExecutionFacet - fillLimitOrders Advanced Tests", function () {
       const sellPrice = ethers.utils.parseUnits("0.000001", erc20Decimals); // Very small price
       const buyPrice = ethers.utils.parseUnits("0.000002", erc20Decimals); // Higher to account for fees
 
-      const makerOrderId = await exchangeFacet.getNextOrderId();
-      await createLimitOrder(exchangeFacet, maker1, {
+      const makerOrderId = await exchangeViewFacet.getNextOrderId();
+      await createLimitOrder(orderCreationFacet, maker1, {
         positionId: yesId,
         collateralToken: erc20.address,
         amount: smallAmount,
@@ -316,8 +324,8 @@ describe("MarketExecutionFacet - fillLimitOrders Advanced Tests", function () {
         direction: sellDir,
       });
 
-      const takerOrderId = await exchangeFacet.getNextOrderId();
-      await createLimitOrder(exchangeFacet, taker1, {
+      const takerOrderId = await exchangeViewFacet.getNextOrderId();
+      await createLimitOrder(orderCreationFacet, taker1, {
         positionId: yesId,
         collateralToken: erc20.address,
         amount: smallAmount,
@@ -327,17 +335,17 @@ describe("MarketExecutionFacet - fillLimitOrders Advanced Tests", function () {
         direction: buyDir,
       });
 
-      const takerOrder = await exchangeFacet.getOrder(takerOrderId);
+      const takerOrder = await exchangeViewFacet.getOrder(takerOrderId);
       expect(takerOrder.active).to.equal(false);
 
-      const makerOrder = await exchangeFacet.getOrder(makerOrderId);
+      const makerOrder = await exchangeViewFacet.getOrder(makerOrderId);
       expect(makerOrder.active).to.equal(false);
 
       // Should handle small amounts without precision loss
       await expect(
         marketExecutionFacet
           .connect(taker1)
-          .fillLimitOrders(takerOrderId, [makerOrderId])
+          .fillOrders(takerOrderId, [makerOrderId])
       ).to.be.reverted;
     });
   });
@@ -358,8 +366,8 @@ describe("MarketExecutionFacet - fillLimitOrders Advanced Tests", function () {
       // Create maker orders with different amounts
       for (let i = 0; i < amounts.length; i++) {
         const maker = i === 0 ? maker1 : i === 1 ? maker2 : maker3;
-        const makerOrderId = await exchangeFacet.getNextOrderId();
-        await createLimitOrder(exchangeFacet, maker, {
+        const makerOrderId = await exchangeViewFacet.getNextOrderId();
+        await createLimitOrder(orderCreationFacet, maker, {
           positionId: yesId,
           collateralToken: erc20.address,
           amount: amounts[i],
@@ -371,8 +379,8 @@ describe("MarketExecutionFacet - fillLimitOrders Advanced Tests", function () {
         makerOrderIds.push(makerOrderId);
       }
 
-      const takerOrderId = await exchangeFacet.getNextOrderId();
-      await createLimitOrder(exchangeFacet, taker1, {
+      const takerOrderId = await exchangeViewFacet.getNextOrderId();
+      await createLimitOrder(orderCreationFacet, taker1, {
         positionId: yesId,
         collateralToken: erc20.address,
         amount: takerAmount,
@@ -383,17 +391,17 @@ describe("MarketExecutionFacet - fillLimitOrders Advanced Tests", function () {
       });
 
       // Verify cascading fills
-      const takerOrder = await exchangeFacet.getOrder(takerOrderId);
+      const takerOrder = await exchangeViewFacet.getOrder(takerOrderId);
       expect(takerOrder.active).to.equal(false);
 
       // First two orders should be completely filled
-      const maker1Order = await exchangeFacet.getOrder(makerOrderIds[0]);
-      const maker2Order = await exchangeFacet.getOrder(makerOrderIds[1]);
+      const maker1Order = await exchangeViewFacet.getOrder(makerOrderIds[0]);
+      const maker2Order = await exchangeViewFacet.getOrder(makerOrderIds[1]);
       expect(maker1Order.active).to.equal(false);
       expect(maker2Order.active).to.equal(false);
 
       // Third order should be partially filled
-      const maker3Order = await exchangeFacet.getOrder(makerOrderIds[2]);
+      const maker3Order = await exchangeViewFacet.getOrder(makerOrderIds[2]);
       expect(maker3Order.active).to.equal(true);
       expect(maker3Order.remainingAmount).to.equal(
         amounts[2].sub(ethers.utils.parseUnits("5", erc20Decimals))
@@ -407,8 +415,8 @@ describe("MarketExecutionFacet - fillLimitOrders Advanced Tests", function () {
       const takerYesPrice = ethers.utils.parseUnits("0.6", erc20Decimals);
 
       // Create complementary match (YES sell vs YES buy)
-      const complementaryMakerOrderId = await exchangeFacet.getNextOrderId();
-      await createLimitOrder(exchangeFacet, maker1, {
+      const complementaryMakerOrderId = await exchangeViewFacet.getNextOrderId();
+      await createLimitOrder(orderCreationFacet, maker1, {
         positionId: yesId,
         collateralToken: erc20.address,
         amount,
@@ -419,8 +427,8 @@ describe("MarketExecutionFacet - fillLimitOrders Advanced Tests", function () {
       });
 
       // Create mint match (NO buy for YES buy)
-      const mintMakerOrderId = await exchangeFacet.getNextOrderId();
-      await createLimitOrder(exchangeFacet, maker2, {
+      const mintMakerOrderId = await exchangeViewFacet.getNextOrderId();
+      await createLimitOrder(orderCreationFacet, maker2, {
         positionId: noId,
         collateralToken: erc20.address,
         amount,
@@ -447,7 +455,7 @@ describe("MarketExecutionFacet - fillLimitOrders Advanced Tests", function () {
       console.log("Maker2 address:", maker2.address);
       console.log("Erc20 address:", erc20.address);
 
-      const tx = await createLimitOrder(exchangeFacet, taker1, {
+      const tx = await createLimitOrder(orderCreationFacet, taker1, {
         positionId: yesId,
         collateralToken: erc20.address,
         amount: takerRequestedAmount,
@@ -489,8 +497,8 @@ describe("MarketExecutionFacet - fillLimitOrders Advanced Tests", function () {
       const makerOrderIds = [];
       for (let i = 0; i < 3; i++) {
         const maker = i === 0 ? maker1 : i === 1 ? maker2 : maker3;
-        const makerOrderId = await exchangeFacet.getNextOrderId();
-        await createLimitOrder(exchangeFacet, maker, {
+        const makerOrderId = await exchangeViewFacet.getNextOrderId();
+        await createLimitOrder(orderCreationFacet, maker, {
           positionId: yesId,
           collateralToken: erc20.address,
           amount,
@@ -503,8 +511,8 @@ describe("MarketExecutionFacet - fillLimitOrders Advanced Tests", function () {
       }
 
       // Create multiple taker orders
-      const taker1OrderId = await exchangeFacet.getNextOrderId();
-      await createLimitOrder(exchangeFacet, taker1, {
+      const taker1OrderId = await exchangeViewFacet.getNextOrderId();
+      await createLimitOrder(orderCreationFacet, taker1, {
         positionId: yesId,
         collateralToken: erc20.address,
         amount,
@@ -514,8 +522,8 @@ describe("MarketExecutionFacet - fillLimitOrders Advanced Tests", function () {
         direction: buyDir,
       });
 
-      const taker2OrderId = await exchangeFacet.getNextOrderId();
-      await createLimitOrder(exchangeFacet, taker2, {
+      const taker2OrderId = await exchangeViewFacet.getNextOrderId();
+      await createLimitOrder(orderCreationFacet, taker2, {
         positionId: yesId,
         collateralToken: erc20.address,
         amount,
@@ -526,11 +534,11 @@ describe("MarketExecutionFacet - fillLimitOrders Advanced Tests", function () {
       });
 
       // Verify state consistency
-      const taker1Order = await exchangeFacet.getOrder(taker1OrderId);
-      const taker2Order = await exchangeFacet.getOrder(taker2OrderId);
-      const maker1Order = await exchangeFacet.getOrder(makerOrderIds[0]);
-      const maker2Order = await exchangeFacet.getOrder(makerOrderIds[1]);
-      const maker3Order = await exchangeFacet.getOrder(makerOrderIds[2]);
+      const taker1Order = await exchangeViewFacet.getOrder(taker1OrderId);
+      const taker2Order = await exchangeViewFacet.getOrder(taker2OrderId);
+      const maker1Order = await exchangeViewFacet.getOrder(makerOrderIds[0]);
+      const maker2Order = await exchangeViewFacet.getOrder(makerOrderIds[1]);
+      const maker3Order = await exchangeViewFacet.getOrder(makerOrderIds[2]);
 
       expect(taker1Order.active).to.equal(false);
       expect(taker2Order.active).to.equal(false);
@@ -544,8 +552,8 @@ describe("MarketExecutionFacet - fillLimitOrders Advanced Tests", function () {
       const sellPrice = ethers.utils.parseUnits("0.5", erc20Decimals);
       const buyPrice = ethers.utils.parseUnits("0.52", erc20Decimals); // Higher to account for fees
 
-      const makerOrderId = await exchangeFacet.getNextOrderId();
-      await createLimitOrder(exchangeFacet, maker1, {
+      const makerOrderId = await exchangeViewFacet.getNextOrderId();
+      await createLimitOrder(orderCreationFacet, maker1, {
         positionId: yesId,
         collateralToken: erc20.address,
         amount,
@@ -555,11 +563,11 @@ describe("MarketExecutionFacet - fillLimitOrders Advanced Tests", function () {
         direction: sellDir,
       });
 
-      const initialMakerOrder = await exchangeFacet.getOrder(makerOrderId);
+      const initialMakerOrder = await exchangeViewFacet.getOrder(makerOrderId);
       expect(initialMakerOrder.active).to.equal(true);
 
-      const takerOrderId = await exchangeFacet.getNextOrderId();
-      await createLimitOrder(exchangeFacet, taker1, {
+      const takerOrderId = await exchangeViewFacet.getNextOrderId();
+      await createLimitOrder(orderCreationFacet, taker1, {
         positionId: yesId,
         collateralToken: erc20.address,
         amount,
@@ -571,8 +579,8 @@ describe("MarketExecutionFacet - fillLimitOrders Advanced Tests", function () {
       
 
       // Verify final state
-      const finalTakerOrder = await exchangeFacet.getOrder(takerOrderId);
-      const finalMakerOrder = await exchangeFacet.getOrder(makerOrderId);
+      const finalTakerOrder = await exchangeViewFacet.getOrder(takerOrderId);
+      const finalMakerOrder = await exchangeViewFacet.getOrder(makerOrderId);
       expect(finalTakerOrder.active).to.equal(false);
       expect(finalMakerOrder.active).to.equal(false);
     });
@@ -584,8 +592,8 @@ describe("MarketExecutionFacet - fillLimitOrders Advanced Tests", function () {
       const sellPrice = ethers.utils.parseUnits("0.5", erc20Decimals);
       const buyPrice = ethers.utils.parseUnits("0.52", erc20Decimals); // Higher to account for fees
 
-      const makerOrderId = await exchangeFacet.getNextOrderId();
-      await createLimitOrder(exchangeFacet, maker1, {
+      const makerOrderId = await exchangeViewFacet.getNextOrderId();
+      await createLimitOrder(orderCreationFacet, maker1, {
         positionId: yesId,
         collateralToken: erc20.address,
         amount,
@@ -595,8 +603,8 @@ describe("MarketExecutionFacet - fillLimitOrders Advanced Tests", function () {
         direction: sellDir,
       });
 
-      const takerOrderId = await exchangeFacet.getNextOrderId();
-      const tx = await createLimitOrder(exchangeFacet, taker1, {
+      const takerOrderId = await exchangeViewFacet.getNextOrderId();
+      const tx = await createLimitOrder(orderCreationFacet, taker1, {
         positionId: yesId,
         collateralToken: erc20.address,
         amount,
@@ -621,8 +629,8 @@ describe("MarketExecutionFacet - fillLimitOrders Advanced Tests", function () {
       const sellPrice = ethers.utils.parseUnits("0.5", erc20Decimals);
       const buyPrice = ethers.utils.parseUnits("0.52", erc20Decimals); // Higher to account for fees
 
-      const makerOrderId = await exchangeFacet.getNextOrderId();
-      await createLimitOrder(exchangeFacet, maker1, {
+      const makerOrderId = await exchangeViewFacet.getNextOrderId();
+      await createLimitOrder(orderCreationFacet, maker1, {
         positionId: yesId,
         collateralToken: erc20.address,
         amount: totalAmount,
@@ -632,8 +640,8 @@ describe("MarketExecutionFacet - fillLimitOrders Advanced Tests", function () {
         direction: sellDir,
       });
 
-      const takerOrderId = await exchangeFacet.getNextOrderId();
-      await createLimitOrder(exchangeFacet, taker1, {
+      const takerOrderId = await exchangeViewFacet.getNextOrderId();
+      await createLimitOrder(orderCreationFacet, taker1, {
         positionId: yesId,
         collateralToken: erc20.address,
         amount: totalAmount,
@@ -647,7 +655,7 @@ describe("MarketExecutionFacet - fillLimitOrders Advanced Tests", function () {
       await expect(
         marketExecutionFacet
           .connect(taker1)
-          .fillLimitOrders(takerOrderId, [makerOrderId])
+          .fillOrders(takerOrderId, [makerOrderId])
       ).to.be.reverted;
     });
 
@@ -658,8 +666,8 @@ describe("MarketExecutionFacet - fillLimitOrders Advanced Tests", function () {
       const minPrice = ethers.utils.parseUnits("0.000001", erc20Decimals); // Minimum price
 
       // Test maximum price
-      const maxPriceMakerOrderId = await exchangeFacet.getNextOrderId();
-      await createLimitOrder(exchangeFacet, maker1, {
+      const maxPriceMakerOrderId = await exchangeViewFacet.getNextOrderId();
+      await createLimitOrder(orderCreationFacet, maker1, {
         positionId: yesId,
         collateralToken: erc20.address,
         amount,
@@ -669,8 +677,8 @@ describe("MarketExecutionFacet - fillLimitOrders Advanced Tests", function () {
         direction: sellDir,
       });
 
-      const maxPriceTakerOrderId = await exchangeFacet.getNextOrderId();
-      await createLimitOrder(exchangeFacet, taker1, {
+      const maxPriceTakerOrderId = await exchangeViewFacet.getNextOrderId();
+      await createLimitOrder(orderCreationFacet, taker1, {
         positionId: yesId,
         collateralToken: erc20.address,
         amount,
@@ -683,12 +691,12 @@ describe("MarketExecutionFacet - fillLimitOrders Advanced Tests", function () {
       await expect(
         marketExecutionFacet
           .connect(taker1)
-          .fillLimitOrders(maxPriceTakerOrderId, [maxPriceMakerOrderId])
+          .fillOrders(maxPriceTakerOrderId, [maxPriceMakerOrderId])
       ).to.not.be.revertedWith();
 
       // Test minimum price
-      const minPriceMakerOrderId = await exchangeFacet.getNextOrderId();
-      await createLimitOrder(exchangeFacet, maker2, {
+      const minPriceMakerOrderId = await exchangeViewFacet.getNextOrderId();
+      await createLimitOrder(orderCreationFacet, maker2, {
         positionId: yesId,
         collateralToken: erc20.address,
         amount,
@@ -698,8 +706,8 @@ describe("MarketExecutionFacet - fillLimitOrders Advanced Tests", function () {
         direction: sellDir,
       });
 
-      const minPriceTakerOrderId = await exchangeFacet.getNextOrderId();
-      await createLimitOrder(exchangeFacet, taker2, {
+      const minPriceTakerOrderId = await exchangeViewFacet.getNextOrderId();
+      await createLimitOrder(orderCreationFacet, taker2, {
         positionId: yesId,
         collateralToken: erc20.address,
         amount,
@@ -712,7 +720,7 @@ describe("MarketExecutionFacet - fillLimitOrders Advanced Tests", function () {
       await expect(
         marketExecutionFacet
           .connect(taker2)
-          .fillLimitOrders(minPriceTakerOrderId, [minPriceMakerOrderId])
+          .fillOrders(minPriceTakerOrderId, [minPriceMakerOrderId])
       ).to.be.reverted;
     });
 
@@ -723,8 +731,8 @@ describe("MarketExecutionFacet - fillLimitOrders Advanced Tests", function () {
       const currentTime = Math.floor(Date.now() / 1000);
 
       // Create order that expires exactly now
-      const exactExpiryOrderId = await exchangeFacet.getNextOrderId();
-      await createLimitOrder(exchangeFacet, maker1, {
+      const exactExpiryOrderId = await exchangeViewFacet.getNextOrderId();
+      await createLimitOrder(orderCreationFacet, maker1, {
         positionId: yesId,
         collateralToken: erc20.address,
         amount,
@@ -734,8 +742,8 @@ describe("MarketExecutionFacet - fillLimitOrders Advanced Tests", function () {
         direction: sellDir,
       });
 
-      const takerOrderId = await exchangeFacet.getNextOrderId();
-      await createLimitOrder(exchangeFacet, taker1, {
+      const takerOrderId = await exchangeViewFacet.getNextOrderId();
+      await createLimitOrder(orderCreationFacet, taker1, {
         positionId: yesId,
         collateralToken: erc20.address,
         amount,
@@ -749,7 +757,7 @@ describe("MarketExecutionFacet - fillLimitOrders Advanced Tests", function () {
       await expect(
         marketExecutionFacet
           .connect(taker1)
-          .fillLimitOrders(takerOrderId, [exactExpiryOrderId])
+          .fillOrders(takerOrderId, [exactExpiryOrderId])
       ).to.be.reverted;
     });
   });
@@ -761,8 +769,8 @@ describe("MarketExecutionFacet - fillLimitOrders Advanced Tests", function () {
       const buyPrice = ethers.utils.parseUnits("0.52", erc20Decimals); // Higher to account for fees
 
       // Create multiple orders where some might fail
-      const validMakerOrderId = await exchangeFacet.getNextOrderId();
-      await createLimitOrder(exchangeFacet, maker1, {
+      const validMakerOrderId = await exchangeViewFacet.getNextOrderId();
+      await createLimitOrder(orderCreationFacet, maker1, {
         positionId: yesId,
         collateralToken: erc20.address,
         amount,
@@ -773,8 +781,8 @@ describe("MarketExecutionFacet - fillLimitOrders Advanced Tests", function () {
       });
 
       // Create order with insufficient balance (will be detected during execution)
-      const insufficientMakerOrderId = await exchangeFacet.getNextOrderId();
-      await createLimitOrder(exchangeFacet, maker2, {
+      const insufficientMakerOrderId = await exchangeViewFacet.getNextOrderId();
+      await createLimitOrder(orderCreationFacet, maker2, {
         positionId: yesId,
         collateralToken: erc20.address,
         amount,
@@ -796,8 +804,8 @@ describe("MarketExecutionFacet - fillLimitOrders Advanced Tests", function () {
           "0x"
         );
 
-      const takerOrderId = await exchangeFacet.getNextOrderId();
-      await createLimitOrder(exchangeFacet, taker1, {
+      const takerOrderId = await exchangeViewFacet.getNextOrderId();
+      await createLimitOrder(orderCreationFacet, taker1, {
         positionId: yesId,
         collateralToken: erc20.address,
         amount: amount.mul(2),
@@ -811,7 +819,7 @@ describe("MarketExecutionFacet - fillLimitOrders Advanced Tests", function () {
       await expect(
         marketExecutionFacet
           .connect(taker1)
-          .fillLimitOrders(takerOrderId, [
+          .fillOrders(takerOrderId, [
             validMakerOrderId,
             insufficientMakerOrderId,
           ])
@@ -823,8 +831,8 @@ describe("MarketExecutionFacet - fillLimitOrders Advanced Tests", function () {
       const sellPrice = ethers.utils.parseUnits("0.5", erc20Decimals);
       const buyPrice = ethers.utils.parseUnits("0.52", erc20Decimals); // Higher to account for fees
 
-      const makerOrderId = await exchangeFacet.getNextOrderId();
-      await createLimitOrder(exchangeFacet, maker1, {
+      const makerOrderId = await exchangeViewFacet.getNextOrderId();
+      await createLimitOrder(orderCreationFacet, maker1, {
         positionId: yesId,
         collateralToken: erc20.address,
         amount,
@@ -834,7 +842,7 @@ describe("MarketExecutionFacet - fillLimitOrders Advanced Tests", function () {
         direction: sellDir,
       });
 
-      const initialMakerOrder = await exchangeFacet.getOrder(makerOrderId);
+      const initialMakerOrder = await exchangeViewFacet.getOrder(makerOrderId);
       const initialMakerBalance = await erc1155.balanceOf(
         maker1.address,
         yesId
@@ -849,13 +857,13 @@ describe("MarketExecutionFacet - fillLimitOrders Advanced Tests", function () {
       try {
         await marketExecutionFacet
           .connect(maker1)
-          .fillLimitOrders(takerOrderId, [999999]);
+          .fillOrders(takerOrderId, [999999]);
       } catch (error) {
         // Expected to fail
       }
 
       // Verify state is unchanged after failed transaction
-      const afterFailMakerOrder = await exchangeFacet.getOrder(makerOrderId);
+      const afterFailMakerOrder = await exchangeViewFacet.getOrder(makerOrderId);
       const afterFailMakerBalance = await erc1155.balanceOf(
         maker1.address,
         yesId
@@ -864,8 +872,8 @@ describe("MarketExecutionFacet - fillLimitOrders Advanced Tests", function () {
       expect(afterFailMakerOrder.active).to.equal(initialMakerOrder.active);
       expect(afterFailMakerBalance).to.equal(initialMakerBalance);
 
-      const takerOrderId = await exchangeFacet.getNextOrderId();
-      await createLimitOrder(exchangeFacet, taker1, {
+      const takerOrderId = await exchangeViewFacet.getNextOrderId();
+      await createLimitOrder(orderCreationFacet, taker1, {
         positionId: yesId,
         collateralToken: erc20.address,
         amount,
@@ -876,8 +884,8 @@ describe("MarketExecutionFacet - fillLimitOrders Advanced Tests", function () {
       });
 
       // Verify successful execution
-      const finalTakerOrder = await exchangeFacet.getOrder(takerOrderId);
-      const finalMakerOrder = await exchangeFacet.getOrder(makerOrderId);
+      const finalTakerOrder = await exchangeViewFacet.getOrder(takerOrderId);
+      const finalMakerOrder = await exchangeViewFacet.getOrder(makerOrderId);
 
       expect(finalTakerOrder.active).to.equal(false);
       expect(finalMakerOrder.active).to.equal(false);

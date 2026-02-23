@@ -25,7 +25,7 @@ describe("RouteSimulationFacet - Advanced Test Cases", function () {
   let owner, user, maker, oracle, taker, maker2, maker3, maker4;
   let diamondAddress,
     routeSimFacet,
-    exchangeFacet,
+    orderCreationFacet,
     erc20,
     ercUnit,
     erc1155,
@@ -48,7 +48,10 @@ describe("RouteSimulationFacet - Advanced Test Cases", function () {
 
     diamondAddress = await deployDiamond();
 
-    exchangeFacet = await ethers.getContractAt("ExchangeFacet", diamondAddress);
+    orderCreationFacet = await ethers.getContractAt(
+      "OrderCreationFacet",
+      diamondAddress
+    );
     erc1155 = await ethers.getContractAt("ERC1155Facet", diamondAddress);
     conditionalFacet = await ethers.getContractAt(
       "ConditionalTokensFacet",
@@ -161,22 +164,36 @@ describe("RouteSimulationFacet - Advanced Test Cases", function () {
       await erc1155.connect(maker).setApprovalForAll(diamondAddress, true);
 
       for (let i = 0; i < prices.length; i++) {
-        await createLimitOrder(exchangeFacet, maker, {
+        await createLimitOrder(orderCreationFacet, maker, {
           positionId: yesId,
           collateralToken: erc20.address,
           amount: amounts[i],
           pricePerToken: prices[i],
-          minFillAmount: amounts[i],
+          minFillAmount: ethers.utils.parseEther("1"), // Allow partial fills
           expiry: 0,
           direction: sellDir,
         });
       }
 
-      // Simulate BUY order that spans multiple price levels
+      // Calculate budget for BUY order that spans multiple price levels
+      // Need to calculate weighted average effective price based on filling in order
+      let remainingAmount = totalAmount;
+      let totalBudget = ethers.constants.Zero;
+      
+      for (let i = 0; i < prices.length && remainingAmount.gt(0); i++) {
+        const fillAmount = remainingAmount.gte(amounts[i]) ? amounts[i] : remainingAmount;
+        const takerFee = prices[i].mul(feeConfig.takerBps).div(10000);
+        const effectivePrice = prices[i].add(takerFee);
+        const cost = fillAmount.mul(effectivePrice).div(ercUnit);
+        totalBudget = totalBudget.add(cost);
+        remainingAmount = remainingAmount.sub(fillAmount);
+      }
+
+      // Simulate BUY order with budget
       const route = await simulateAndParseMatchRoute({
         routeSimFacet,
         positionId: yesId,
-        amount: totalAmount,
+        amount: totalBudget,
         direction: buyDir,
       });
 
@@ -186,8 +203,8 @@ describe("RouteSimulationFacet - Advanced Test Cases", function () {
       // Verify price ordering (should start with lowest prices)
       for (let i = 0; i < route.matches.length - 1; i++) {
         if (
-          route.matches[i].matchType === 0 &&
-          route.matches[i + 1].matchType === 0
+          route.matches[i].matchType === 1 &&
+          route.matches[i + 1].matchType === 1
         ) {
           expect(
             route.matches[i].effectivePrice.lte(
@@ -203,6 +220,8 @@ describe("RouteSimulationFacet - Advanced Test Cases", function () {
         ethers.constants.Zero
       );
       expect(totalMatched).to.equal(totalAmount);
+      expect(route.totalInputAmount).to.equal(totalAmount);
+      expect(route.totalOutputAmount).to.equal(totalBudget);
     });
 
     it("should optimize route selection for partial fills", async () => {
@@ -233,7 +252,7 @@ describe("RouteSimulationFacet - Advanced Test Cases", function () {
       await erc1155.connect(maker).setApprovalForAll(diamondAddress, true);
 
       for (let i = 0; i < prices.length; i++) {
-        await createLimitOrder(exchangeFacet, maker, {
+        await createLimitOrder(orderCreationFacet, maker, {
           positionId: yesId,
           collateralToken: erc20.address,
           amount: availableAmounts[i],
@@ -244,10 +263,23 @@ describe("RouteSimulationFacet - Advanced Test Cases", function () {
         });
       }
 
+      // Calculate budget for requested amount across available orders
+      let remainingAmount = requestedAmount;
+      let totalBudget = ethers.constants.Zero;
+      
+      for (let i = 0; i < prices.length && remainingAmount.gt(0); i++) {
+        const fillAmount = remainingAmount.gte(availableAmounts[i]) ? availableAmounts[i] : remainingAmount;
+        const takerFee = prices[i].mul(feeConfig.takerBps).div(10000);
+        const effectivePrice = prices[i].add(takerFee);
+        const cost = fillAmount.mul(effectivePrice).div(ercUnit);
+        totalBudget = totalBudget.add(cost);
+        remainingAmount = remainingAmount.sub(fillAmount);
+      }
+
       const route = await simulateAndParseMatchRoute({
         routeSimFacet,
         positionId: yesId,
-        amount: requestedAmount,
+        amount: totalBudget,
         direction: buyDir,
       });
 
@@ -259,10 +291,12 @@ describe("RouteSimulationFacet - Advanced Test Cases", function () {
         ethers.constants.Zero
       );
       expect(totalMatched).to.equal(requestedAmount);
+      expect(route.totalInputAmount).to.equal(requestedAmount);
+      expect(route.totalOutputAmount).to.equal(totalBudget);
 
       // First match should be at best price
       const firstComplementaryMatch = route.matches.find(
-        (m) => m.matchType === 0
+        (m) => m.matchType === 1
       );
       if (firstComplementaryMatch) {
         expect(firstComplementaryMatch.effectivePrice).to.equal(
@@ -289,7 +323,7 @@ describe("RouteSimulationFacet - Advanced Test Cases", function () {
         );
       await erc1155.connect(maker).setApprovalForAll(diamondAddress, true);
 
-      await createLimitOrder(exchangeFacet, maker, {
+      await createLimitOrder(orderCreationFacet, maker, {
         positionId: yesId,
         collateralToken: erc20.address,
         amount: orderAmount,
@@ -311,7 +345,7 @@ describe("RouteSimulationFacet - Advanced Test Cases", function () {
         spender: diamondAddress,
       });
 
-      await createLimitOrder(exchangeFacet, maker2, {
+      await createLimitOrder(orderCreationFacet, maker2, {
         positionId: noId,
         collateralToken: erc20.address,
         amount: totalMintAmount,
@@ -331,9 +365,9 @@ describe("RouteSimulationFacet - Advanced Test Cases", function () {
 
       // Should have both complementary and mint matches
       const complementaryMatches = route.matches.filter(
-        (m) => m.matchType === 0
+        (m) => m.matchType === 1
       );
-      const mintMatches = route.matches.filter((m) => m.matchType === 1);
+      const mintMatches = route.matches.filter((m) => m.matchType === 2);
 
       expect(complementaryMatches.length).to.be.greaterThan(0);
       expect(mintMatches.length).to.be.greaterThan(0);
@@ -385,7 +419,7 @@ describe("RouteSimulationFacet - Advanced Test Cases", function () {
       await erc1155.connect(maker).setApprovalForAll(diamondAddress, true);
 
       for (const config of orderConfigs) {
-        await createLimitOrder(exchangeFacet, maker, {
+        await createLimitOrder(orderCreationFacet, maker, {
           positionId: yesId,
           collateralToken: erc20.address,
           amount: config.amount,
@@ -396,28 +430,43 @@ describe("RouteSimulationFacet - Advanced Test Cases", function () {
         });
       }
 
+      // Calculate budget for BUY order across multiple price levels
+      let remainingAmount = amount;
+      let totalBudget = ethers.constants.Zero;
+      
+      // Sort configs by price to match in best-price order
+      const sortedConfigs = [...orderConfigs].sort((a, b) => 
+        a.price.lt(b.price) ? -1 : (a.price.gt(b.price) ? 1 : 0)
+      );
+      
+      for (const config of sortedConfigs) {
+        if (remainingAmount.lte(0)) break;
+        const fillAmount = remainingAmount.gte(config.amount) ? config.amount : remainingAmount;
+        const takerFee = config.price.mul(feeConfig.takerBps).div(10000);
+        const effectivePrice = config.price.add(takerFee);
+        const cost = fillAmount.mul(effectivePrice).div(ercUnit);
+        totalBudget = totalBudget.add(cost);
+        remainingAmount = remainingAmount.sub(fillAmount);
+      }
+
       const route = await simulateAndParseMatchRoute({
         routeSimFacet,
         positionId: yesId,
-        amount,
+        amount: totalBudget,
         direction: buyDir,
       });
 
-      // Calculate expected average price (should use cheapest orders first)
-      const expectedCost = orderConfigs[0].amount
-        .mul(orderConfigs[0].price)
-        .add(orderConfigs[1].amount.mul(orderConfigs[1].price))
-        .add(ethers.utils.parseEther("7").mul(orderConfigs[2].price)); // Partial fill of third order
-
-      const expectedAvgPrice = expectedCost.div(amount);
+      // Verify total amounts
+      expect(route.totalInputAmount).to.equal(amount);
+      expect(route.totalOutputAmount).to.equal(totalBudget);
+      
+      // Calculate actual average price
       const actualAvgPrice = route.totalOutputAmount
         .mul(ercUnit)
         .div(route.totalInputAmount);
 
-      // Should be close to expected (accounting for fees)
-      const tolerance = ethers.utils.parseEther("0.05"); // 5% tolerance
-      expect(actualAvgPrice.sub(expectedAvgPrice).abs().lt(tolerance)).to.be
-        .true;
+      // Should match orders in ascending price order for best execution
+      expect(route.matches.length).to.be.greaterThan(1);
     });
 
     it("should optimize for SELL orders (maximize received amount)", async () => {
@@ -452,7 +501,7 @@ describe("RouteSimulationFacet - Advanced Test Cases", function () {
           spender: diamondAddress,
         });
 
-        await createLimitOrder(exchangeFacet, maker, {
+        await createLimitOrder(orderCreationFacet, maker, {
           positionId: yesId,
           collateralToken: erc20.address,
           amount: order.amount,
@@ -483,7 +532,7 @@ describe("RouteSimulationFacet - Advanced Test Cases", function () {
 
       // Should prioritize highest-price BUY orders first
       const complementaryMatches = route.matches.filter(
-        (m) => m.matchType === 0
+        (m) => m.matchType === 1
       );
       if (complementaryMatches.length > 1) {
         for (let i = 0; i < complementaryMatches.length - 1; i++) {
@@ -514,7 +563,7 @@ describe("RouteSimulationFacet - Advanced Test Cases", function () {
         );
       await erc1155.connect(maker).setApprovalForAll(diamondAddress, true);
 
-      await createLimitOrder(exchangeFacet, maker, {
+      await createLimitOrder(orderCreationFacet, maker, {
         positionId: yesId,
         collateralToken: erc20.address,
         amount: ethers.utils.parseEther("1"),
@@ -524,18 +573,25 @@ describe("RouteSimulationFacet - Advanced Test Cases", function () {
         direction: sellDir,
       });
 
+      // Calculate budget for small amount
+      const takerFee = price.mul(feeConfig.takerBps).div(10000);
+      const effectivePrice = price.add(takerFee);
+      const budget = smallAmount.mul(effectivePrice).div(ercUnit);
+
       const route = await simulateAndParseMatchRoute({
         routeSimFacet,
         positionId: yesId,
-        amount: smallAmount,
+        amount: budget,
         direction: buyDir,
       });
 
       console.log("Small amount:", smallAmount);
+      console.log("Budget:", budget);
       console.log("Route:", route);
 
       expect(route.matches.length).to.be.greaterThan(0);
       expect(route.totalInputAmount).to.equal(smallAmount);
+      expect(route.totalOutputAmount).to.equal(budget);
     });
 
     it("should handle maximum order amounts", async () => {
@@ -553,7 +609,7 @@ describe("RouteSimulationFacet - Advanced Test Cases", function () {
         spender: diamondAddress,
       });
 
-      await createLimitOrder(exchangeFacet, maker, {
+      await createLimitOrder(orderCreationFacet, maker, {
         positionId: noId,
         collateralToken: erc20.address,
         amount: maxAmount,
@@ -572,7 +628,7 @@ describe("RouteSimulationFacet - Advanced Test Cases", function () {
       });
 
       expect(route.matches.length).to.equal(1);
-      expect(route.matches[0].matchType).to.equal(1); // Mint match
+      expect(route.matches[0].matchType).to.equal(2); // Mint match
       expect(route.totalInputAmount).to.equal(maxAmount);
     });
 
@@ -611,7 +667,7 @@ describe("RouteSimulationFacet - Advanced Test Cases", function () {
         );
       await erc1155.connect(maker).setApprovalForAll(diamondAddress, true);
 
-      await createLimitOrder(exchangeFacet, maker, {
+      await createLimitOrder(orderCreationFacet, maker, {
         positionId: yesId,
         collateralToken: erc20.address,
         amount: orderAmount,
@@ -660,7 +716,7 @@ describe("RouteSimulationFacet - Advanced Test Cases", function () {
         const price = basePrice.add(
           ethers.utils.parseEther((i * 0.01).toString())
         );
-        await createLimitOrder(exchangeFacet, maker, {
+        await createLimitOrder(orderCreationFacet, maker, {
           positionId: yesId,
           collateralToken: erc20.address,
           amount: baseAmount,
@@ -728,7 +784,7 @@ describe("RouteSimulationFacet - Advanced Test Cases", function () {
       await erc1155.connect(maker).setApprovalForAll(diamondAddress, true);
 
       for (const config of configs) {
-        await createLimitOrder(exchangeFacet, maker, {
+        await createLimitOrder(orderCreationFacet, maker, {
           positionId: yesId,
           collateralToken: erc20.address,
           amount: config.amount,
@@ -739,10 +795,30 @@ describe("RouteSimulationFacet - Advanced Test Cases", function () {
         });
       }
 
+      // Calculate budget - only 23 ETH available total
+      const availableAmount = ethers.utils.parseEther("23"); // 5+8+6+4 = 23 ETH available
+      let remainingAmount = availableAmount; // Can only buy what's available
+      let totalBudget = ethers.constants.Zero;
+      
+      // Sort configs by price to match in best-price order
+      const sortedConfigs = [...configs].sort((a, b) => 
+        a.price.lt(b.price) ? -1 : (a.price.gt(b.price) ? 1 : 0)
+      );
+      
+      for (const config of sortedConfigs) {
+        if (remainingAmount.lte(0)) break;
+        const fillAmount = remainingAmount.gte(config.amount) ? config.amount : remainingAmount;
+        const takerFee = config.price.mul(feeConfig.takerBps).div(10000);
+        const effectivePrice = config.price.add(takerFee);
+        const cost = fillAmount.mul(effectivePrice).div(ercUnit);
+        totalBudget = totalBudget.add(cost);
+        remainingAmount = remainingAmount.sub(fillAmount);
+      }
+
       const route = await simulateAndParseMatchRoute({
         routeSimFacet,
         positionId: yesId,
-        amount,
+        amount: totalBudget,
         direction: buyDir,
       });
 
@@ -754,8 +830,9 @@ describe("RouteSimulationFacet - Advanced Test Cases", function () {
         (sum, match) => sum.add(match.amount),
         ethers.constants.Zero
       );
-      const availableAmount = ethers.utils.parseEther("23"); // 5+8+6+4 = 23 ETH available
       expect(totalMatched).to.equal(availableAmount);
+      expect(route.totalInputAmount).to.equal(availableAmount);
+      expect(route.totalOutputAmount).to.equal(totalBudget);
     });
   });
 
@@ -770,7 +847,7 @@ describe("RouteSimulationFacet - Advanced Test Cases", function () {
         .safeTransferFrom(owner.address, maker.address, yesId, amount, "0x");
       await erc1155.connect(maker).setApprovalForAll(diamondAddress, true);
 
-      await createLimitOrder(exchangeFacet, maker, {
+      await createLimitOrder(orderCreationFacet, maker, {
         positionId: yesId,
         collateralToken: erc20.address,
         amount,
@@ -780,25 +857,30 @@ describe("RouteSimulationFacet - Advanced Test Cases", function () {
         direction: sellDir,
       });
 
+      // Calculate budget for consistent queries
+      const takerFee = price.mul(feeConfig.takerBps).div(10000);
+      const effectivePrice = price.add(takerFee);
+      const budget = amount.mul(effectivePrice).div(ercUnit);
+
       // Query multiple times
       const route1 = await simulateAndParseMatchRoute({
         routeSimFacet,
         positionId: yesId,
-        amount,
+        amount: budget,
         direction: buyDir,
       });
 
       const route2 = await simulateAndParseMatchRoute({
         routeSimFacet,
         positionId: yesId,
-        amount,
+        amount: budget,
         direction: buyDir,
       });
 
       const route3 = await simulateAndParseMatchRoute({
         routeSimFacet,
         positionId: yesId,
-        amount,
+        amount: budget,
         direction: buyDir,
       });
 
@@ -842,21 +924,40 @@ describe("RouteSimulationFacet - Advanced Test Cases", function () {
       await erc1155.connect(maker).setApprovalForAll(diamondAddress, true);
 
       for (const order of orders) {
-        await createLimitOrder(exchangeFacet, maker, {
+        await createLimitOrder(orderCreationFacet, maker, {
           positionId: yesId,
           collateralToken: erc20.address,
           amount: order.amount,
           pricePerToken: order.price,
-          minFillAmount: order.amount,
+          minFillAmount: ethers.utils.parseEther("1"), // Allow partial fills
           expiry: 0,
           direction: sellDir,
         });
       }
 
+      // Calculate budget for BUY order
+      let remainingAmount = amount;
+      let totalBudget = ethers.constants.Zero;
+      
+      // Sort orders by price to match in best-price order
+      const sortedOrders = [...orders].sort((a, b) => 
+        a.price.lt(b.price) ? -1 : (a.price.gt(b.price) ? 1 : 0)
+      );
+      
+      for (const order of sortedOrders) {
+        if (remainingAmount.lte(0)) break;
+        const fillAmount = remainingAmount.gte(order.amount) ? order.amount : remainingAmount;
+        const takerFee = order.price.mul(feeConfig.takerBps).div(10000);
+        const effectivePrice = order.price.add(takerFee);
+        const cost = fillAmount.mul(effectivePrice).div(ercUnit);
+        totalBudget = totalBudget.add(cost);
+        remainingAmount = remainingAmount.sub(fillAmount);
+      }
+
       const route = await simulateAndParseMatchRoute({
         routeSimFacet,
         positionId: yesId,
-        amount,
+        amount: totalBudget,
         direction: buyDir,
       });
 
@@ -865,17 +966,20 @@ describe("RouteSimulationFacet - Advanced Test Cases", function () {
         (sum, match) => sum.add(match.amount),
         ethers.constants.Zero
       );
+      
+      expect(route.totalInputAmount).to.equal(amount);
+      expect(route.totalOutputAmount).to.equal(totalBudget);
       expect(totalInputAmount).to.equal(route.totalInputAmount);
       expect(totalInputAmount).to.equal(amount);
 
       // Verify cost calculation
       let expectedCost = ethers.constants.Zero;
       for (const match of route.matches) {
-        if (match.matchType === 0) {
+        if (match.matchType === 1) {
           // Complementary match
           const baseCost = match.amount.mul(match.effectivePrice).div(ercUnit);
           expectedCost = expectedCost.add(baseCost);
-        } else if (match.matchType === 1) {
+        } else if (match.matchType === 2) {
           // Mint match
           const baseCost = match.amount.mul(match.effectivePrice).div(ercUnit);
           expectedCost = expectedCost.add(baseCost);

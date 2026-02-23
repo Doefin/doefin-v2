@@ -56,10 +56,14 @@ async function main() {
         console.log("ℹ️  Note: Using deployer as signer. If Market Maker is different, update the script with proper signer.");
     }
     
-    // Get ExchangeFacet interface
-    const ExchangeFacet = await ethers.getContractFactory("ExchangeFacet");
-    const diamond = ExchangeFacet.attach(DIAMOND_ADDRESS);
+    // Get OrderCreationFacet interface for creating orders
+    const OrderCreationFacet = await ethers.getContractFactory("OrderCreationFacet");
+    const diamond = OrderCreationFacet.attach(DIAMOND_ADDRESS);
     const diamondWithMM = diamond.connect(marketMakerSigner);
+    
+    // Get ExchangeViewFacet for reading order data
+    const ExchangeViewFacet = await ethers.getContractFactory("ExchangeViewFacet");
+    const exchangeView = ExchangeViewFacet.attach(DIAMOND_ADDRESS);
     
     // Order Direction enum values (from LibDoefinStorage.sol)
     const OrderDirection = {
@@ -91,7 +95,7 @@ async function main() {
     console.log("🎫 CT Balance (Position 1 - Yes):", ethers.utils.formatEther(ctBalance1));
     
     // Get initial order ID to track new orders
-    const initialOrderId = await diamond.getNextOrderId();
+    const initialOrderId = await exchangeView.getNextOrderId();
     console.log("📋 Next Order ID:", initialOrderId.toString());
     
     // Order parameters
@@ -107,6 +111,12 @@ async function main() {
     console.log("Min Fill Amount:", ethers.utils.formatEther(minFillAmount));
     console.log("Expiry:", new Date(expiry * 1000).toISOString());
     console.log("Fill or Kill:", fillOrKill);
+    
+    // Empty cross-currency data for simple orders (same currency)
+    const emptyCrossCurrencyData = {
+        quoteCurrencyToken: ethers.constants.AddressZero,
+        floorRate: 0
+    };
     
     const createdOrders = [];
     
@@ -125,6 +135,7 @@ async function main() {
             fillOrKill,           // fillOrKill - allow partial
             OrderDirection.Buy,   // direction - Buy
             ExecutionType.Limit,  // executionType - Limit order
+            emptyCrossCurrencyData, // crossCurrencyData - empty for simple orders
             { gasLimit: 2000000 }
         );
         
@@ -156,6 +167,7 @@ async function main() {
             fillOrKill,           // fillOrKill - allow partial
             OrderDirection.Sell,  // direction - Sell
             ExecutionType.Limit,  // executionType - Limit order
+            emptyCrossCurrencyData, // crossCurrencyData - empty for simple orders
             { gasLimit: 2000000 }
         );
         
@@ -187,6 +199,7 @@ async function main() {
             fillOrKill,           // fillOrKill - allow partial
             OrderDirection.Buy,   // direction - Buy
             ExecutionType.Limit,  // executionType - Limit order
+            emptyCrossCurrencyData, // crossCurrencyData - empty for simple orders
             { gasLimit: 2000000 }
         );
         
@@ -218,6 +231,7 @@ async function main() {
             fillOrKill,           // fillOrKill - allow partial
             OrderDirection.Sell,  // direction - Sell
             ExecutionType.Limit,  // executionType - Limit order
+            emptyCrossCurrencyData, // crossCurrencyData - empty for simple orders
             { gasLimit: 2000000 }
         );
         
@@ -249,6 +263,7 @@ async function main() {
             false,                // fillOrKill - false for market orders
             OrderDirection.Buy,   // direction - Buy
             ExecutionType.Market, // executionType - Market order
+            emptyCrossCurrencyData, // crossCurrencyData - empty for simple orders
             { gasLimit: 2000000 }
         );
         
@@ -278,6 +293,7 @@ async function main() {
             false,                // fillOrKill - false for market orders
             OrderDirection.Sell,  // direction - Sell
             ExecutionType.Market, // executionType - Market order
+            emptyCrossCurrencyData, // crossCurrencyData - empty for simple orders
             { gasLimit: 2000000 }
         );
         
@@ -297,7 +313,7 @@ async function main() {
         console.log("\n8️⃣ Verifying created orders...");
         for (const orderInfo of createdOrders) {
             try {
-                const order = await diamond.getOrder(orderInfo.id);
+                const order = await exchangeView.getOrder(orderInfo.id);
                 console.log(`\n📋 Order ${orderInfo.id} (${orderInfo.type}):`);
                 console.log("  Position ID:", order.positionId.toString());
                 console.log("  Amount:", ethers.utils.formatEther(order.amount));
@@ -315,10 +331,10 @@ async function main() {
         console.log("\n9️⃣ Checking orderbook status...");
         
         try {
-            const buyOrdersPosition1 = await diamond.getOrderbook(POSITION_ID_1, OrderDirection.Buy);
-            const sellOrdersPosition1 = await diamond.getOrderbook(POSITION_ID_1, OrderDirection.Sell);
-            const buyOrdersPosition0 = await diamond.getOrderbook(POSITION_ID_0, OrderDirection.Buy);
-            const sellOrdersPosition0 = await diamond.getOrderbook(POSITION_ID_0, OrderDirection.Sell);
+            const buyOrdersPosition1 = await exchangeView.getOrderbook(POSITION_ID_1, OrderDirection.Buy);
+            const sellOrdersPosition1 = await exchangeView.getOrderbook(POSITION_ID_1, OrderDirection.Sell);
+            const buyOrdersPosition0 = await exchangeView.getOrderbook(POSITION_ID_0, OrderDirection.Buy);
+            const sellOrdersPosition0 = await exchangeView.getOrderbook(POSITION_ID_0, OrderDirection.Sell);
             
             console.log("📊 Position 1 (Yes) - Buy Orders:", buyOrdersPosition1.map(id => id.toString()));
             console.log("📊 Position 1 (Yes) - Sell Orders:", sellOrdersPosition1.map(id => id.toString()));

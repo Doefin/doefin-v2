@@ -8,17 +8,12 @@ import {LibPositionRegistry} from "./LibPositionRegistry.sol";
 import {LibMatchEngine} from "./LibMatchEngine.sol";
 import {LibOrderbook} from "./LibOrderbook.sol";
 import {LibTradeSettlement} from "./LibTradeSettlement.sol";
+import {LibQuoteCurrency} from "./LibQuoteCurrency.sol";
+import {LibCrossCurrencySettlement} from "./LibCrossCurrencySettlement.sol";
 import {Errors} from "./Errors.sol";
 import {Events} from "./Events.sol";
 
 library LibSettlement {
-    /**
-     * @notice Execute market order using precomputed route (for MarketExecutionFacet)
-     */
-    function executeMatchedRoute(LibDoefinStorage.TakerOrderContext memory takerOrderCtx, LibDoefinStorage.Match[] memory matches) internal {
-        _executeMatches(takerOrderCtx, matches, LibDoefinStorage.ExecutionType.Market);
-    }
-
     /**
      * @notice Fill orders against maker orders (for ExchangeFacet via LibOrderbook)
      */
@@ -27,23 +22,12 @@ library LibSettlement {
         LibDoefinStorage.Order storage takerOrderStorage = ds.orderbookStorage.orders[takerId];
         _validateOrder(takerOrderStorage);
 
-        // Build taker context from stored order
-        LibDoefinStorage.TakerOrderContext memory takerOrderCtx = LibDoefinStorage.TakerOrderContext({
-            orderId: takerOrderStorage.orderId,
-            taker: takerOrderStorage.maker,
-            positionId: takerOrderStorage.positionId,
-            amount: takerOrderStorage.amount,
-            remainingAmount: takerOrderStorage.remainingAmount,
-            targetAvgPrice: takerOrderStorage.pricePerToken,
-            takerPaidFeeBps: takerOrderStorage.orderFeeConfig.makerFeeBps,
-            fillOrKill: takerOrderStorage.fillOrKill,
-            direction: takerOrderStorage.direction
-        });
+        // Copy to memory for execution
+        LibDoefinStorage.Order memory takerOrder = takerOrderStorage;
 
-        // Generate and execute matches
-        LibDoefinStorage.Match[] memory matches = _generateMatches(takerOrderCtx, takerOrderStorage, makerIds);
-        _executeMatches(takerOrderCtx, matches, takerOrderStorage.executionType);
-        _updateStoredTakerOrder(takerId, takerOrderCtx);
+        // Execute matches in single pass
+        _executeMatches(takerOrder, makerIds);
+        _updateStoredTakerOrder(takerId, takerOrder);
     }
 
     // ========================================
@@ -53,112 +37,35 @@ library LibSettlement {
     /**
      * @notice Unified execution engine for both market and limit orders
      */
-    function _executeMatches(
-        LibDoefinStorage.TakerOrderContext memory takerOrderCtx,
-        LibDoefinStorage.Match[] memory matches,
-        LibDoefinStorage.ExecutionType executionType
-    ) internal {
+    function _executeMatches(LibDoefinStorage.Order memory takerOrder, uint256[] memory makerIds) internal {
         LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
         uint256 totalValue = 0;
+        uint256 totalFilledSoFar = 0;
 
-        for (uint256 i = 0; i < matches.length && takerOrderCtx.remainingAmount > 0; ++i) {
-            LibDoefinStorage.Match memory matchExec = matches[i];
-            LibDoefinStorage.Order storage makerOrder = ds.orderbookStorage.orders[matchExec.matchedOrderId];
-            uint256 collateralUnit = ds.adminConfigStorage.unitPerPair[makerOrder.collateralToken];
-
-            _validateOrder(makerOrder);
-
-            // Validate crossing and get effective price
-            (bool crossing, LibDoefinStorage.MatchType matchType, uint256 effectivePrice) = _isCrossing(takerOrderCtx, executionType, makerOrder);
-            if (!crossing) revert Errors.NotCrossingPrices();
-
-            if (takerOrderCtx.remainingAmount == 0) {
-                break; // Order fully filled
-            }
-            // Use pre-calculated fill amount, but double-check current state
-            uint256 fillableAmount = _min(matchExec.amount, _min(takerOrderCtx.remainingAmount, makerOrder.remainingAmount));
-
-            if (fillableAmount == 0) continue;
-
-            // Update states
-            takerOrderCtx.remainingAmount -= fillableAmount;
-            totalValue += (fillableAmount * effectivePrice) / collateralUnit;
-            _updateOrderAfterFill(makerOrder, takerOrderCtx, fillableAmount, effectivePrice, matchType);
-
-            // Execute settlement
-            LibTradeSettlement.settlementDispatcher(_buildSettlementCtx(fillableAmount, takerOrderCtx, makerOrder, matchType, executionType));
-
-            // Emit market order events
-            if (executionType == LibDoefinStorage.ExecutionType.Market) {
-                emit Events.MarketOrderMatch(
-                    takerOrderCtx.taker, // taker
-                    takerOrderCtx.positionId, // positionId
-                    makerOrder.orderId, // makerOrderId
-                    makerOrder.maker, // maker
-                    takerOrderCtx.orderId, // takerOrderId (0 for market orders)
-                    fillableAmount, // fillAmount
-                    effectivePrice, // pricePerToken
-                    matchType, // matchType
-                    takerOrderCtx.direction // direction
-                );
-            }
-        }
-
-        // Handle market order completion
-        if (executionType == LibDoefinStorage.ExecutionType.Market) {
-            if (takerOrderCtx.fillOrKill && takerOrderCtx.remainingAmount > 0) {
-                revert Errors.FillOrKillFailed();
-            }
-            emit Events.MarketOrderExecuted(
-                takerOrderCtx.taker,
-                takerOrderCtx.positionId,
-                takerOrderCtx.direction,
-                takerOrderCtx.amount,
-                takerOrderCtx.amount - takerOrderCtx.remainingAmount,
-                totalValue
-            );
-        }
-    }
-
-    /**
-     * @notice Generate valid match executions with constraints
-     */
-    function _generateMatches(
-        LibDoefinStorage.TakerOrderContext memory takerOrderCtx,
-        LibDoefinStorage.Order storage takerOrderStorage,
-        uint256[] memory makerIds
-    ) internal view returns (LibDoefinStorage.Match[] memory matches) {
-        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
-
-        LibDoefinStorage.Match[] memory tempMatches = new LibDoefinStorage.Match[](makerIds.length);
-        uint256 matchCount = 0;
-        uint256 totalValue = 0;
-        uint256 tempRemainingAmount = takerOrderCtx.remainingAmount;
-
-        for (uint256 i = 0; i < makerIds.length && tempRemainingAmount > 0; i++) {
+        for (uint256 i = 0; i < makerIds.length && takerOrder.remainingAmount > 0; ++i) {
             LibDoefinStorage.Order storage makerOrder = ds.orderbookStorage.orders[makerIds[i]];
             _validateOrder(makerOrder);
 
-            (bool crossing, LibDoefinStorage.MatchType matchType, uint256 effectivePrice) = _isCrossing(
-                takerOrderCtx,
-                takerOrderStorage.executionType,
-                makerOrder
-            );
+            // Validate crossing and get effective price
+            (bool crossing, LibDoefinStorage.MatchType matchType, uint256 effectivePrice) = _isCrossing(takerOrder, makerOrder);
+
             if (!crossing) continue;
 
-            uint256 fillAmount = _min(tempRemainingAmount, makerOrder.remainingAmount);
+            // Calculate fillable amount
+            uint256 fillAmount = _min(takerOrder.remainingAmount, makerOrder.remainingAmount);
             if (fillAmount == 0) continue;
 
+            uint256 collateralUnit = ds.adminConfigStorage.unitPerPair[makerOrder.collateralToken];
+
             // Apply market order affordability constraints
-            if (takerOrderStorage.executionType == LibDoefinStorage.ExecutionType.Market) {
-                uint256 collateralUnit = ds.adminConfigStorage.unitPerPair[makerOrder.collateralToken];
+            if (takerOrder.executionType == LibDoefinStorage.ExecutionType.Market && totalFilledSoFar > 0) {
                 uint256 affordableAmount = _computeMaxFillableAtPrice(
-                    takerOrderCtx.targetAvgPrice,
+                    takerOrder.pricePerToken,
                     totalValue,
                     effectivePrice,
                     collateralUnit,
-                    takerOrderCtx.amount - tempRemainingAmount,
-                    takerOrderCtx.direction == LibDoefinStorage.OrderDirection.Buy
+                    totalFilledSoFar,
+                    takerOrder.direction == LibDoefinStorage.OrderDirection.Buy
                 );
                 fillAmount = _min(affordableAmount, fillAmount);
             }
@@ -166,50 +73,54 @@ library LibSettlement {
             // Check minimum fill amounts
             if (
                 fillAmount == 0 ||
-                (fillAmount < takerOrderStorage.minFillAmount && tempRemainingAmount == takerOrderCtx.amount) ||
+                (fillAmount < takerOrder.minFillAmount && totalFilledSoFar == 0) ||
                 (fillAmount < makerOrder.minFillAmount && makerOrder.remainingAmount == makerOrder.amount)
             ) {
                 continue;
             }
 
-            tempMatches[matchCount] = LibDoefinStorage.Match({
-                matchedOrderId: makerIds[i],
-                amount: fillAmount,
-                effectivePrice: effectivePrice,
-                matchType: matchType
-            });
+            // Update states
+            takerOrder.remainingAmount -= fillAmount;
+            totalFilledSoFar += fillAmount;
+            totalValue += (fillAmount * effectivePrice) / collateralUnit;
 
-            tempRemainingAmount -= fillAmount;
-            matchCount++;
+            _updateOrderAfterFill(makerOrder, takerOrder, fillAmount, effectivePrice, matchType);
 
-            if (takerOrderStorage.executionType == LibDoefinStorage.ExecutionType.Market) {
-                uint256 collateralUnit = ds.adminConfigStorage.unitPerPair[makerOrder.collateralToken];
-                totalValue += (fillAmount * effectivePrice) / collateralUnit;
-            }
+            // Execute settlement - convert to context for backward compatibility
+            LibTradeSettlement.settlementDispatcher(
+                LibDoefinStorage.SettlementExecutionContext({
+                    fillableAmount: fillAmount,
+                    takerOrder: takerOrder,
+                    makerOrder: makerOrder,
+                    matchType: matchType,
+                    executionType: takerOrder.executionType
+                })
+            );
         }
 
-        // Resize to actual matches
-        matches = new LibDoefinStorage.Match[](matchCount);
-        for (uint256 i = 0; i < matchCount; i++) {
-            matches[i] = tempMatches[i];
+        // Handle market order completion
+        if (takerOrder.executionType == LibDoefinStorage.ExecutionType.Market) {
+            if (takerOrder.fillOrKill && takerOrder.remainingAmount > 0) {
+                revert Errors.FillOrKillFailed();
+            }
         }
     }
 
     /**
      * @notice Update stored taker order state after execution
      */
-    function _updateStoredTakerOrder(uint256 takerId, LibDoefinStorage.TakerOrderContext memory takerOrderCtx) internal {
+    function _updateStoredTakerOrder(uint256 takerId, LibDoefinStorage.Order memory takerOrder) internal {
         LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
-        LibDoefinStorage.Order storage takerOrder = ds.orderbookStorage.orders[takerId];
+        LibDoefinStorage.Order storage takerOrderStorage = ds.orderbookStorage.orders[takerId];
 
-        uint256 filledAmount = takerOrder.remainingAmount - takerOrderCtx.remainingAmount;
+        uint256 filledAmount = takerOrderStorage.remainingAmount - takerOrder.remainingAmount;
         if (filledAmount == 0) return;
 
-        takerOrder.remainingAmount = takerOrderCtx.remainingAmount;
+        takerOrderStorage.remainingAmount = takerOrder.remainingAmount;
 
-        if (takerOrder.remainingAmount == 0) {
-            takerOrder.active = false;
-            LibOrderbook.removeOrderFromOrderbook(takerOrder);
+        if (takerOrderStorage.remainingAmount == 0) {
+            takerOrderStorage.active = false;
+            LibOrderbook.removeOrderFromOrderbook(takerOrderStorage);
         }
     }
 
@@ -224,7 +135,7 @@ library LibSettlement {
 
     function _updateOrderAfterFill(
         LibDoefinStorage.Order storage makerOrder,
-        LibDoefinStorage.TakerOrderContext memory takerOrderCtx,
+        LibDoefinStorage.Order memory takerOrder,
         uint256 fillAmount,
         uint256 takerEffectivePrice,
         LibDoefinStorage.MatchType matchType
@@ -243,10 +154,10 @@ library LibSettlement {
 
         emit Events.TradeFilled(
             makerOrder.orderId,
-            takerOrderCtx.orderId,
+            takerOrder.orderId,
             makerOrder.maker,
-            takerOrderCtx.taker,
-            takerOrderCtx.positionId,
+            takerOrder.maker, // taker is the order maker
+            takerOrder.positionId,
             makerOrder.positionId,
             makerOrder.collateralToken,
             fillAmount,
@@ -254,63 +165,88 @@ library LibSettlement {
             takerEffectivePrice,
             matchType,
             makerOrder.remainingAmount,
-            takerOrderCtx.remainingAmount,
+            takerOrder.remainingAmount,
             makerComplete,
-            takerOrderCtx.remainingAmount == 0,
+            takerOrder.remainingAmount == 0,
             block.timestamp
         );
     }
 
-    function _buildSettlementCtx(
-        uint256 fillableAmount,
-        LibDoefinStorage.TakerOrderContext memory takerOrderCtx,
-        LibDoefinStorage.Order storage makerOrder,
-        LibDoefinStorage.MatchType matchType,
-        LibDoefinStorage.ExecutionType executionType
-    ) internal pure returns (LibDoefinStorage.SettlementExecutionContext memory) {
-        return
-            LibDoefinStorage.SettlementExecutionContext({
-                fillableAmount: fillableAmount,
-                takerOrder: takerOrderCtx,
-                makerOrder: makerOrder,
-                matchType: matchType,
-                executionType: executionType
-            });
-    }
-
     function _isCrossing(
-        LibDoefinStorage.TakerOrderContext memory takerOrderCtx,
-        LibDoefinStorage.ExecutionType executionType,
+        LibDoefinStorage.Order memory takerOrder,
         LibDoefinStorage.Order storage makerOrder
     ) internal view returns (bool crossing, LibDoefinStorage.MatchType matchType, uint256 price) {
-        // Determine match type
-        if (takerOrderCtx.direction != makerOrder.direction) {
-            if (takerOrderCtx.positionId != makerOrder.positionId) {
+        // Get order types to check if cross-currency
+        (LibDoefinStorage.OrderType takerOrderType, ) = LibQuoteCurrency.getOrderTypeAndCCData(takerOrder.orderId);
+        (LibDoefinStorage.OrderType makerOrderType, ) = LibQuoteCurrency.getOrderTypeAndCCData(makerOrder.orderId);
+
+        // Use unified logic for both standard and cross-currency orders
+        if (takerOrder.direction != makerOrder.direction) {
+            if (takerOrder.positionId != makerOrder.positionId) {
                 return (false, LibDoefinStorage.MatchType.Complementary, 0);
             }
-            matchType = LibDoefinStorage.MatchType.Complementary;
+
+            // Cross-currency orders can only do complementary matches
+            if (takerOrderType != LibDoefinStorage.OrderType.Standard || makerOrderType != LibDoefinStorage.OrderType.Standard) {
+                // Validate cross-currency compatibility
+                if (takerOrderType != LibDoefinStorage.OrderType.Standard && makerOrderType != LibDoefinStorage.OrderType.Standard) {
+                    if (!LibQuoteCurrency.areOrdersCompatible(takerOrder, makerOrder)) {
+                        return (false, LibDoefinStorage.MatchType.Complementary, 0);
+                    }
+                }
+                matchType = LibDoefinStorage.MatchType.CrossCurrency;
+            } else {
+                matchType = LibDoefinStorage.MatchType.Complementary;
+            }
         } else {
-            LibPositionRegistry.validateComplement(takerOrderCtx.positionId, makerOrder.positionId);
-            matchType = takerOrderCtx.direction == LibDoefinStorage.OrderDirection.Buy
+            // Same direction: only standard orders can mint/merge
+            if (takerOrderType != LibDoefinStorage.OrderType.Standard || makerOrderType != LibDoefinStorage.OrderType.Standard) {
+                return (false, LibDoefinStorage.MatchType.Complementary, 0);
+            }
+
+            LibPositionRegistry.validateComplement(takerOrder.positionId, makerOrder.positionId);
+            matchType = takerOrder.direction == LibDoefinStorage.OrderDirection.Buy
                 ? LibDoefinStorage.MatchType.Mint
                 : LibDoefinStorage.MatchType.Merge;
         }
 
-        price = LibMatchEngine.effectiveTakerPrice(makerOrder, takerOrderCtx.direction, matchType);
+        price = LibMatchEngine.effectiveTakerPrice(makerOrder, takerOrder.direction, matchType);
 
-        // Check price crossing
-        if (executionType == LibDoefinStorage.ExecutionType.Market) {
+        if (takerOrder.executionType == LibDoefinStorage.ExecutionType.Market) {
             crossing = true;
         } else {
-            crossing = takerOrderCtx.direction == LibDoefinStorage.OrderDirection.Buy
-                ? takerOrderCtx.targetAvgPrice >= price
-                : takerOrderCtx.targetAvgPrice <= price;
-        }
-    }
+            // For cross-currency limit orders, compare in same currency domain
+            uint256 takerPrice = takerOrder.pricePerToken;
+            if (takerOrderType != LibDoefinStorage.OrderType.Standard) {
+                // Convert taker price to quote currency for comparison
+                if (takerOrderType == LibDoefinStorage.OrderType.Fixed) {
+                    // Fixed: already in quote currency
+                    takerPrice = takerOrder.pricePerToken;
+                } else {
+                    // Dynamic: convert from collateral to quote currency
+                    bool stale;
+                    (takerPrice, stale) = LibQuoteCurrency.calculateQuoteCurrencyPrice(takerOrder, true);
+                    if (stale) return (false, matchType, 0);
+                }
+            }
 
-    function _getOrderMaker(uint256 orderId) internal view returns (address) {
-        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
-        return ds.orderbookStorage.orders[orderId].maker;
+            // Use a comparison price without taker fee for crossing checks to avoid false negatives
+            // (execution price still includes taker fees for settlement calculations)
+            uint256 comparisonPrice = price;
+
+            if (takerOrderType != LibDoefinStorage.OrderType.Standard || makerOrderType != LibDoefinStorage.OrderType.Standard) {
+                // Cross-currency: compare against maker price in quote currency without taker fee applied
+                if (makerOrderType == LibDoefinStorage.OrderType.Fixed) {
+                    comparisonPrice = makerOrder.pricePerToken;
+                } else {
+                    bool isStale;
+                    (comparisonPrice, isStale) = LibQuoteCurrency.calculateQuoteCurrencyPrice(makerOrder, true);
+                    if (isStale) return (false, matchType, 0);
+                }
+            }
+
+            crossing = takerOrder.direction == LibDoefinStorage.OrderDirection.Buy ? takerPrice >= comparisonPrice : takerPrice <= comparisonPrice;
+        }
     }
 
     function _computeMaxFillableAtPrice(

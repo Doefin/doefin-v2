@@ -8,6 +8,7 @@ import {LibDoefinStorage} from "./LibDoefinStorage.sol";
 import {LibCTHelpers} from "./LibCTHelpers.sol";
 import {LibERC1155} from "./LibERC1155.sol";
 import {Errors} from "./Errors.sol";
+import {Events} from "./Events.sol";
 import {LibPositionRegistry} from "./LibPositionRegistry.sol";
 import {LibReentrancyGuard} from "./LibReentrancyGuard.sol";
 import {LibAccessControl} from "./LibAccessControl.sol";
@@ -18,11 +19,7 @@ library LibCTFCondition {
 
     /// @dev Prepares a new condition by initializing payout numerators.
     /// Can be called from both low-level (CTF-compatible) and high-level (managed) flows.
-    function prepareCondition(
-        address oracle,
-        bytes32 questionId,
-        uint8 outcomeSlotCount
-    ) internal returns (bytes32 conditionId) {
+    function prepareCondition(address oracle, bytes32 questionId, uint8 outcomeSlotCount) internal returns (bytes32 conditionId) {
         if (oracle == address(0)) {
             revert Errors.InvalidOracleAddress();
         }
@@ -82,7 +79,9 @@ library LibCTFCondition {
         uint256 amount,
         uint256[] memory partition
     ) internal {
-        _validateCollateral(collateralToken, amount);
+        if (!LibAccessControl.isCollateralTokenAllowed(collateralToken)) {
+            revert Errors.TokenNotAllowed();
+        }
 
         (uint256 fullIndexSet, uint256 freeIndexSet, uint256[] memory positionIds, uint256[] memory amounts) = _validateAndBuildPartitionPositions(
             collateralToken,
@@ -129,22 +128,48 @@ library LibCTFCondition {
         }
     }
 
+    function _reportPayouts(address oracle, bytes32 questionId, uint256[] memory payouts) internal {
+        if (payouts.length == 0 || payouts.length > type(uint8).max) {
+            revert Errors.InvalidPayoutLength();
+        }
+        uint8 outcomeSlotCount = uint8(payouts.length);
+
+        bytes32 conditionId = LibCTHelpers.getConditionId(oracle, questionId, outcomeSlotCount);
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
+        uint256[] storage numerators = ds.conditionalTokens.payoutNumerators[conditionId];
+
+        if (numerators.length != outcomeSlotCount) {
+            revert Errors.ConditionNotPrepared();
+        }
+        if (ds.conditionalTokens.payoutDenominator[conditionId] != 0) {
+            revert Errors.ConditionAlreadyResolved();
+        }
+
+        uint256 den = 0;
+        for (uint256 i = 0; i < outcomeSlotCount; i++) {
+            uint256 num = payouts[i];
+            if (numerators[i] != 0) {
+                revert Errors.PayoutAlreadySet();
+            }
+            numerators[i] = num;
+            den += num;
+        }
+
+        if (den == 0) {
+            revert Errors.AllZeroPayouts();
+        }
+        ds.conditionalTokens.payoutDenominator[conditionId] = den;
+
+        emit Events.ConditionResolution(conditionId, oracle, questionId, outcomeSlotCount, numerators);
+    }
+
     function _validateAndBuildPartitionPositions(
         address collateralToken,
         bytes32 parentCollectionId,
         bytes32 conditionId,
         uint256[] memory partition,
         uint256 amount
-    )
-        internal
-        view
-        returns (
-            uint256 fullIndexSet,
-            uint256 freeIndexSet,
-            uint256[] memory positionIds,
-            uint256[] memory amounts
-        )
-    {
+    ) internal view returns (uint256 fullIndexSet, uint256 freeIndexSet, uint256[] memory positionIds, uint256[] memory amounts) {
         if (partition.length <= 1) {
             revert Errors.TrivialPartition();
         }

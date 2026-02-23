@@ -25,7 +25,7 @@ describe("RouteSimulationFacet", function () {
   let owner, user, maker, oracle, taker;
   let diamondAddress,
     routeSimFacet,
-    exchangeFacet,
+    orderCreationFacet,
     erc20,
     ercUnit,
     erc1155,
@@ -47,7 +47,10 @@ describe("RouteSimulationFacet", function () {
 
     diamondAddress = await deployDiamond();
 
-    exchangeFacet = await ethers.getContractAt("ExchangeFacet", diamondAddress);
+    orderCreationFacet = await ethers.getContractAt(
+      "OrderCreationFacet",
+      diamondAddress
+    );
     erc1155 = await ethers.getContractAt("ERC1155Facet", diamondAddress);
     conditionalFacet = await ethers.getContractAt(
       "ConditionalTokensFacet",
@@ -133,9 +136,15 @@ describe("RouteSimulationFacet", function () {
   it("should prioritize best-priced SELL orders even when BUY orders exist", async () => {
     const sellPrice1 = ethers.utils.parseEther("0.65"); // Better
     const sellPrice2 = ethers.utils.parseEther("0.7");
-    const buyPrice = ethers.utils.parseEther("0.8"); // Should be ignored
+    // Note: BUY orders on same position are not matchable against BUY market orders
+    // so they are naturally excluded from the routing algorithm
 
     const amount = ethers.utils.parseEther("5");
+    
+    // For BUY: Calculate budget needed to buy desired amount at best effective price
+    const takerFee = sellPrice1.mul(feeConfig.takerBps).div(10000);
+    const effectivePrice = sellPrice1.add(takerFee);
+    const budget = amount.mul(effectivePrice).div(ercUnit);
 
     await mintAndApproveERC20({
       to: maker,
@@ -157,7 +166,7 @@ describe("RouteSimulationFacet", function () {
     await erc1155.connect(maker).setApprovalForAll(diamondAddress, true);
 
     // Create two SELL orders
-    await createLimitOrder(exchangeFacet, maker, {
+    await createLimitOrder(orderCreationFacet, maker, {
       positionId: yesId,
       collateralToken: erc20.address,
       amount,
@@ -167,7 +176,7 @@ describe("RouteSimulationFacet", function () {
       direction: sellDir,
     });
 
-    await createLimitOrder(exchangeFacet, maker, {
+    await createLimitOrder(orderCreationFacet, maker, {
       positionId: yesId,
       collateralToken: erc20.address,
       amount,
@@ -180,19 +189,18 @@ describe("RouteSimulationFacet", function () {
     const route = await simulateAndParseMatchRoute({
       routeSimFacet,
       positionId: yesId,
-      amount,
+      amount: budget,
       direction: buyDir,
     });
 
     console.log("Match Route:", route);
 
     expect(route.totalInputAmount).to.equal(amount);
+    expect(route.totalOutputAmount).to.equal(budget);
     expect(route.matches.length).to.equal(1);
 
     const [match] = route.matches;
     expect(match.matchTypeLabel).to.equal("Complementary");
-    expect(match.effectivePrice).to.equal(
-      sellPrice1.add(sellPrice1.mul(feeConfig.takerBps).div(10000))
-    );
+    expect(match.effectivePrice).to.equal(effectivePrice);
   });
 });

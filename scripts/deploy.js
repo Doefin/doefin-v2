@@ -4,6 +4,17 @@
 const { getSelectors, FacetCutAction } = require("./libraries/diamond.js");
 const hre = require("hardhat");
 
+// Helper function to check if we're on a local network
+function isLocalNetwork() {
+  const networkName = hre.network.name;
+  return networkName === "hardhat" || networkName === "localhost";
+}
+
+// Get appropriate confirmation count based on network
+function getConfirmationCount() {
+  return isLocalNetwork() ? 1 : 2; // Local: 1, Remote: 2
+}
+
 async function verifyContract(address, constructorArguments = []) {
   try {
     await hre.run("verify:verify", {
@@ -19,6 +30,7 @@ async function verifyContract(address, constructorArguments = []) {
 async function deployDiamond() {
   const accounts = await ethers.getSigners();
   const contractOwner = accounts[0];
+  const provider = ethers.provider;
 
   console.log("Deploying contracts with the account:", contractOwner.address);
 
@@ -27,8 +39,24 @@ async function deployDiamond() {
   const diamondCutFacet = await DiamondCutFacet.deploy();
   await diamondCutFacet.deployed();
   console.log("DiamondCutFacet deployed:", diamondCutFacet.address);
-  await verifyContract(diamondCutFacet.address);
-
+  
+  const confirmations = getConfirmationCount();
+  if (!isLocalNetwork()) {
+    // Wait for additional confirmations only on non-local networks
+    console.log(`Waiting for ${confirmations} confirmations...`);
+    await diamondCutFacet.deployTransaction.wait(confirmations);
+  }
+  
+  // Verify contract has code deployed
+  const code = await provider.getCode(diamondCutFacet.address);
+  if (code === "0x") {
+    throw new Error(`DiamondCutFacet has no code at address ${diamondCutFacet.address}`);
+  }
+  console.log("DiamondCutFacet contract verified with code");
+  
+  if (!isLocalNetwork()) {
+    await verifyContract(diamondCutFacet.address);
+  }
 
   // deploy Diamond
   const Diamond = await ethers.getContractFactory("Diamond");
@@ -38,7 +66,23 @@ async function deployDiamond() {
   );
   await diamond.deployed();
   console.log("Diamond deployed:", diamond.address);
-  await verifyContract(diamond.address, [contractOwner.address, diamondCutFacet.address]);
+  
+  if (!isLocalNetwork()) {
+    // Wait for additional confirmations only on non-local networks
+    console.log("Waiting for Diamond deployment confirmations...");
+    await diamond.deployTransaction.wait(confirmations);
+  }
+  
+  // Verify contract has code deployed
+  const diamondCode = await provider.getCode(diamond.address);
+  if (diamondCode === "0x") {
+    throw new Error(`Diamond has no code at address ${diamond.address}`);
+  }
+  console.log("Diamond contract verified with code");
+  
+  if (!isLocalNetwork()) {
+    await verifyContract(diamond.address, [contractOwner.address, diamondCutFacet.address]);
+  }
 
   // deploy DiamondInit
   // DiamondInit provides a function that is called when the diamond is upgraded to initialize state variables
@@ -48,11 +92,46 @@ async function deployDiamond() {
   const diamondInit = await DiamondInit.deploy();
   await diamondInit.deployed();
   console.log("DiamondInit deployed:", diamondInit.address);
-  await verifyContract(diamondInit.address);
+  
+  if (!isLocalNetwork()) {
+    // Wait for additional confirmations only on non-local networks
+    console.log("Waiting for DiamondInit deployment confirmations...");
+    await diamondInit.deployTransaction.wait(confirmations);
+  }
+  
+  // Verify contract has code deployed
+  const diamondInitCode = await provider.getCode(diamondInit.address);
+  if (diamondInitCode === "0x") {
+    throw new Error(`DiamondInit has no code at address ${diamondInit.address}`);
+  }
+  console.log("DiamondInit contract verified with code");
+  
+  if (!isLocalNetwork()) {
+    await verifyContract(diamondInit.address);
+  }
 
   // deploy facets
   console.log("");
   console.log("Deploying facets");
+
+  const BlockHeaderUtilsLib = await ethers.getContractFactory("BlockHeaderUtils");
+  const blockHeaderUtils = await BlockHeaderUtilsLib.deploy();
+  await blockHeaderUtils.deployed();
+  console.log("BlockHeaderUtils deployed:", blockHeaderUtils.address);
+  
+  if (!isLocalNetwork()) {
+    // Wait for confirmations only on non-local networks
+    await blockHeaderUtils.deployTransaction.wait(confirmations);
+  }
+  const blockHeaderUtilsCode = await provider.getCode(blockHeaderUtils.address);
+  if (blockHeaderUtilsCode === "0x") {
+    throw new Error(`BlockHeaderUtils has no code at address ${blockHeaderUtils.address}`);
+  }
+  
+  if (!isLocalNetwork()) {
+    await verifyContract(blockHeaderUtils.address);
+  }
+
   const FacetNames = [
     "DiamondLoupeFacet",
     "OwnershipFacet",
@@ -60,20 +139,42 @@ async function deployDiamond() {
     "ERC1155ReceiverFacet",
     "ConditionalTokensFacet",
     "ConditionManagerFacet",
+    "DoefinV1BlockHeaderOracle",
     "AccessControlFacet",
     "AdminConfigFacet",
-    "ExchangeFacet",
+    "OrderCreationFacet", // Split from ExchangeFacet to reduce size
+    "OrderManagementFacet", // Split from ExchangeFacet to reduce size
+    "ExchangeViewFacet", // Read-only exchange queries
     "MarketExecutionFacet",
     "RouteSimulationFacet",
     "MarketDataFacet",
+    "OracleAdapterFacet",
+    "OracleManagerFacet",
   ];
   const cut = [];
   for (const FacetName of FacetNames) {
-    const Facet = await ethers.getContractFactory(FacetName);
-    const facet = await Facet.deploy();
+    const factories = FacetName === "DoefinV1BlockHeaderOracle"
+      ? await ethers.getContractFactory(FacetName, {
+          libraries: { BlockHeaderUtils: blockHeaderUtils.address },
+        })
+      : await ethers.getContractFactory(FacetName);
+
+    const facet = await factories.deploy();
     await facet.deployed();
     console.log(`${FacetName} deployed: ${facet.address}`);
-    await verifyContract(facet.address);
+    
+    if (!isLocalNetwork()) {
+      // Wait for confirmations only on non-local networks
+      await facet.deployTransaction.wait(confirmations);
+    }
+    const facetCode = await provider.getCode(facet.address);
+    if (facetCode === "0x") {
+      throw new Error(`${FacetName} has no code at address ${facet.address}`);
+    }
+    
+    if (!isLocalNetwork()) {
+      await verifyContract(facet.address);
+    }
     cut.push({
       facetAddress: facet.address,
       action: FacetCutAction.Add,
@@ -103,7 +204,9 @@ async function deployDiamond() {
       console.error("Diamond cut transaction failed:", receipt);
       throw Error(`Diamond upgrade failed: ${tx.hash}`);
     }
-    console.log("Completed diamond cut");
+    console.log("✅ Completed diamond cut successfully");
+    console.log(`   Gas used: ${receipt.gasUsed.toString()}`);
+    console.log(`   Block: ${receipt.blockNumber}`);
   } catch (err) {
     console.error("Diamond cut failed:", err);
     throw err;
@@ -111,11 +214,32 @@ async function deployDiamond() {
 
   // Verify facets after deployment
   try {
+    // Wait a bit for the diamond cut to be fully processed
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    
+    // Try to get the loupe interface
     const loupe = await ethers.getContractAt("DiamondLoupeFacet", diamond.address);
+    
+    // Test if the interface is accessible first
+    console.log("Testing if DiamondLoupe interface is accessible...");
     const facets = await loupe.facets();
-    console.log("Facets registered in diamond:", facets);
+    console.log("✅ Facets registered in diamond:", facets.length);
+    
+    // Show first few facets for verification
+    facets.slice(0, 3).forEach((facet, i) => {
+      console.log(`  Facet ${i + 1}: ${facet.facetAddress} with ${facet.functionSelectors.length} functions`);
+    });
   } catch (loupeErr) {
-    console.error("Error reading facets from loupe:", loupeErr);
+    console.warn("⚠️ Warning: Could not read facets from loupe (this may be normal):", loupeErr.message);
+    
+    // Try a more direct approach to verify diamond is working
+    try {
+      const diamondOwner = await ethers.getContractAt("OwnershipFacet", diamond.address);
+      const owner = await diamondOwner.owner();
+      console.log("✅ Diamond is functional - owner is:", owner);
+    } catch (ownerErr) {
+      console.error("❌ Diamond may not be properly initialized:", ownerErr.message);
+    }
   }
 
   return diamond.address;

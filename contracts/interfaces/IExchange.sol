@@ -25,8 +25,7 @@ interface IExchange {
      * @param fillOrKill Whether the order should be cancelled if it cannot be completely filled immediately
      * @param direction Whether this is a Buy or Sell order
      * @param executionType Whether this is a Market or Limit order
-     * @param orderType Whether this is a Standard or CrossCurrency order
-     * @param crossCurrencyConfig Configuration for cross-currency orders (quote token, exchange rate, etc.)
+     * @param crossCurrencyData Configuration for cross-currency orders (quote token, exchange rate, etc.)
      * @custom:emits OrderCreated event with order details
      * @custom:requirements Caller must have sufficient collateral balance and allowance
      */
@@ -40,8 +39,7 @@ interface IExchange {
         bool fillOrKill,
         LibDoefinStorage.OrderDirection direction,
         LibDoefinStorage.ExecutionType executionType,
-        LibDoefinStorage.OrderType orderType,
-        LibDoefinStorage.CrossCurrencyConfig memory crossCurrencyConfig
+        LibDoefinStorage.CrossCurrencyData memory crossCurrencyData
     ) external;
 
     /**

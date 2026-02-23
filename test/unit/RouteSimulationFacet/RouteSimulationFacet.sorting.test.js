@@ -27,7 +27,7 @@ describe("RouteSimulationFacet - Sorting and Match Order", function () {
   let owner, user, maker, oracle, taker;
   let diamondAddress,
     routeSimFacet,
-    exchangeFacet,
+    orderCreationFacet,
     erc20,
     ercUnit,
     erc1155,
@@ -49,7 +49,10 @@ describe("RouteSimulationFacet - Sorting and Match Order", function () {
 
     diamondAddress = await deployDiamond();
 
-    exchangeFacet = await ethers.getContractAt("ExchangeFacet", diamondAddress);
+    orderCreationFacet = await ethers.getContractAt(
+      "OrderCreationFacet",
+      diamondAddress
+    );
     erc1155 = await ethers.getContractAt("ERC1155Facet", diamondAddress);
     conditionalFacet = await ethers.getContractAt(
       "ConditionalTokensFacet",
@@ -135,6 +138,12 @@ describe("RouteSimulationFacet - Sorting and Match Order", function () {
   it("should match best price first, regardless of creation order", async () => {
     const amount = ethers.utils.parseEther("5");
     const prices = ["0.9", "0.7", "0.8"];
+    
+    // Best price is 0.7, calculate budget for that
+    const bestPrice = ethers.utils.parseEther("0.7");
+    const takerFee = bestPrice.mul(feeConfig.takerBps).div(10000);
+    const effectivePrice = bestPrice.add(takerFee);
+    const budget = amount.mul(effectivePrice).div(ercUnit);
 
     for (let i = 0; i < prices.length; i++) {
       const price = ethers.utils.parseEther(prices[i]);
@@ -151,7 +160,7 @@ describe("RouteSimulationFacet - Sorting and Match Order", function () {
         .safeTransferFrom(owner.address, maker.address, yesId, amount, "0x");
       await erc1155.connect(maker).setApprovalForAll(diamondAddress, true);
 
-      await createLimitOrder(exchangeFacet, maker, {
+      await createLimitOrder(orderCreationFacet, maker, {
         positionId: yesId,
         collateralToken: erc20.address,
         amount,
@@ -165,15 +174,12 @@ describe("RouteSimulationFacet - Sorting and Match Order", function () {
     const route = await simulateAndParseMatchRoute({
       routeSimFacet,
       positionId: yesId,
-      amount,
+      amount: budget,
       direction: 0, // BUY
     });
 
     expect(route.matches.length).to.equal(1);
-    expect(route.matches[0].effectivePrice).to.equal(
-      ethers.utils
-        .parseEther("0.7")
-        .add(ethers.utils.parseEther("0.7").mul(feeConfig.takerBps).div(10000))
-    );
+    expect(route.totalInputAmount).to.equal(amount);
+    expect(route.matches[0].effectivePrice).to.equal(effectivePrice);
   });
 });

@@ -12,7 +12,15 @@ const { takeSnapshot, revertToSnapshot } = require("../../utils/snapshotUtils.js
 
 describe("ExchangeFacet - modifyLimitOrder", function () {
   let owner, maker, taker, oracle;
-  let diamondAddress, exchangeFacet, erc20, erc1155, conditionalFacet, conditionManagerFacet, adminConfig;
+  let diamondAddress,
+    orderCreationFacet,
+    orderManagementFacet,
+    exchangeViewFacet,
+    erc20,
+    erc1155,
+    conditionalFacet,
+    conditionManagerFacet,
+    adminConfig;
   let yesId, unit, mintAmount, sellDir, buyDir;
 
   before(async function () {
@@ -25,7 +33,18 @@ describe("ExchangeFacet - modifyLimitOrder", function () {
     mintAmount = ethers.utils.parseEther("100");
 
     diamondAddress = await deployDiamond();
-    exchangeFacet = await ethers.getContractAt("ExchangeFacet", diamondAddress);
+    orderCreationFacet = await ethers.getContractAt(
+      "OrderCreationFacet",
+      diamondAddress
+    );
+    orderManagementFacet = await ethers.getContractAt(
+      "OrderManagementFacet",
+      diamondAddress
+    );
+    exchangeViewFacet = await ethers.getContractAt(
+      "ExchangeViewFacet",
+      diamondAddress
+    );
     erc1155 = await ethers.getContractAt("ERC1155Facet", diamondAddress);
     conditionalFacet = await ethers.getContractAt("ConditionalTokensFacet", diamondAddress);
     conditionManagerFacet = await ethers.getContractAt("ConditionManagerFacet", diamondAddress);
@@ -63,22 +82,22 @@ describe("ExchangeFacet - modifyLimitOrder", function () {
     const amount = ethers.utils.parseEther("5");
     const price = ethers.utils.parseEther("0.5");
 
-    await createLimitOrder(exchangeFacet, owner, {
+    await createLimitOrder(orderCreationFacet, owner, {
       positionId: yesId, collateralToken: erc20.address, amount,
       pricePerToken: price, minFillAmount: amount, expiry: 0, direction: sellDir,
     });
 
-    const orderId = (await exchangeFacet.callStatic.getNextOrderId()) - 1;
+    const orderId = (await exchangeViewFacet.callStatic.getNextOrderId()) - 1;
     const newAmount = ethers.utils.parseEther("10");
     const newPrice = ethers.utils.parseEther("0.3");
     const newMinFill = ethers.utils.parseEther("5");
     const newExpiry = Math.floor(Date.now() / 1000) + 3600;
 
-    await expect(exchangeFacet.modifyLimitOrder(orderId, newAmount, newPrice, newMinFill, newExpiry))
-      .to.emit(exchangeFacet, "OrderModified")
+    await expect(orderManagementFacet.modifyLimitOrder(orderId, newAmount, newPrice, newMinFill, newExpiry))
+      .to.emit(orderManagementFacet, "OrderModified")
       .withArgs(orderId, owner.address, amount, newAmount, price, newPrice, amount, newMinFill, 0, newExpiry);
 
-    const modified = await exchangeFacet.getOrder(orderId);
+    const modified = await exchangeViewFacet.getOrder(orderId);
     expect(modified.amount).to.equal(newAmount);
     expect(modified.pricePerToken).to.equal(newPrice);
     expect(modified.minFillAmount).to.equal(newMinFill);
@@ -88,12 +107,12 @@ describe("ExchangeFacet - modifyLimitOrder", function () {
   it("should revert if non-maker tries to modify the order", async function () {
     const amount = ethers.utils.parseEther("5");
     const price = ethers.utils.parseEther("0.5");
-    await createLimitOrder(exchangeFacet, owner, {
+    await createLimitOrder(orderCreationFacet, owner, {
       positionId: yesId, collateralToken: erc20.address, amount,
       pricePerToken: price, minFillAmount: amount, expiry: 0, direction: sellDir,
     });
-    const orderId = (await exchangeFacet.callStatic.getNextOrderId()) - 1;
-    await expect(exchangeFacet.connect(maker).modifyLimitOrder(orderId, amount, price, amount, 0))
+    const orderId = (await exchangeViewFacet.callStatic.getNextOrderId()) - 1;
+    await expect(orderManagementFacet.connect(maker).modifyLimitOrder(orderId, amount, price, amount, 0))
       .to.be.revertedWith("NotAuthorizedToCancel()");
   });
 
@@ -101,14 +120,14 @@ describe("ExchangeFacet - modifyLimitOrder", function () {
     const amount = ethers.utils.parseEther("5");
     const price = ethers.utils.parseEther("0.5");
     const expiry = Math.floor(Date.now() / 1000) + 1000;
-    await createLimitOrder(exchangeFacet, owner, {
+    await createLimitOrder(orderCreationFacet, owner, {
       positionId: yesId, collateralToken: erc20.address, amount,
       pricePerToken: price, minFillAmount: amount, expiry, direction: sellDir,
     });
-    const orderId = (await exchangeFacet.callStatic.getNextOrderId()) - 1;
+    const orderId = (await exchangeViewFacet.callStatic.getNextOrderId()) - 1;
     await ethers.provider.send("evm_increaseTime", [2000]);
     await ethers.provider.send("evm_mine");
-    await expect(exchangeFacet.modifyLimitOrder(orderId, amount, price, amount, expiry + 100))
+    await expect(orderManagementFacet.modifyLimitOrder(orderId, amount, price, amount, expiry + 100))
       .to.be.revertedWith("OrderExpired()");
   });
 
@@ -118,7 +137,7 @@ describe("ExchangeFacet - modifyLimitOrder", function () {
     const buyPrice = ethers.utils.parseEther("0.52");
     const buyAmount = ethers.utils.parseEther("2");
 
-    await createLimitOrder(exchangeFacet, owner, {
+    await createLimitOrder(orderCreationFacet, owner, {
       positionId: yesId,
       collateralToken: erc20.address,
       amount,
@@ -128,7 +147,7 @@ describe("ExchangeFacet - modifyLimitOrder", function () {
       direction: sellDir,
     });
 
-    const orderId = (await exchangeFacet.callStatic.getNextOrderId()) - 1;
+    const orderId = (await exchangeViewFacet.callStatic.getNextOrderId()) - 1;
 
     await mintAndApproveERC20({
       token: erc20,
@@ -137,7 +156,7 @@ describe("ExchangeFacet - modifyLimitOrder", function () {
       amount: buyAmount,
       spender: diamondAddress,
     });
-    tx = await createLimitOrder(exchangeFacet, taker, {
+    tx = await createLimitOrder(orderCreationFacet, taker, {
       positionId: yesId,
       collateralToken: erc20.address,
       amount: buyAmount,
@@ -147,9 +166,9 @@ describe("ExchangeFacet - modifyLimitOrder", function () {
       direction: buyDir,
     });
 
-    orderDetail = await exchangeFacet.getOrder(orderId);
+    orderDetail = await exchangeViewFacet.getOrder(orderId);
     newPrice = ethers.utils.parseEther("0.61");
-    await expect(exchangeFacet.modifyLimitOrder(orderId, amount, newPrice, amount, 0))
+    await expect(orderManagementFacet.modifyLimitOrder(orderId, amount, newPrice, amount, 0))
       .to.be.revertedWith("PartiallyFilledOrdersNotModifiable()");
   });
 });

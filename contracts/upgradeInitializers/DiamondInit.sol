@@ -26,6 +26,7 @@ import {IAdminConfig} from "../interfaces/IAdminConfig.sol";
 import {IExchange} from "../interfaces/IExchange.sol";
 import {IMarketExecution} from "../interfaces/IMarketExecution.sol";
 import {IRouteSimulation} from "../interfaces/IRouteSimulation.sol";
+import {IDoefinBlockHeaderOracle} from "../interfaces/IDoefinBlockHeaderOracle.sol";
 
 // It is expected that this contract is customized if you want to deploy your diamond
 // with data from a deployment script. Use the init function to initialize state variables
@@ -60,6 +61,7 @@ contract DiamondInit {
         ds.supportedInterfaces[type(IExchange).interfaceId] = true;
         ds.supportedInterfaces[type(IMarketExecution).interfaceId] = true;
         ds.supportedInterfaces[type(IRouteSimulation).interfaceId] = true;
+        ds.supportedInterfaces[type(IDoefinBlockHeaderOracle).interfaceId] = true;
 
         // add your own state variables
         // EIP-2535 specifies that the `diamondCut` function takes two optional

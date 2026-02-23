@@ -21,7 +21,9 @@ const {
 describe("Exchange Facet - Limit Orders", function () {
   let owner, user, maker, oracle, taker;
   let diamondAddress,
-    exchangeFacet,
+    orderCreationFacet,
+    orderManagementFacet,
+    exchangeViewFacet,
     erc20,
     ercUnit,
     erc1155,
@@ -43,7 +45,18 @@ describe("Exchange Facet - Limit Orders", function () {
 
     diamondAddress = await deployDiamond();
 
-    exchangeFacet = await ethers.getContractAt("ExchangeFacet", diamondAddress);
+    orderCreationFacet = await ethers.getContractAt(
+      "OrderCreationFacet",
+      diamondAddress
+    );
+    orderManagementFacet = await ethers.getContractAt(
+      "OrderManagementFacet",
+      diamondAddress
+    );
+    exchangeViewFacet = await ethers.getContractAt(
+      "ExchangeViewFacet",
+      diamondAddress
+    );
     erc1155 = await ethers.getContractAt("ERC1155Facet", diamondAddress);
     conditionalFacet = await ethers.getContractAt(
       "ConditionalTokensFacet",
@@ -142,7 +155,7 @@ describe("Exchange Facet - Limit Orders", function () {
       .safeTransferFrom(owner.address, maker.address, yesId, amount, "0x");
     await erc1155.connect(maker).setApprovalForAll(diamondAddress, true);
 
-    await createLimitOrder(exchangeFacet, maker, {
+    await createLimitOrder(orderCreationFacet, maker, {
       positionId: yesId,
       collateralToken: erc20.address,
       amount,
@@ -152,8 +165,8 @@ describe("Exchange Facet - Limit Orders", function () {
       direction: sellDir,
     });
 
-    const orderId = (await exchangeFacet.callStatic.getNextOrderId()) - 1;
-    const order = await exchangeFacet.callStatic.getOrder(orderId);
+    const orderId = (await exchangeViewFacet.callStatic.getNextOrderId()) - 1;
+    const order = await exchangeViewFacet.callStatic.getOrder(orderId);
 
     expect(order.amount).to.equal(amount);
     console.log("Price per token:", order.pricePerToken, " Price: ", price);
@@ -165,7 +178,7 @@ describe("Exchange Facet - Limit Orders", function () {
   it("should insert a SELL order sorted by lowest price", async () => {
     const amount = ethers.utils.parseEther("5");
 
-    await createLimitOrder(exchangeFacet, owner, {
+    await createLimitOrder(orderCreationFacet, owner, {
       positionId: yesId,
       collateralToken: erc20.address,
       amount,
@@ -175,7 +188,7 @@ describe("Exchange Facet - Limit Orders", function () {
       direction: sellDir,
     });
 
-    await createLimitOrder(exchangeFacet, owner, {
+    await createLimitOrder(orderCreationFacet, owner, {
       positionId: yesId,
       collateralToken: erc20.address,
       amount,
@@ -185,11 +198,11 @@ describe("Exchange Facet - Limit Orders", function () {
       direction: sellDir,
     });
 
-    const book = await exchangeFacet.getOrderbook(yesId, sellDir);
+    const book = await exchangeViewFacet.getOrderbook(yesId, sellDir);
     expect(book.length).to.equal(2);
 
-    const order1 = await exchangeFacet.getOrder(book[0]);
-    const order2 = await exchangeFacet.getOrder(book[1]);
+    const order1 = await exchangeViewFacet.getOrder(book[0]);
+    const order2 = await exchangeViewFacet.getOrder(book[1]);
 
     expect(order1.pricePerToken.lt(order2.pricePerToken)).to.be.true;
   });
@@ -203,7 +216,7 @@ describe("Exchange Facet - Limit Orders", function () {
     await erc20.connect(maker).approve(diamondAddress, requiredTotal);
 
     await expect(
-      createLimitOrder(exchangeFacet, maker, {
+      createLimitOrder(orderCreationFacet, maker, {
         positionId: yesId,
         collateralToken: erc20.address,
         amount,
@@ -225,7 +238,7 @@ describe("Exchange Facet - Limit Orders", function () {
     await erc20.connect(maker).approve(diamondAddress, mintAmount);
 
     await expect(
-      createLimitOrder(exchangeFacet, maker, {
+      createLimitOrder(orderCreationFacet, maker, {
         positionId: yesId,
         collateralToken: erc20.address,
         amount,
@@ -251,7 +264,7 @@ describe("Exchange Facet - Limit Orders", function () {
 
     const balanceBefore = await erc20.balanceOf(maker.address);
 
-    await createLimitOrder(exchangeFacet, maker, {
+    await createLimitOrder(orderCreationFacet, maker, {
       positionId: yesId,
       collateralToken: erc20.address,
       amount,
@@ -276,7 +289,7 @@ describe("Exchange Facet - Limit Orders", function () {
     await erc20.mint(user.address, mintAmount);
     await erc20.connect(user).approve(diamondAddress, mintAmount);
 
-    const tx = await createLimitOrder(exchangeFacet, user, {
+    const tx = await createLimitOrder(orderCreationFacet, user, {
       positionId: yesId,
       collateralToken: erc20.address,
       amount,
@@ -289,19 +302,19 @@ describe("Exchange Facet - Limit Orders", function () {
     const balanceBefore = await erc20.balanceOf(user.address);
 
     const receipt = await tx.wait();
-    const orderId = (await exchangeFacet.callStatic.getNextOrderId()) - 1;
+    const orderId = (await exchangeViewFacet.callStatic.getNextOrderId()) - 1;
 
-    await exchangeFacet.connect(user).cancelOrder(orderId);
+    await orderManagementFacet.connect(user).cancelOrder(orderId);
 
     const balanceAfter = await erc20.balanceOf(user.address);
 
     // const balanceAfter = await erc20.balanceOf(maker.address);
-    const order = await exchangeFacet.callStatic.getOrder(orderId);
+    const order = await exchangeViewFacet.callStatic.getOrder(orderId);
 
     expect(order.active).to.be.false;
     expect(balanceAfter.gt(balanceBefore)).to.be.true;
 
-    const book = await exchangeFacet.getOrderbook(yesId, 0);
+    const book = await exchangeViewFacet.getOrderbook(yesId, 0);
     expect(book).to.not.include(orderId);
   });
 
@@ -314,7 +327,7 @@ describe("Exchange Facet - Limit Orders", function () {
     await erc20.mint(maker.address, mintAmount);
     await erc20.connect(maker).approve(diamondAddress, mintAmount);
 
-    const tx = await createLimitOrder(exchangeFacet, maker, {
+    const tx = await createLimitOrder(orderCreationFacet, maker, {
       positionId: yesId,
       collateralToken: erc20.address,
       amount,
@@ -324,22 +337,22 @@ describe("Exchange Facet - Limit Orders", function () {
       direction: buyDir
     });
 
-    const orderId = (await exchangeFacet.callStatic.getNextOrderId()) - 1;
+    const orderId = (await exchangeViewFacet.callStatic.getNextOrderId()) - 1;
 
     await ethers.provider.send("evm_increaseTime", [10]);
     await ethers.provider.send("evm_mine");
 
     const balanceBefore = await erc20.balanceOf(maker.address);
 
-    await exchangeFacet.connect(maker).cancelOrder(orderId);
+    await orderManagementFacet.connect(maker).cancelOrder(orderId);
 
     const balanceAfter = await erc20.balanceOf(maker.address);
-    const order = await exchangeFacet.callStatic.getOrder(orderId);
+    const order = await exchangeViewFacet.callStatic.getOrder(orderId);
 
     expect(order.active).to.be.false;
     expect(balanceAfter.gt(balanceBefore)).to.be.true;
 
-    const book = await exchangeFacet.getOrderbook(yesId, 0);
+    const book = await exchangeViewFacet.getOrderbook(yesId, 0);
     expect(book).to.not.include(orderId);
   });
 
@@ -350,7 +363,7 @@ describe("Exchange Facet - Limit Orders", function () {
     await erc20.mint(maker.address, mintAmount);
     await erc20.connect(maker).approve(diamondAddress, mintAmount);
 
-    const tx = await createLimitOrder(exchangeFacet, maker, {
+    const tx = await createLimitOrder(orderCreationFacet, maker, {
       positionId: yesId,
       collateralToken: erc20.address,
       amount,
@@ -360,10 +373,10 @@ describe("Exchange Facet - Limit Orders", function () {
       direction: buyDir
     });
 
-    const orderId = (await exchangeFacet.callStatic.getNextOrderId()) - 1;
+    const orderId = (await exchangeViewFacet.callStatic.getNextOrderId()) - 1;
 
     await expect(
-      exchangeFacet.connect(taker).cancelOrder(orderId)
+      orderManagementFacet.connect(taker).cancelOrder(orderId)
     ).to.be.revertedWith("NotAuthorizedToCancel()");
   });
 });

@@ -25,6 +25,22 @@ library Events {
     /// @param token Address of the collateral token
     event CollateralTokenRemoved(address indexed token);
 
+    /// @notice Emitted when a token symbol is updated
+    /// @param token Address of the token
+    /// @param symbol New symbol for the token
+    event TokenSymbolUpdated(address indexed token, string symbol);
+
+    /// @notice Emitted when a conversion path is set between two tokens
+    /// @param fromToken Source token address
+    /// @param toToken Target token address
+    /// @param assetIds Array of oracle asset IDs representing the conversion path
+    event ConversionPathSet(address indexed fromToken, address indexed toToken, bytes32[] assetIds);
+
+    /// @notice Emitted when a conversion path is removed
+    /// @param fromToken Source token address
+    /// @param toToken Target token address
+    event ConversionPathRemoved(address indexed fromToken, address indexed toToken);
+
     /// @notice Emitted when the fee receiver address is updated
     /// @param oldReceiver Previous fee receiver address
     /// @param newReceiver New fee receiver address
@@ -197,7 +213,6 @@ library Events {
     /// @param takerFeeBps Taker fee in basis points
     /// @param orderType Type of order (Standard or CrossCurrency)
     /// @param quoteCurrencyToken Quote currency token address (only for CrossCurrency orders)
-    /// @param exchangeRateType Exchange rate type (Fixed or Dynamic)
     /// @param exchangeRate Exchange rate (interpretation depends on exchangeRateType)
     event OrderCreated(
         uint256 indexed orderId,
@@ -215,7 +230,6 @@ library Events {
         uint16 takerFeeBps,
         LibDoefinStorage.OrderType orderType,
         address quoteCurrencyToken,
-        LibDoefinStorage.ExchangeRateType exchangeRateType,
         uint256 exchangeRate
     );
 
@@ -283,48 +297,6 @@ library Events {
         bool makerOrderComplete,
         bool takerOrderComplete,
         uint256 timestamp
-    );
-
-    // ========================================
-    // MARKET EXECUTION EVENTS
-    // ========================================
-
-    /// @notice Emitted when a market order is executed
-    /// @param taker Address executing the market order
-    /// @param positionId Position being traded
-    /// @param direction Order direction (Buy/Sell)
-    /// @param requestedAmount Originally requested amount
-    /// @param filledAmount Actually filled amount
-    /// @param totalCost Total cost of execution
-    event MarketOrderExecuted(
-        address indexed taker,
-        uint256 indexed positionId,
-        LibDoefinStorage.OrderDirection direction,
-        uint256 requestedAmount,
-        uint256 filledAmount,
-        uint256 totalCost
-    );
-
-    /// @notice Emitted for each individual match in a market order
-    /// @param taker Address executing the market order
-    /// @param positionId Position being traded in the market order
-    /// @param makerOrderId ID of the matched limit order (for consistency with other events)
-    /// @param maker Address of the limit order maker
-    /// @param takerOrderId ID of the taker order (0 for market orders, actual ID for limit orders acting as taker)
-    /// @param fillAmount Amount filled in this match
-    /// @param pricePerToken Price used for this match
-    /// @param matchType Type of match (Complementary/Mint/Merge)
-    /// @param direction Market order direction (Buy/Sell)
-    event MarketOrderMatch(
-        address indexed taker,
-        uint256 indexed positionId,
-        uint256 indexed makerOrderId,
-        address maker,
-        uint256 takerOrderId,
-        uint256 fillAmount,
-        uint256 pricePerToken,
-        LibDoefinStorage.MatchType matchType,
-        LibDoefinStorage.OrderDirection direction
     );
 
     // ========================================
@@ -407,6 +379,110 @@ library Events {
     event ProtocolFeesWithdrawn(address indexed token, address indexed recipient, uint256 amount, uint256 remainingFees);
 
     // ========================================
+    // ORACLE MANAGEMENT EVENTS
+    // ========================================
+
+    /// @notice Emitted when a new oracle adapter is registered
+    /// @param adapterId Unique identifier for the adapter
+    /// @param adapterAddress Contract address of the adapter
+    /// @param maxStaleness Maximum staleness time for this adapter
+    event AdapterRegistered(bytes32 indexed adapterId, address adapterAddress, uint256 maxStaleness);
+
+    /// @notice Emitted when an oracle adapter configuration is updated
+    /// @param adapterId Adapter identifier
+    /// @param config New adapter configuration
+    event AdapterConfigUpdated(bytes32 indexed adapterId, LibDoefinStorage.AdapterConfig config);
+
+    /// @notice Emitted when an oracle adapter is removed
+    /// @param adapterId Adapter identifier
+    event AdapterRemoved(bytes32 indexed adapterId);
+
+    /// @notice Emitted when an asset's oracle configuration is set
+    /// @param assetId Asset identifier
+    /// @param adapterPriority Array of adapter IDs in priority order
+    /// @param maxStaleness Maximum staleness time for this asset
+    event AssetConfigured(bytes32 indexed assetId, bytes32[] adapterPriority, uint256 maxStaleness);
+
+    /// @notice Emitted when an asset's adapter priority is updated
+    /// @param assetId Asset identifier
+    /// @param newPriority New priority order
+    event AssetAdapterPriorityUpdated(bytes32 indexed assetId, bytes32[] newPriority);
+
+    /// @notice Emitted when a price is successfully updated
+    /// @param assetId Asset identifier
+    /// @param price New price
+    /// @param timestamp Price timestamp
+    /// @param adapterId Adapter that provided the price
+    event PriceUpdated(bytes32 indexed assetId, uint256 price, uint256 timestamp, bytes32 adapterId);
+
+    /// @notice Emitted when an oracle adapter fails to provide a price
+    /// @param adapterId Adapter identifier that failed
+    /// @param assetId Asset identifier
+    /// @param failureCount Total failure count for this adapter
+    event AdapterFailed(bytes32 indexed adapterId, bytes32 indexed assetId, uint256 failureCount);
+
+    /// @notice Event emitted when a cross-currency order is settled
+    /// @param taker The address of the taker
+    /// @param maker The address of the maker
+    /// @param orderId The maker order ID
+    /// @param quoteCurrencyToken The quote currency token used
+    /// @param fillAmount The amount of position tokens traded
+    /// @param exchangeRate The exchange rate used (1e18 scale)
+    /// @param totalFees The total fees paid in quote currency
+    event CrossCurrencySettlement(
+        address indexed taker,
+        address indexed maker,
+        uint256 indexed orderId,
+        address quoteCurrencyToken,
+        uint256 fillAmount,
+        uint256 exchangeRate,
+        uint256 totalFees
+    );
+
+    /// @notice Emitted when all configured adapters fail for an asset
+    /// @param assetId Asset identifier
+    /// @param attemptedAdapters Array of adapter IDs that were attempted
+    event AllAdaptersFailed(bytes32 indexed assetId, bytes32[] attemptedAdapters);
+
+    /// @notice Emitted when a price becomes stale
+    /// @param assetId Asset identifier
+    /// @param lastUpdateTimestamp When the price was last updated
+    /// @param currentTimestamp Current block timestamp
+    event PriceStale(bytes32 indexed assetId, uint256 lastUpdateTimestamp, uint256 currentTimestamp);
+
+    /// @notice Emitted when trading is paused due to oracle issues
+    /// @param assetId Asset identifier
+    event TradingPaused(bytes32 indexed assetId);
+
+    /// @notice Emitted when trading is resumed after price update
+    /// @param assetId Asset identifier
+    /// @param newPrice Price that resumed trading
+    /// @param timestamp Price timestamp
+    event TradingResumed(bytes32 indexed assetId, uint256 newPrice, uint256 timestamp);
+
+    /// @notice Emitted when a price is manually updated with signature
+    /// @param assetId Asset identifier
+    /// @param price Manually set price
+    /// @param timestamp Price timestamp
+    /// @param signer Address that signed the price data
+    event ManualPriceUpdate(bytes32 indexed assetId, uint256 price, uint256 timestamp, address signer);
+
+    /// @notice Emitted when an emergency price update is performed
+    /// @param assetId Asset identifier
+    /// @param price Emergency price
+    /// @param justification Human-readable justification for the emergency update
+    event EmergencyPriceUpdate(bytes32 indexed assetId, uint256 price, string justification);
+
+    /// @notice Emitted when the authorized signer for manual price updates is changed
+    /// @param oldSigner Previous authorized signer address
+    /// @param newSigner New authorized signer address
+    event AuthorizedSignerUpdated(address indexed oldSigner, address indexed newSigner);
+
+    /// @notice Emitted when max manual update age is configured
+    /// @param maxAge Maximum age in seconds for manual price updates
+    event MaxManualUpdateAgeSet(uint256 maxAge);
+
+    // ========================================
     // POSITION REGISTRY EVENTS
     // ========================================
 
@@ -422,6 +498,98 @@ library Events {
         bytes32 parentCollectionId,
         uint256[] positionIds,
         uint256[] partitions
+    );
+
+    // ========================================
+    // Block HEADER ORACLE EVENTS
+    // ========================================
+    event BlockReorged(bytes32 merkleRootHash);
+    event BlockSubmitted(bytes32 blockHash, uint32 timestamp);
+
+    // ========================================
+    // ORACLE ADAPTER EVENTS
+    // ========================================
+
+    /// @notice Emitted when a new question is created
+    /// @param questionId Unique identifier for the question
+    /// @param conditionId Associated condition identifier
+    /// @param questionType Type of question (Threshold, Range, BlockCount, Duration)
+    /// @param settlementTrigger Block height or timestamp when condition can resolve
+    /// @param creator Address that created the question
+    event QuestionCreated(
+        bytes32 indexed questionId,
+        bytes32 indexed conditionId,
+        LibDoefinStorage.QuestionType questionType,
+        uint256 settlementTrigger,
+        address indexed creator
+    );
+
+    /// @notice Emitted when a difficulty threshold question is created
+    /// @param questionId Unique identifier for the question
+    /// @param conditionId Associated condition identifier
+    /// @param threshold Difficulty threshold value
+    /// @param targetBlockHeight Block height to measure difficulty at
+    /// @param settlementBlock Block height when question becomes resolvable (includes settlement delay)
+    /// @param creator Address that created the question
+    event DifficultyThresholdQuestionCreated(
+        bytes32 indexed questionId,
+        bytes32 indexed conditionId,
+        uint256 threshold,
+        uint256 targetBlockHeight,
+        uint256 settlementBlock,
+        address indexed creator
+    );
+
+    /// @notice Emitted when a difficulty range question is created
+    /// @param questionId Unique identifier for the question
+    /// @param conditionId Associated condition identifier
+    /// @param targetBlockHeight Block height to measure difficulty at
+    /// @param buckets Range boundaries (sorted ascending)
+    /// @param settlementBlock Block height when question becomes resolvable (includes settlement delay)
+    /// @param creator Address that created the question
+    event DifficultyRangeQuestionCreated(
+        bytes32 indexed questionId,
+        bytes32 indexed conditionId,
+        uint256 targetBlockHeight,
+        uint256[] buckets,
+        uint256 settlementBlock,
+        address indexed creator
+    );
+
+    /// @notice Emitted when a block count question is created
+    /// @param questionId Unique identifier for the question
+    /// @param conditionId Associated condition identifier
+    /// @param startTimestamp Start of time window
+    /// @param endTimestamp End of time window
+    /// @param countBuckets Block count range boundaries
+    /// @param settlementBucket Timestamp bucket when question becomes resolvable
+    /// @param creator Address that created the question
+    event BlockCountQuestionCreated(
+        bytes32 indexed questionId,
+        bytes32 indexed conditionId,
+        uint256 startTimestamp,
+        uint256 endTimestamp,
+        uint256[] countBuckets,
+        uint256 settlementBucket,
+        address indexed creator
+    );
+
+    /// @notice Emitted when a mining duration question is created
+    /// @param questionId Unique identifier for the question
+    /// @param conditionId Associated condition identifier
+    /// @param startBlockHeight Starting block height
+    /// @param blockCount Number of blocks to measure duration for
+    /// @param durationBuckets Duration range boundaries in seconds
+    /// @param settlementBlock Block height when question becomes resolvable (includes settlement delay)
+    /// @param creator Address that created the question
+    event MiningDurationQuestionCreated(
+        bytes32 indexed questionId,
+        bytes32 indexed conditionId,
+        uint256 startBlockHeight,
+        uint256 blockCount,
+        uint256[] durationBuckets,
+        uint256 settlementBlock,
+        address indexed creator
     );
 
     // ========================================
