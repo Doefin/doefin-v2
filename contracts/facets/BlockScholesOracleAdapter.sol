@@ -204,7 +204,7 @@ contract BlockScholesOracleAdapter is IBaseOracleAdapter {
      * @return price Latest price in the adapter's configured output decimals for this asset
      * @return timestamp Unix timestamp when this price was last updated by Block Scholes
      * @return isValid Whether the price data is valid and usable (price > 0)
-     * 
+     *
      * @dev EXECUTION FLOW:
      * @dev 1. Look up Feed configuration for the assetId in feedConfigs mapping
      * @dev 2. Build Block Scholes Feed structure using config parameters (feedId, exchange, baseAsset)
@@ -212,7 +212,7 @@ contract BlockScholesOracleAdapter is IBaseOracleAdapter {
      * @dev 4. Validate returned price is positive (> 0) for data integrity
      * @dev 5. Convert price from Block Scholes 9 decimals to asset-specific output decimals using _convertPrice()
      * @dev 6. Return converted price, original timestamp, and validity flag
-     * 
+     *
      * @custom:standard Implements IBaseOracleAdapter interface for standardized oracle integration
      * @custom:conversion Automatic decimal conversion from Block Scholes 9 decimals to asset-specific precision
      * @custom:validation Comprehensive price validation ensuring positive values
@@ -291,14 +291,14 @@ contract BlockScholesOracleAdapter is IBaseOracleAdapter {
      * @param exchange Exchange parameter (0 for BLOCKSCHOLES composite exchange)
      * @param baseAsset Base asset enumeration (1 for BTC, 2 for ETH)
      * @param decimals Output decimal precision (1-18; typically 8 for BTC, 6 for stablecoins)
-     * 
+     *
      * @dev CONFIGURATION EXAMPLE:
      * @dev configureAssetFeed(keccak256("BTC-USD"), 3, 0, 1, 8)
      * @dev - Maps BTC-USD to Block Scholes spot price feed (ID 3)
      * @dev - Uses BLOCKSCHOLES composite exchange (0)
      * @dev - Specifies BTC as base asset (1)
      * @dev - Outputs prices with 8 decimal precision
-     * 
+     *
      * @custom:access Only contract owner can configure asset feeds
      * @custom:validation Validates feedId is not zero and decimals are within valid range
      * @custom:optimization Uses O(1) duplicate checking to avoid array scanning
@@ -399,7 +399,7 @@ contract BlockScholesOracleAdapter is IBaseOracleAdapter {
      * @param fromDecimals Current decimal precision of the input price
      * @param toDecimals Target decimal precision for the output price
      * @return Converted price with target decimal precision
-     * 
+     *
      * @dev CONVERSION EXAMPLES:
      * @dev - Convert 45000.5 BTC from 9 decimals to 8 decimals:
      * @dev   Input: price = 45000500000000 (45000.5 * 10^9)
@@ -407,7 +407,7 @@ contract BlockScholesOracleAdapter is IBaseOracleAdapter {
      * @dev - Convert 1.0 USDT from 9 decimals to 6 decimals:
      * @dev   Input: price = 1000000000 (1.0 * 10^9)
      * @dev   Output: 1000000 (1.0 * 10^6)
-     * 
+     *
      * @custom:precision Handles arbitrary decimal precision conversion
      * @custom:optimization Returns immediately if no conversion needed
      * @custom:arithmetic Safe decimal scaling using powers of 10
