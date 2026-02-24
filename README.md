@@ -318,10 +318,22 @@ We welcome contributions! Please see our [Contributing Guidelines](CONTRIBUTING.
 
 ## 📚 Documentation
 
-- **API Reference**: [Generated docs](./docs/api/)
-- **Architecture Guide**: [Architecture overview](./docs/ARCHITECTURE.md)
-- **Oracle Guide**: [Oracle integration](./docs/ORACLE.md)
-- **Trading Guide**: [Market mechanics](./docs/TRADING.md)
+### 🏗️ **System Architecture & Design**
+- **Architecture Guide**: [System overview and design principles](./docs/ARCHITECTURE.md)
+- **Diamond Contract Guide**: [Diamond pattern implementation and best practices](./docs/DIAMOND_CONTRACT_CONSIDERATIONS.md)
+- **Deployment Guide**: [Network deployment procedures](./docs/DEPLOYMENT.md)
+
+### 🔄 **System Flows & Operations**
+- **Order Lifecycle Flow**: [Complete order creation, matching, and settlement process](./docs/ORDER_LIFECYCLE_FLOW.md)
+- **Cross-Currency Orders Flow**: [Multi-collateral trading with oracle integration](./docs/CROSS_CURRENCY_ORDERS_FLOW.md)
+- **Matching Mechanisms**: [Order book matching algorithms and optimization](./docs/MATCHING_MECHANISMS.md)
+- **Settlement Flow**: [Trade settlement and position management](./docs/SETTLEMENT_FLOW.md)
+- **Condition Lifecycle Flow**: [Market creation to final resolution](./docs/CONDITION_LIFECYCLE_FLOW.md)
+
+### 🔮 **Oracle Systems**
+- **Price Feed Oracle System**: [Dynamic oracle adapter management with failover](./docs/PRICE_FEED_ORACLE_SYSTEM.md)
+- **Bitcoin Block Header Oracle**: [Trustless Bitcoin network integration](./docs/QUESTIONS_TYPES.md)
+- **Reorg Test Data Guide**: [Bitcoin reorganization testing scenarios](./docs/REORG_TEST_DATA_GUIDE.md)
 
 ## 🔗 Links & Resources
 
