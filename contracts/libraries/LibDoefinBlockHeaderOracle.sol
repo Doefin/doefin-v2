@@ -9,24 +9,40 @@ import {LibDoefinStorage} from "./LibDoefinStorage.sol";
 
 /**
  * @title LibDoefinBlockHeaderOracle
- * @dev Library functions for accessing block header oracle data
+ * @author Doefin
+ * @notice Library providing read-only access functions for Bitcoin block header oracle data
+ * @dev Offers convenient access patterns for the 17-block ring buffer storage system
+ * @dev Used by other system components to query historical Bitcoin block information
  */
 library LibDoefinBlockHeaderOracle {
-    /// @notice Get the current block height (latest block number)
-    /// @return The current block height
+    /**
+     * @notice Retrieves the current Bitcoin block height tracked by the oracle
+     * @dev Returns the block number of the most recently validated and stored block
+     * @return The current block height (block number)
+     * @custom:note Block height is 0 before oracle initialization
+     */
     function getCurrentBlockHeight() internal view returns (uint256) {
         return LibDoefinStorage.appStorage().blockHeaderOracleStorage.currentBlockHeight;
     }
 
-    /// @notice Get the next index in the ring buffer
-    /// @return The next block index
+    /**
+     * @notice Gets the next insertion index in the ring buffer
+     * @dev Ring buffer cycles through indices 0-16 to maintain 17-block history
+     * @return The index where the next block header will be stored
+     * @custom:note Index wraps around using modulo arithmetic for circular buffer
+     */
     function getNextBlockIndex() internal view returns (uint256) {
         return LibDoefinStorage.appStorage().blockHeaderOracleStorage.nextBlockIndex;
     }
 
-    /// @notice Get a block header at a specific index in the ring buffer
-    /// @param index The index in the ring buffer
-    /// @return The block header at that index
+    /**
+     * @notice Retrieves a block header at a specific ring buffer index
+     * @dev Direct access to ring buffer storage - index must be validated
+     * @param index The ring buffer index (0-16) to retrieve
+     * @return The block header stored at the specified index
+     * @custom:reverts ValueOutOfRange if index >= 17 (NUM_OF_BLOCK_HEADERS)
+     * @custom:note Index does not correspond to block height - use getBlockHeaderByNumber for that
+     */
     function getBlockHeaderAt(uint256 index) internal view returns (LibDoefinStorage.BlockHeader memory) {
         if (index >= LibDoefinStorage.NUM_OF_BLOCK_HEADERS) {
             revert Errors.ValueOutOfRange();
@@ -34,9 +50,16 @@ library LibDoefinBlockHeaderOracle {
         return LibDoefinStorage.appStorage().blockHeaderOracleStorage.blockHeaders[index];
     }
 
-    /// @notice Get a block header by block number
-    /// @param blockNumber The Bitcoin block number
-    /// @return The block header if found
+    /**
+     * @notice Retrieves a block header by its Bitcoin network block number
+     * @dev Calculates ring buffer position based on block number relative to current height
+     * @dev Can only access blocks within the 17-block sliding window
+     * @param blockNumber The Bitcoin block number to retrieve
+     * @return The block header for the specified block number
+     * @custom:reverts ValueOutOfRange if block number outside available range
+     * @custom:note Available range: (currentHeight - 17) < blockNumber <= currentHeight
+     * @custom:gas O(1) lookup using ring buffer arithmetic
+     */
     function getBlockHeaderByNumber(uint256 blockNumber) internal view returns (LibDoefinStorage.BlockHeader memory) {
         LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
         uint256 currentHeight = ds.blockHeaderOracleStorage.currentBlockHeight;

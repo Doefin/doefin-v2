@@ -35,11 +35,36 @@ import {IDoefinBlockHeaderOracle} from "../interfaces/IDoefinBlockHeaderOracle.s
  * After validating the new block header, the contract dispatches the new difficulty to the Options Manager for
  * settlement
  */
+/**
+ * @title DoefinV1BlockHeaderOracleFacet
+ * @author Doefin
+ * @notice Diamond facet implementing Bitcoin block header validation and oracle functionality
+ * @dev Validates Bitcoin block headers using consensus rules and maintains 17-block history buffer
+ * @dev Provides trustless Bitcoin network data for prediction market settlement
+ * @dev Uses ring buffer storage pattern for gas-efficient block header management
+ *
+ * @notice Block header validation process:
+ * 1. Check Block Header Structure: Validate field formats and ranges
+ * 2. Verify Previous Block Hash: Ensure proper blockchain linkage
+ * 3. Validate Timestamp: Must be greater than median of previous 11 blocks
+ * 4. Validate Proof of Work: Double SHA-256 hash must be below target
+ * 5. Verify Difficulty Target: nBits must match expected difficulty adjustment
+ *
+ * @dev After validation, triggers condition settlement for prediction markets
+ */
 contract DoefinV1BlockHeaderOracle is IDoefinBlockHeaderOracle {
-    /// @notice Initialize the block header oracle with initial block history
-    /// @dev This function should be called during diamond initialization via delegatecall
-    /// @param initialBlockHistory Array of initial block headers (must have exactly 17 elements)
-    /// @param initialBlockHeight The height of the first block in the history
+    /**
+     * @notice Initializes the block header oracle with historical Bitcoin block data
+     * @dev Must be called during diamond deployment before oracle can accept new blocks
+     * @dev Populates 17-block ring buffer to provide sufficient historical context
+     * @dev Prevents re-initialization once currentBlockHeight is set
+     * @param initialBlockHistory Array of exactly 17 consecutive Bitcoin block headers
+     * @param initialBlockHeight The block number of the first header in the array
+     * @custom:reverts AlreadyInitialized if oracle has already been initialized
+     * @custom:reverts BlockHeaderOracle_InvalidInitialHistoryLength if not exactly 17 headers
+     * @custom:security One-time initialization prevents data corruption from duplicate calls
+     * @custom:gas High initial cost due to 17 block header storage writes
+     */
     function initializeBlockHeaderOracle(LibDoefinStorage.BlockHeader[] calldata initialBlockHistory, uint256 initialBlockHeight) external {
         LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
 
