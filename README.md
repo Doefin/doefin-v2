@@ -318,6 +318,9 @@ We welcome contributions! Please see our [Contributing Guidelines](CONTRIBUTING.
 
 ## 📚 Documentation
 
+### 📄 **Whitepaper & Protocol Overview**
+- **Doefin V2 Whitepaper**: [Complete protocol specification, economics, and user guide](./docs/DOEFIN_V2_WHITEPAPER.md)
+
 ### 🏗️ **System Architecture & Design**
 - **Architecture Guide**: [System overview and design principles](./docs/ARCHITECTURE.md)
 - **Diamond Contract Guide**: [Diamond pattern implementation and best practices](./docs/DIAMOND_CONTRACT_CONSIDERATIONS.md)
