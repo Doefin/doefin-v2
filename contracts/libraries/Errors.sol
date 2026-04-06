@@ -462,4 +462,26 @@ library Errors {
 
     /// @notice Thrown when max manual update age is invalid (too short or too long)
     error InvalidMaxManualUpdateAge();
+
+    // ========================================
+    // SETTLEMENT ERRORS (v2.1)
+    // ========================================
+
+    /// @notice Thrown when EIP-712 order signature verification fails
+    error InvalidOrderSignature(bytes32 orderHash);
+
+    /// @notice Thrown when attempting to fill a cancelled order
+    error OrderCancelled(bytes32 orderHash);
+
+    /// @notice Thrown when order nonce is below the maker's current nonce
+    error OrderNonceInvalid(bytes32 orderHash, uint256 orderNonce, uint256 currentNonce);
+
+    /// @notice Thrown when fill amount exceeds the order's remaining unfilled amount
+    error OrderOverfilled(bytes32 orderHash, uint256 requested, uint256 remaining);
+
+    /// @notice Thrown when settlement is attempted while trading is paused
+    error TradingIsPaused();
+
+    /// @notice Thrown when caller is not the authorized settlement operator
+    error UnauthorizedOperator(address caller);
 }
