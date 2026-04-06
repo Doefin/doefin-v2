@@ -487,4 +487,7 @@ library Errors {
 
     /// @notice Thrown when minValidSalt is not strictly greater than the current value
     error InvalidSaltThreshold();
+
+    /// @notice Thrown when taker and maker are the same address (self-trade prevention)
+    error SelfTrade();
 }
