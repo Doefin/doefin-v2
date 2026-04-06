@@ -646,11 +646,11 @@ library Events {
     /// @param newNonce The new nonce value
     event NonceBumped(address indexed maker, uint256 newNonce);
 
-    /// @notice Emitted when the admin pauses trading
+    /// @notice Emitted when the admin pauses settlement trading
     /// @param admin The admin address that paused
-    event TradingPaused(address indexed admin);
+    event SettlementTradingPaused(address indexed admin);
 
-    /// @notice Emitted when the admin unpauses trading
+    /// @notice Emitted when the admin unpauses settlement trading
     /// @param admin The admin address that unpaused
-    event TradingUnpaused(address indexed admin);
+    event SettlementTradingUnpaused(address indexed admin);
 }
