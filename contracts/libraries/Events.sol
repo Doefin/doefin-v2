@@ -653,4 +653,10 @@ library Events {
     /// @notice Emitted when the admin unpauses settlement trading
     /// @param admin The admin address that unpaused
     event SettlementTradingUnpaused(address indexed admin);
+
+    /// @notice Emitted when a SCW registers or unregisters an authorized order signer
+    /// @param scw The smart contract wallet address
+    /// @param signer The EOA signer address
+    /// @param allowed Whether the signer is authorized
+    event OrderSignerRegistered(address indexed scw, address indexed signer, bool allowed);
 }

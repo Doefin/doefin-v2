@@ -134,7 +134,7 @@ contract SignatureVerifierFacet is ISignatureVerifier {
     ) internal view {
         address recoveredSigner = _recoverSigner(orderHash, signature);
 
-        if (recoveredSigner != order.signer) {
+        if (recoveredSigner == address(0) || recoveredSigner != order.signer) {
             revert Errors.InvalidOrderSignature(orderHash);
         }
 
