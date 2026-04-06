@@ -137,4 +137,52 @@ library LibDoefinOrder {
             )
         );
     }
+
+    // ========================================
+    // CALLDATA VARIANTS (gas optimization)
+    // ========================================
+
+    /// @notice Compute the EIP-712 struct hash of a DoefinOrder (calldata version)
+    /// @dev Avoids implicit calldata-to-memory copy when called from facets
+    /// @param order The order in calldata
+    /// @return The keccak256 struct hash
+    function hashCalldata(DoefinOrder calldata order) internal pure returns (bytes32) {
+        return keccak256(
+            abi.encode(
+                DOEFIN_ORDER_TYPEHASH,
+                order.salt,
+                order.maker,
+                order.signer,
+                order.positionId,
+                order.collateralToken,
+                order.side,
+                order.amount,
+                order.pricePerToken,
+                order.minFillAmount,
+                order.orderType,
+                order.quoteCurrency,
+                order.exchangeRate,
+                order.feeRateBps,
+                order.expiration,
+                order.nonce
+            )
+        );
+    }
+
+    /// @notice Compute the full EIP-712 hash (calldata version)
+    /// @param order The order in calldata
+    /// @param _domainSeparator The pre-computed domain separator
+    /// @return The final signable hash
+    function hashOrderCalldata(
+        DoefinOrder calldata order,
+        bytes32 _domainSeparator
+    ) internal pure returns (bytes32) {
+        return keccak256(
+            abi.encodePacked(
+                "\x19\x01",
+                _domainSeparator,
+                hashCalldata(order)
+            )
+        );
+    }
 }

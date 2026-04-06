@@ -484,4 +484,7 @@ library Errors {
 
     /// @notice Thrown when caller is not the authorized settlement operator
     error UnauthorizedOperator(address caller);
+
+    /// @notice Thrown when minValidSalt is not strictly greater than the current value
+    error InvalidSaltThreshold();
 }

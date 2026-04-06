@@ -61,6 +61,9 @@ contract NonceManagerFacet is INonceManager {
 
         LibSettlementStorage.SettlementStorage storage ss = LibSettlementStorage.settlementStorage();
         bytes32 orderHash = _getOrderHash(order);
+        if (ss.cancelledOrders[orderHash]) {
+            revert Errors.OrderCancelled(orderHash);
+        }
         ss.cancelledOrders[orderHash] = true;
         emit Events.OrderCancelledOnChain(orderHash, msg.sender);
     }
@@ -74,11 +77,15 @@ contract NonceManagerFacet is INonceManager {
      */
     function cancelOrders(LibDoefinOrder.DoefinOrder[] calldata orders) external {
         LibSettlementStorage.SettlementStorage storage ss = LibSettlementStorage.settlementStorage();
+        bytes32 domainSep = _getDomainSeparator();
         for (uint256 i; i < orders.length; ++i) {
             if (msg.sender != orders[i].maker) {
                 revert Errors.NotOrderMaker();
             }
-            bytes32 orderHash = _getOrderHash(orders[i]);
+            bytes32 orderHash = LibDoefinOrder.hashOrderCalldata(orders[i], domainSep);
+            if (ss.cancelledOrders[orderHash]) {
+                revert Errors.OrderCancelled(orderHash);
+            }
             ss.cancelledOrders[orderHash] = true;
             emit Events.OrderCancelledOnChain(orderHash, msg.sender);
         }
@@ -110,6 +117,9 @@ contract NonceManagerFacet is INonceManager {
         uint256 minValidSalt
     ) external {
         LibSettlementStorage.SettlementStorage storage ss = LibSettlementStorage.settlementStorage();
+        if (minValidSalt <= ss.makerPositionToMinSalt[msg.sender][positionId]) {
+            revert Errors.InvalidSaltThreshold();
+        }
         ss.makerPositionToMinSalt[msg.sender][positionId] = minValidSalt;
         emit Events.PositionOrdersCancelled(msg.sender, positionId, minValidSalt);
     }
@@ -146,7 +156,7 @@ contract NonceManagerFacet is INonceManager {
      * @return The full EIP-712 hash
      */
     function _getOrderHash(LibDoefinOrder.DoefinOrder calldata order) internal view returns (bytes32) {
-        return LibDoefinOrder.hashOrder(order, _getDomainSeparator());
+        return LibDoefinOrder.hashOrderCalldata(order, _getDomainSeparator());
     }
 
     /**

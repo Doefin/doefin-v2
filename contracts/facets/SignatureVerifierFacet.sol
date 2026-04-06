@@ -114,7 +114,7 @@ contract SignatureVerifierFacet is ISignatureVerifier {
      * @return The full EIP-712 hash
      */
     function _getOrderHash(LibDoefinOrder.DoefinOrder calldata order) internal view returns (bytes32) {
-        return LibDoefinOrder.hashOrder(order, _getDomainSeparator());
+        return LibDoefinOrder.hashOrderCalldata(order, _getDomainSeparator());
     }
 
     /**
