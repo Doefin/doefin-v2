@@ -432,4 +432,32 @@ describe("LibDoefinOrder", function () {
       expect(hash1).to.not.equal(hash2);
     });
   });
+
+  // ========================================
+  // CROSS-HASH VERIFICATION (backend parity)
+  // ========================================
+
+  describe("Cross-hash verification", function () {
+    const EXPECTED_ORDER_TYPEHASH =
+      "0xe45fe759b84ed2d2522a36b4fa15242cc6fef0f910981952c03e1c40b653f168";
+    const EXPECTED_DOMAIN_TYPEHASH =
+      "0x8b73c3c69bb8fe3d512ecc4cf759cc79239f7b179b0ffacaa9a75d522b39400f";
+    const EXPECTED_STRUCT_HASH =
+      "0xa80d4afdc2d3ea05fa89fa2d9fc60a7aa2ea71ce5bbd0b4effac1a42d40833e0";
+
+    it("DOEFIN_ORDER_TYPEHASH must match canonical value", async function () {
+      const actual = await harness.DOEFIN_ORDER_TYPEHASH();
+      expect(actual).to.equal(EXPECTED_ORDER_TYPEHASH);
+    });
+
+    it("EIP712_DOMAIN_TYPEHASH must match canonical value", async function () {
+      const actual = await harness.DOMAIN_SEPARATOR_TYPEHASH();
+      expect(actual).to.equal(EXPECTED_DOMAIN_TYPEHASH);
+    });
+
+    it("struct hash of canonical baseOrder must match canonical value", async function () {
+      const actual = await harness.hash(baseOrder);
+      expect(actual).to.equal(EXPECTED_STRUCT_HASH);
+    });
+  });
 });
