@@ -1,0 +1,14 @@
+services:
+  contract-audit:
+    image: contract-audit
+    platform: linux/amd64
+    build:
+      context: .
+      dockerfile: security/Dockerfile
+    container_name: contract-audit
+    working_dir: /app
+    volumes:
+      - ./:/app:cached
+    command: bash security/scan.sh
+    environment:
+      NODE_ENV: development
