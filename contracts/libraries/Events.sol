@@ -659,4 +659,10 @@ library Events {
     /// @param signer The EOA signer address
     /// @param allowed Whether the signer is authorized
     event OrderSignerRegistered(address indexed scw, address indexed signer, bool allowed);
+
+    /// @notice Emitted when a maker sets a minimum valid salt for a position, cancelling all orders with lower salt
+    /// @param maker The maker address
+    /// @param positionId The position ID
+    /// @param minValidSalt The new minimum valid salt
+    event PositionOrdersCancelled(address indexed maker, bytes32 indexed positionId, uint256 minValidSalt);
 }
