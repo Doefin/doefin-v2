@@ -5,13 +5,11 @@
 pragma solidity ^0.8.6;
 
 interface IConditionalTokens {
-    function prepareCondition(
-        address oracle,
-        bytes32 questionId,
-        uint8 outcomeSlotCount
-    ) external;
+    function prepareCondition(address oracle, bytes32 questionId, uint8 outcomeSlotCount) external;
 
     function reportPayouts(bytes32 questionId, uint256[] calldata payouts) external;
+
+    function adminResolveCondition(bytes32 conditionId, uint256[] calldata payouts) external;
 
     function splitPosition(
         address collateralToken,

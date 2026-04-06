@@ -73,6 +73,41 @@ contract ConditionalTokensFacet is IConditionalTokens {
     }
 
     /**
+     * @notice Owner-only break-glass resolver for conditions whose oracle is the diamond itself
+     * @dev Uses the same internal payout reporting path, so it emits the standard ConditionResolution event
+     * @param conditionId The condition identifier to resolve
+     * @param payouts Array of payout numerators for each outcome
+     */
+    function adminResolveCondition(bytes32 conditionId, uint256[] calldata payouts) external override {
+        if (!LibAccessControl.isOwner(msg.sender)) {
+            revert Errors.NotAuthorized();
+        }
+
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
+        LibDoefinStorage.Condition storage condition = ds.conditionalTokens.conditions[conditionId];
+
+        if (condition.oracle == address(0)) {
+            revert Errors.ConditionDoesNotExist();
+        }
+
+        // This method is intentionally scoped to diamond-oracle conditions.
+        if (condition.oracle != address(this)) {
+            revert Errors.InvalidOracleAddress();
+        }
+
+        if (payouts.length != uint256(condition.outcomeSlotCount)) {
+            revert Errors.InvalidPayoutLength();
+        }
+
+        uint256[] memory payoutsMemory = new uint256[](payouts.length);
+        for (uint256 i = 0; i < payouts.length; i++) {
+            payoutsMemory[i] = payouts[i];
+        }
+
+        LibCTFCondition._reportPayouts(address(this), condition.questionId, payoutsMemory);
+    }
+
+    /**
      * @notice Splits collateral tokens into conditional outcome positions
      * @dev Converts collateral tokens into ERC1155 position tokens representing possible outcomes
      * @dev User must have approved this contract to spend their collateral tokens
