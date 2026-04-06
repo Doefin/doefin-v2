@@ -617,4 +617,40 @@ library Events {
     /// @param operator Address of the operator
     /// @param approved Whether operator is approved
     event ApprovalForAll(address indexed owner, address indexed operator, bool approved);
+
+    // ========================================
+    // SETTLEMENT EVENTS (v2.1)
+    // ========================================
+
+    /// @notice Emitted when an individual order is settled (partially or fully filled)
+    /// @param orderHash The EIP-712 hash of the settled order
+    /// @param maker The maker (SCW) address
+    /// @param filledAmount The amount filled in this settlement
+    /// @param fee The fee charged for this fill
+    event OrderSettled(bytes32 indexed orderHash, address indexed maker, uint128 filledAmount, uint128 fee);
+
+    /// @notice Emitted when two orders are matched and settled against each other
+    /// @param takerHash The EIP-712 hash of the taker order
+    /// @param makerHash The EIP-712 hash of the maker order
+    /// @param matchType The settlement path used (0 = Complementary, 1 = Mint, 2 = Merge, 3 = CrossCurrency)
+    /// @param amount The amount matched
+    event OrdersMatched(bytes32 indexed takerHash, bytes32 indexed makerHash, uint8 matchType, uint128 amount);
+
+    /// @notice Emitted when an order is cancelled on-chain by its maker
+    /// @param orderHash The EIP-712 hash of the cancelled order
+    /// @param maker The maker address that cancelled
+    event OrderCancelledOnChain(bytes32 indexed orderHash, address indexed maker);
+
+    /// @notice Emitted when a maker bumps their nonce, invalidating all prior orders
+    /// @param maker The maker address
+    /// @param newNonce The new nonce value
+    event NonceBumped(address indexed maker, uint256 newNonce);
+
+    /// @notice Emitted when the admin pauses trading
+    /// @param admin The admin address that paused
+    event TradingPaused(address indexed admin);
+
+    /// @notice Emitted when the admin unpauses trading
+    /// @param admin The admin address that unpaused
+    event TradingUnpaused(address indexed admin);
 }
