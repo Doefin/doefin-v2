@@ -196,11 +196,10 @@ describe("SettlementFacet", function () {
       owner.address, buyerB.address, positionIdB, splitAmount, "0x"
     );
 
-    // Register positions in settlement storage
-    // We need to write to SettlementStorage — use a helper that writes via direct storage
-    // Since we can't directly write to settlement storage from tests,
-    // we need positionToComplement and positionToCondition to be set.
-    // For now, let's check if there's a TokenRegistryFacet or if we need a setup helper.
+    // Register position pair in settlement storage (Fix 1)
+    const posIdABytes32 = ethers.utils.hexZeroPad(positionIdA.toHexString(), 32);
+    const posIdBBytes32 = ethers.utils.hexZeroPad(positionIdB.toHexString(), 32);
+    await settlement.registerPositionPair(posIdABytes32, posIdBBytes32, conditionId, collateral.address);
   });
 
   // ========================================
@@ -342,20 +341,21 @@ describe("SettlementFacet", function () {
         fillAmount, [fillAmount]
       );
 
-      // Verify: collateral moved from buyer to seller (minus fees)
+      // Fix 2: Each party pays their own fee. Execution at maker's price.
       const collateralAmount = price.mul(fillAmount).div(UNIT);
-      const expectedTakerFee = computeExpectedFee(FEE_BPS, price, fillAmount, UNIT);
-      const expectedMakerFee = computeExpectedFee(FEE_BPS, price, fillAmount, UNIT);
-      const totalFees = expectedTakerFee.add(expectedMakerFee);
+      const buyerFee = computeExpectedFee(FEE_BPS, price, fillAmount, UNIT);
+      const sellerFee = computeExpectedFee(FEE_BPS, price, fillAmount, UNIT);
+      const totalFees = buyerFee.add(sellerFee);
 
       const buyerCollAfter = await collateral.balanceOf(buyer.address);
       const sellerCollAfter = await collateral.balanceOf(seller.address);
 
-      // Buyer paid collateralAmount (seller gets collateralAmount - totalFees, feeReceiver gets totalFees)
-      expect(buyerCollBefore.sub(buyerCollAfter)).to.equal(collateralAmount);
-      expect(sellerCollAfter.sub(sellerCollBefore)).to.equal(collateralAmount.sub(totalFees));
+      // Buyer paid collateral + buyer's fee
+      expect(buyerCollBefore.sub(buyerCollAfter)).to.equal(collateralAmount.add(buyerFee));
+      // Seller received collateral - seller's fee
+      expect(sellerCollAfter.sub(sellerCollBefore)).to.equal(collateralAmount.sub(sellerFee));
 
-      // Fee receiver got fees
+      // Fee receiver got total fees
       const feeReceiverAfter = await collateral.balanceOf(feeReceiver.address);
       expect(feeReceiverAfter.sub(feeReceiverBefore)).to.equal(totalFees);
 
@@ -591,6 +591,201 @@ describe("SettlementFacet", function () {
       const price = UNIT.div(2);
       const expected = computeExpectedFee(0, price, fillAmount, UNIT);
       expect(expected).to.equal(0);
+    });
+  });
+
+  // ========================================
+  // FILL AMOUNT CONSISTENCY (Fix 4)
+  // ========================================
+
+  describe("Fill amount consistency", function () {
+    it("should revert when sum of makerFillAmounts != takerFillAmount", async function () {
+      const fillAmount = ethers.utils.parseUnits("100", 6);
+      const price = UNIT.div(2);
+
+      const takerOrder = makeOrder(buyer.address, positionIdA, 0, fillAmount, price, { salt: 7000 });
+      const makerOrder = makeOrder(seller.address, positionIdA, 1, fillAmount, price, { salt: 7000 });
+
+      const takerSig = await signOrder(buyer, takerOrder);
+      const makerSig = await signOrder(seller, makerOrder);
+
+      // takerFillAmount=100 but makerFillAmounts=[50] — mismatch
+      await expect(
+        settlement.connect(operator).matchOrders(
+          takerOrder, takerSig, 0,
+          [makerOrder], [makerSig], [0],
+          fillAmount, [fillAmount.div(2)]
+        )
+      ).to.be.reverted;
+    });
+  });
+
+  // ========================================
+  // MINT SETTLEMENT TESTS (Fix 6)
+  // ========================================
+
+  describe("Mint settlement (two buyers of complement positions)", function () {
+    const fillAmount = ethers.utils.parseUnits("100", 6);
+    const priceA = UNIT.mul(6).div(10); // 0.6
+    const priceB = UNIT.mul(4).div(10); // 0.4
+
+    it("should mint positions from two buyers", async function () {
+      // buyer buys position A, buyerB buys position B
+      const takerOrder = makeOrder(buyer.address, positionIdA, 0, fillAmount, priceA, { salt: 8000 });
+      const makerOrder = makeOrder(buyerB.address, positionIdB, 0, fillAmount, priceB, { salt: 8000 });
+
+      const takerSig = await signOrder(buyer, takerOrder);
+      const makerSig = await signOrder(buyerB, makerOrder);
+
+      const buyerPosBefore = await erc1155Facet.balanceOf(buyer.address, positionIdA);
+      const buyerBPosBefore = await erc1155Facet.balanceOf(buyerB.address, positionIdB);
+      const buyerCollBefore = await collateral.balanceOf(buyer.address);
+      const buyerBCollBefore = await collateral.balanceOf(buyerB.address);
+
+      await settlement.connect(operator).matchOrders(
+        takerOrder, takerSig, 0,
+        [makerOrder], [makerSig], [0],
+        fillAmount, [fillAmount]
+      );
+
+      // Both buyers received their position tokens
+      const buyerPosAfter = await erc1155Facet.balanceOf(buyer.address, positionIdA);
+      const buyerBPosAfter = await erc1155Facet.balanceOf(buyerB.address, positionIdB);
+      expect(buyerPosAfter.sub(buyerPosBefore)).to.equal(fillAmount);
+      expect(buyerBPosAfter.sub(buyerBPosBefore)).to.equal(fillAmount);
+
+      // Both buyers paid collateral
+      const buyerCollAfter = await collateral.balanceOf(buyer.address);
+      const buyerBCollAfter = await collateral.balanceOf(buyerB.address);
+      expect(buyerCollBefore.sub(buyerCollAfter).gt(0)).to.equal(true);
+      expect(buyerBCollBefore.sub(buyerBCollAfter).gt(0)).to.equal(true);
+    });
+  });
+
+  // ========================================
+  // MERGE SETTLEMENT TESTS (Fix 6)
+  // ========================================
+
+  describe("Merge settlement (two sellers of complement positions)", function () {
+    const fillAmount = ethers.utils.parseUnits("100", 6);
+    const priceA = UNIT.mul(6).div(10); // 0.6
+    const priceB = UNIT.mul(4).div(10); // 0.4
+
+    it("should merge positions from two sellers", async function () {
+      // seller sells position A, buyerB sells position B
+      const takerOrder = makeOrder(seller.address, positionIdA, 1, fillAmount, priceA, { salt: 9000 });
+      const makerOrder = makeOrder(buyerB.address, positionIdB, 1, fillAmount, priceB, { salt: 9000 });
+
+      const takerSig = await signOrder(seller, takerOrder);
+      const makerSig = await signOrder(buyerB, makerOrder);
+
+      const sellerPosBefore = await erc1155Facet.balanceOf(seller.address, positionIdA);
+      const buyerBPosBefore = await erc1155Facet.balanceOf(buyerB.address, positionIdB);
+      const sellerCollBefore = await collateral.balanceOf(seller.address);
+      const buyerBCollBefore = await collateral.balanceOf(buyerB.address);
+
+      await settlement.connect(operator).matchOrders(
+        takerOrder, takerSig, 0,
+        [makerOrder], [makerSig], [0],
+        fillAmount, [fillAmount]
+      );
+
+      // Both sellers gave up their position tokens
+      const sellerPosAfter = await erc1155Facet.balanceOf(seller.address, positionIdA);
+      const buyerBPosAfter = await erc1155Facet.balanceOf(buyerB.address, positionIdB);
+      expect(sellerPosBefore.sub(sellerPosAfter)).to.equal(fillAmount);
+      expect(buyerBPosBefore.sub(buyerBPosAfter)).to.equal(fillAmount);
+
+      // Both sellers received collateral
+      const sellerCollAfter = await collateral.balanceOf(seller.address);
+      const buyerBCollAfter = await collateral.balanceOf(buyerB.address);
+      expect(sellerCollAfter.sub(sellerCollBefore).gt(0)).to.equal(true);
+      expect(buyerBCollAfter.sub(buyerBCollBefore).gt(0)).to.equal(true);
+    });
+  });
+
+  // ========================================
+  // MULTI-MAKER TESTS (Fix 6)
+  // ========================================
+
+  describe("Multi-maker settlement", function () {
+    it("should settle one taker against two makers", async function () {
+      const totalFill = ethers.utils.parseUnits("200", 6);
+      const halfFill = ethers.utils.parseUnits("100", 6);
+      const price = UNIT.div(2);
+
+      const takerOrder = makeOrder(buyer.address, positionIdA, 0, totalFill, price, { salt: 10000 });
+      const makerOrder1 = makeOrder(seller.address, positionIdA, 1, halfFill, price, { salt: 10001 });
+      const makerOrder2 = makeOrder(buyerB.address, positionIdA, 1, halfFill, price, { salt: 10002 });
+
+      // buyerB needs position A tokens for selling
+      // Give buyerB some position A tokens (split and transfer)
+      const splitAmt = ethers.utils.parseUnits("1000", 6);
+      await collateral.mint(owner.address, splitAmt);
+      await conditionalTokens.connect(owner).splitPosition(
+        collateral.address, ethers.constants.HashZero, conditionId, [1, 2], splitAmt
+      );
+      await erc1155Facet.connect(owner).safeTransferFrom(
+        owner.address, buyerB.address, positionIdA, splitAmt, "0x"
+      );
+
+      const takerSig = await signOrder(buyer, takerOrder);
+      const makerSig1 = await signOrder(seller, makerOrder1);
+      const makerSig2 = await signOrder(buyerB, makerOrder2);
+
+      await settlement.connect(operator).matchOrders(
+        takerOrder, takerSig, 0,
+        [makerOrder1, makerOrder2], [makerSig1, makerSig2], [0, 0],
+        totalFill, [halfFill, halfFill]
+      );
+
+      const takerHash = await sigVerifier.getOrderHash(takerOrder);
+      expect(await settlement.getFilledAmount(takerHash)).to.equal(totalFill);
+    });
+  });
+
+  // ========================================
+  // EDGE CASE: EXACT REMAINING FILL
+  // ========================================
+
+  describe("Edge case: fill exactly remaining", function () {
+    it("should fill exactly the remaining amount", async function () {
+      const totalAmount = ethers.utils.parseUnits("100", 6);
+      const firstFill = ethers.utils.parseUnits("60", 6);
+      const remaining = ethers.utils.parseUnits("40", 6);
+      const price = UNIT.div(2);
+
+      const takerOrder = makeOrder(buyer.address, positionIdA, 0, totalAmount, price, { salt: 11000 });
+      const makerOrder = makeOrder(seller.address, positionIdA, 1, totalAmount, price, { salt: 11000 });
+
+      const takerSig = await signOrder(buyer, takerOrder);
+      const makerSig = await signOrder(seller, makerOrder);
+
+      // First fill
+      await settlement.connect(operator).matchOrders(
+        takerOrder, takerSig, 0,
+        [makerOrder], [makerSig], [0],
+        firstFill, [firstFill]
+      );
+
+      // Fill exactly the remaining
+      await settlement.connect(operator).matchOrders(
+        takerOrder, takerSig, 0,
+        [makerOrder], [makerSig], [0],
+        remaining, [remaining]
+      );
+
+      const takerHash = await sigVerifier.getOrderHash(takerOrder);
+      expect(await settlement.getFilledAmount(takerHash)).to.equal(totalAmount);
+
+      // One more should revert (overfill)
+      await expect(
+        settlement.connect(operator).matchOrders(
+          takerOrder, takerSig, 0,
+          [makerOrder], [makerSig], [0],
+          1, [1]
+        )
+      ).to.be.reverted;
     });
   });
 });
