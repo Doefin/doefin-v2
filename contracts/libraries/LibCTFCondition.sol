@@ -115,6 +115,88 @@ library LibCTFCondition {
         LibReentrancyGuard._nonReentrantAfter();
     }
 
+    /// @notice Split position without reentrancy guard — caller MUST already hold the lock.
+    /// @dev Only for use by SettlementFacet (or other internal callers that hold nonReentrant).
+    ///      When sender == address(this), no external calls are made (safeTransferFrom is skipped),
+    ///      so there is no reentrancy risk.
+    function _splitPositionInternal(
+        address sender,
+        address collateralToken,
+        bytes32 parentCollectionId,
+        bytes32 conditionId,
+        uint256 amount,
+        uint256[] memory partition
+    ) internal {
+        if (!LibAccessControl.isCollateralTokenAllowed(collateralToken)) {
+            revert Errors.TokenNotAllowed();
+        }
+
+        (uint256 fullIndexSet, uint256 freeIndexSet, uint256[] memory positionIds, uint256[] memory amounts) = _validateAndBuildPartitionPositions(
+            collateralToken,
+            parentCollectionId,
+            conditionId,
+            partition,
+            amount
+        );
+
+        LibPositionRegistry.registerPositionPairs(positionIds, partition, conditionId, parentCollectionId, collateralToken);
+
+        if (freeIndexSet == 0) {
+            if (parentCollectionId == bytes32(0)) {
+                if (sender != address(this)) {
+                    IERC20(collateralToken).safeTransferFrom(sender, address(this), amount);
+                }
+            } else {
+                uint256 parentPosId = LibCTHelpers.getPositionId(collateralToken, parentCollectionId);
+                LibERC1155._burn(sender, parentPosId, amount);
+            }
+        } else {
+            uint256 mergedSet = fullIndexSet ^ freeIndexSet;
+            uint256 mergedPosId = _getPositionId(collateralToken, parentCollectionId, conditionId, mergedSet);
+            LibERC1155._burn(sender, mergedPosId, amount);
+        }
+
+        LibERC1155._batchMint(sender, positionIds, amounts, "");
+    }
+
+    /// @notice Merge positions without reentrancy guard — caller MUST already hold the lock.
+    /// @dev Only for use by SettlementFacet (or other internal callers that hold nonReentrant).
+    ///      When sender == address(this), no external calls are made (safeTransfer is skipped),
+    ///      so there is no reentrancy risk.
+    function _mergePositionsInternal(
+        address sender,
+        address collateralToken,
+        bytes32 parentCollectionId,
+        bytes32 conditionId,
+        uint256[] memory partition,
+        uint256 amount
+    ) internal {
+        (uint256 fullIndexSet, uint256 freeIndexSet, uint256[] memory positionIds, uint256[] memory amounts) = _validateAndBuildPartitionPositions(
+            collateralToken,
+            parentCollectionId,
+            conditionId,
+            partition,
+            amount
+        );
+
+        LibERC1155._batchBurn(sender, positionIds, amounts);
+
+        if (freeIndexSet == 0) {
+            if (parentCollectionId == bytes32(0)) {
+                if (sender != address(this)) {
+                    IERC20(collateralToken).safeTransfer(sender, amount);
+                }
+            } else {
+                uint256 parentPosId = LibCTHelpers.getPositionId(collateralToken, parentCollectionId);
+                LibERC1155._mint(sender, parentPosId, amount, "");
+            }
+        } else {
+            uint256 mergedSet = fullIndexSet ^ freeIndexSet;
+            uint256 mergedPosId = _getPositionId(collateralToken, parentCollectionId, conditionId, mergedSet);
+            LibERC1155._mint(sender, mergedPosId, amount, "");
+        }
+    }
+
     function _validateCollateral(address collateralToken, uint256 amount) internal view {
         LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
         if (!LibAccessControl.isCollateralTokenAllowed(collateralToken)) {

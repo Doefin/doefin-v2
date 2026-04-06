@@ -482,9 +482,9 @@ contract SettlementFacet is ISettlement {
         partition[0] = _getIndexSet(taker.positionId);
         partition[1] = _getIndexSet(maker.positionId);
 
-        // Release reentrancy lock before calling _splitPosition (which re-acquires it internally)
-        LibReentrancyGuard._nonReentrantAfter();
-        LibCTFCondition._splitPosition(
+        // Use internal variant that skips reentrancy guard — caller (matchOrders) already holds the lock.
+        // Safe because sender == address(this) means no external calls in the split path.
+        LibCTFCondition._splitPositionInternal(
             address(this),
             taker.collateralToken,
             bytes32(0),
@@ -492,8 +492,6 @@ contract SettlementFacet is ISettlement {
             fillAmount,
             partition
         );
-        // Re-acquire reentrancy lock for remainder of settlement
-        LibReentrancyGuard._nonReentrantBefore();
 
         // Transfer minted positions to respective buyers
         LibERC1155.safeTransferFrom(address(this), address(this), taker.maker, uint256(taker.positionId), fillAmount, "");
@@ -530,9 +528,9 @@ contract SettlementFacet is ISettlement {
         partition[0] = _getIndexSet(taker.positionId);
         partition[1] = _getIndexSet(maker.positionId);
 
-        // Release reentrancy lock before calling _mergePositions (which re-acquires it internally)
-        LibReentrancyGuard._nonReentrantAfter();
-        LibCTFCondition._mergePositions(
+        // Use internal variant that skips reentrancy guard — caller (matchOrders) already holds the lock.
+        // Safe because sender == address(this) means no external calls in the merge path.
+        LibCTFCondition._mergePositionsInternal(
             address(this),
             taker.collateralToken,
             bytes32(0),
@@ -540,8 +538,6 @@ contract SettlementFacet is ISettlement {
             partition,
             fillAmount
         );
-        // Re-acquire reentrancy lock for remainder of settlement
-        LibReentrancyGuard._nonReentrantBefore();
 
         // Distribute collateral to sellers based on their prices
         uint256 takerPayout = (uint256(taker.pricePerToken) * uint256(fillAmount)) / unit;
