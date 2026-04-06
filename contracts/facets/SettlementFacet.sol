@@ -86,6 +86,15 @@ contract SettlementFacet is ISettlement {
         }
         if (takerFillAmount == 0) revert Errors.ZeroAmount();
 
+        // Fix 4: Validate fill amount consistency
+        {
+            uint128 totalMakerFill;
+            for (uint256 i; i < makerFillAmounts.length; ++i) {
+                totalMakerFill += makerFillAmounts[i];
+            }
+            if (totalMakerFill != takerFillAmount) revert Errors.MismatchedInputLengths();
+        }
+
         LibSettlementStorage.SettlementStorage storage ss = LibSettlementStorage.settlementStorage();
         bytes32 domainSep = _getDomainSeparator();
 
@@ -95,10 +104,8 @@ contract SettlementFacet is ISettlement {
         _validateOrder(ss, takerOrder, takerHash);
         _checkFillAmount(ss, takerHash, takerOrder.amount, takerFillAmount);
 
-        // Compute taker fee once
-        uint128 takerFee = _computeFee(takerOrder.feeRateBps, takerOrder.pricePerToken, takerFillAmount, takerOrder.collateralToken);
-
-        // Process each maker
+        // Process each maker (Fix 3: taker fee computed per-maker, not once for full amount)
+        uint128 totalTakerFee;
         for (uint256 i; i < makerOrders.length; ++i) {
             if (makerFillAmounts[i] == 0) revert Errors.ZeroAmount();
             if (makerOrders[i].maker == takerOrder.maker) revert Errors.SelfTrade();
@@ -111,8 +118,10 @@ contract SettlementFacet is ISettlement {
             // Determine and execute settlement path
             uint8 matchType = _determineMatchType(ss, takerOrder, makerOrders[i]);
             uint128 makerFee = _computeFee(makerOrders[i].feeRateBps, makerOrders[i].pricePerToken, makerFillAmounts[i], makerOrders[i].collateralToken);
+            uint128 takerFeeForThisMaker = _computeFee(takerOrder.feeRateBps, takerOrder.pricePerToken, makerFillAmounts[i], takerOrder.collateralToken);
+            totalTakerFee += takerFeeForThisMaker;
 
-            _executeSettlement(takerOrder, makerOrders[i], makerFillAmounts[i], takerFee, makerFee, matchType);
+            _executeSettlement(takerOrder, makerOrders[i], makerFillAmounts[i], takerFeeForThisMaker, makerFee, matchType);
 
             // Update maker fill state
             ss.orderHashToFilledAmount[makerHash] += makerFillAmounts[i];
@@ -123,7 +132,7 @@ contract SettlementFacet is ISettlement {
 
         // Update taker fill state
         ss.orderHashToFilledAmount[takerHash] += takerFillAmount;
-        emit Events.OrderSettled(takerHash, takerOrder.maker, takerFillAmount, takerFee);
+        emit Events.OrderSettled(takerHash, takerOrder.maker, takerFillAmount, totalTakerFee);
     }
 
     /**
@@ -196,6 +205,33 @@ contract SettlementFacet is ISettlement {
         LibSettlementStorage.SettlementStorage storage ss = LibSettlementStorage.settlementStorage();
         ss.tradingPaused = false;
         emit Events.SettlementTradingUnpaused(msg.sender);
+    }
+
+    /**
+     * @notice Register a position pair (complement mapping) for settlement
+     * @dev Sets both directions: A→B and B→A. Owner only.
+     * @param positionIdA Position ID for outcome A
+     * @param positionIdB Position ID for outcome B (complement)
+     * @param conditionId The CTF condition ID both positions belong to
+     * @param collateralToken The collateral token for these positions
+     */
+    function registerPositionPair(
+        bytes32 positionIdA,
+        bytes32 positionIdB,
+        bytes32 conditionId,
+        address collateralToken
+    ) external {
+        LibDiamond.enforceIsContractOwner();
+        LibSettlementStorage.SettlementStorage storage ss = LibSettlementStorage.settlementStorage();
+
+        ss.positionToComplement[positionIdA] = positionIdB;
+        ss.positionToComplement[positionIdB] = positionIdA;
+
+        ss.positionToCondition[positionIdA] = conditionId;
+        ss.positionToCondition[positionIdB] = conditionId;
+
+        ss.positionToCollateral[positionIdA] = collateralToken;
+        ss.positionToCollateral[positionIdB] = collateralToken;
     }
 
     // ========================================
@@ -359,8 +395,9 @@ contract SettlementFacet is ISettlement {
 
     /**
      * @dev Complementary settlement: Buy vs Sell on same position
-     *      Buyer's SCW transfers collateral to seller's SCW
-     *      Seller's SCW transfers position tokens to buyer's SCW
+     *      Buyer pays collateral to seller + buyer's own fee to feeReceiver.
+     *      Seller pays their own fee to feeReceiver from proceeds.
+     *      Seller transfers position tokens to buyer.
      */
     function _settleComplementary(
         LibDoefinOrder.DoefinOrder calldata taker,
@@ -373,38 +410,31 @@ contract SettlementFacet is ISettlement {
         uint256 unit = ds.adminConfigStorage.unitPerPair[taker.collateralToken];
         address feeReceiver = ds.adminConfigStorage.feeReceiver;
 
-        // Determine buyer and seller
-        address buyer;
-        address seller;
-        uint128 price;
-        if (taker.side == 0) {
-            // Taker is buyer
-            buyer = taker.maker;
-            seller = maker.maker;
-            price = taker.pricePerToken;
-        } else {
-            // Taker is seller
-            buyer = maker.maker;
-            seller = taker.maker;
-            price = maker.pricePerToken;
+        // Determine buyer/seller and their respective fees
+        bool takerIsBuyer = taker.side == 0;
+        address buyerAddr = takerIsBuyer ? taker.maker : maker.maker;
+        address sellerAddr = takerIsBuyer ? maker.maker : taker.maker;
+        uint128 buyerFee = takerIsBuyer ? takerFee : makerFee;
+        uint128 sellerFee = takerIsBuyer ? makerFee : takerFee;
+
+        // Use maker's price as execution price (maker is passive, taker is aggressor)
+        uint256 collateralAmount = (uint256(maker.pricePerToken) * uint256(fillAmount)) / unit;
+
+        // Buyer pays collateral to seller
+        IERC20(taker.collateralToken).safeTransferFrom(buyerAddr, sellerAddr, collateralAmount);
+
+        // Buyer pays their own fee
+        if (buyerFee > 0) {
+            IERC20(taker.collateralToken).safeTransferFrom(buyerAddr, feeReceiver, buyerFee);
         }
 
-        // Collateral cost for the fill
-        uint256 collateralAmount = (uint256(price) * uint256(fillAmount)) / unit;
-        uint256 totalFees = uint256(takerFee) + uint256(makerFee);
-
-        // Buyer pays collateral to seller (minus fees)
-        IERC20(taker.collateralToken).safeTransferFrom(buyer, seller, collateralAmount - totalFees);
-
-        // Fees to fee receiver
-        if (totalFees > 0) {
-            IERC20(taker.collateralToken).safeTransferFrom(buyer, feeReceiver, totalFees);
+        // Seller pays their own fee (from proceeds)
+        if (sellerFee > 0) {
+            IERC20(taker.collateralToken).safeTransferFrom(sellerAddr, feeReceiver, sellerFee);
         }
 
         // Seller transfers position tokens to buyer
-        // The Diamond is the ERC1155 contract, so we use internal transfers
-        // operator = address(this) (Diamond), from = seller, to = buyer
-        LibERC1155.safeTransferFrom(address(this), seller, buyer, uint256(taker.positionId), fillAmount, "");
+        LibERC1155.safeTransferFrom(address(this), sellerAddr, buyerAddr, uint256(taker.positionId), fillAmount, "");
     }
 
     /**
@@ -420,13 +450,14 @@ contract SettlementFacet is ISettlement {
         uint128 takerFee,
         uint128 makerFee
     ) internal {
+        if (taker.collateralToken != maker.collateralToken) revert Errors.InvalidMatch();
+
         LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
         LibSettlementStorage.SettlementStorage storage ss = LibSettlementStorage.settlementStorage();
         uint256 unit = ds.adminConfigStorage.unitPerPair[taker.collateralToken];
         address feeReceiver = ds.adminConfigStorage.feeReceiver;
 
-        // Both buyers contribute collateral for the split
-        // Total collateral needed = fillAmount (1 unit of collateral per 1 unit of each position)
+        // Both buyers contribute collateral for the split (total = fillAmount in collateral units)
         uint256 takerCollateral = (uint256(taker.pricePerToken) * uint256(fillAmount)) / unit;
         uint256 makerCollateral = (uint256(maker.pricePerToken) * uint256(fillAmount)) / unit;
 
@@ -451,6 +482,8 @@ contract SettlementFacet is ISettlement {
         partition[0] = _getIndexSet(taker.positionId);
         partition[1] = _getIndexSet(maker.positionId);
 
+        // Release reentrancy lock before calling _splitPosition (which re-acquires it internally)
+        LibReentrancyGuard._nonReentrantAfter();
         LibCTFCondition._splitPosition(
             address(this),
             taker.collateralToken,
@@ -459,6 +492,8 @@ contract SettlementFacet is ISettlement {
             fillAmount,
             partition
         );
+        // Re-acquire reentrancy lock for remainder of settlement
+        LibReentrancyGuard._nonReentrantBefore();
 
         // Transfer minted positions to respective buyers
         LibERC1155.safeTransferFrom(address(this), address(this), taker.maker, uint256(taker.positionId), fillAmount, "");
@@ -478,6 +513,8 @@ contract SettlementFacet is ISettlement {
         uint128 takerFee,
         uint128 makerFee
     ) internal {
+        if (taker.collateralToken != maker.collateralToken) revert Errors.InvalidMatch();
+
         LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
         LibSettlementStorage.SettlementStorage storage ss = LibSettlementStorage.settlementStorage();
         uint256 unit = ds.adminConfigStorage.unitPerPair[taker.collateralToken];
@@ -493,6 +530,8 @@ contract SettlementFacet is ISettlement {
         partition[0] = _getIndexSet(taker.positionId);
         partition[1] = _getIndexSet(maker.positionId);
 
+        // Release reentrancy lock before calling _mergePositions (which re-acquires it internally)
+        LibReentrancyGuard._nonReentrantAfter();
         LibCTFCondition._mergePositions(
             address(this),
             taker.collateralToken,
@@ -501,6 +540,8 @@ contract SettlementFacet is ISettlement {
             partition,
             fillAmount
         );
+        // Re-acquire reentrancy lock for remainder of settlement
+        LibReentrancyGuard._nonReentrantBefore();
 
         // Distribute collateral to sellers based on their prices
         uint256 takerPayout = (uint256(taker.pricePerToken) * uint256(fillAmount)) / unit;

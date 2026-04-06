@@ -39,4 +39,11 @@ interface ISettlement {
     function getOperator() external view returns (address);
 
     function isTradingPaused() external view returns (bool);
+
+    function registerPositionPair(
+        bytes32 positionIdA,
+        bytes32 positionIdB,
+        bytes32 conditionId,
+        address collateralToken
+    ) external;
 }
