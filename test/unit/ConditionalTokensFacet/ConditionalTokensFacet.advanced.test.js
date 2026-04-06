@@ -15,6 +15,10 @@ const {
   revertToSnapshot,
 } = require("../../utils/snapshotUtils.js");
 const { deployMockERC20 } = require("../../mock/deployMocks");
+const {
+  QuestionType,
+  encodeDifficultyThreshold,
+} = require("../../utils/oracleAdapterUtils.js");
 
 describe("ConditionalTokensFacet Advanced", function () {
   let owner, oracle, oracle2, user1, user2, marketMaker;
@@ -264,6 +268,123 @@ describe("ConditionalTokensFacet Advanced", function () {
         testConditionId
       );
       expect(storedPayouts[0]).to.equal(ethers.constants.MaxUint256);
+    });
+  });
+
+  describe("Admin Condition Resolution", function () {
+    const metadataURI = "ipfs://admin-resolve-test";
+    const threshold = ethers.utils.parseUnits("50", "gwei");
+    const targetBlockHeight = ethers.BigNumber.from("10000000");
+    const outcomeSlotCount = 2;
+
+    async function createDiamondOracleCondition() {
+      const metadata = encodeDifficultyThreshold(threshold, targetBlockHeight);
+
+      const [conditionId, questionId] = await conditionManagerFacet
+        .connect(marketMaker)
+        .callStatic.createConditionWithMetadata(
+          QuestionType.DifficultyThreshold,
+          metadata,
+          outcomeSlotCount,
+          metadataURI,
+          ethers.constants.HashZero
+        );
+
+      await conditionManagerFacet
+        .connect(marketMaker)
+        .createConditionWithMetadata(
+          QuestionType.DifficultyThreshold,
+          metadata,
+          outcomeSlotCount,
+          metadataURI,
+          ethers.constants.HashZero
+        );
+
+      return { conditionId, questionId };
+    }
+
+    it("should allow owner to resolve a diamond-oracle condition", async () => {
+      const { conditionId, questionId } = await createDiamondOracleCondition();
+      const payouts = [0, 1];
+
+      await expect(
+        conditionalTokensFacet
+          .connect(owner)
+          .adminResolveCondition(conditionId, payouts)
+      )
+        .to.emit(conditionalTokensFacet, "ConditionResolution")
+        .withArgs(
+          conditionId,
+          diamondAddress,
+          questionId,
+          outcomeSlotCount,
+          payouts
+        );
+
+      const storedPayouts = await conditionalTokensFacet.getPayoutNumerators(
+        conditionId
+      );
+      expect(storedPayouts.map((p) => p.toNumber())).to.deep.equal(payouts);
+    });
+
+    it("should revert when non-owner tries to resolve", async () => {
+      const { conditionId } = await createDiamondOracleCondition();
+
+      await expect(
+        conditionalTokensFacet
+          .connect(user2)
+          .adminResolveCondition(conditionId, [1, 0])
+      ).to.be.revertedWith("NotAuthorized()");
+    });
+
+    it("should revert when condition does not exist", async () => {
+      const missingConditionId = ethers.utils.id("missing-admin-condition");
+
+      await expect(
+        conditionalTokensFacet
+          .connect(owner)
+          .adminResolveCondition(missingConditionId, [1, 0])
+      ).to.be.revertedWith("ConditionDoesNotExist()");
+    });
+
+    it("should revert for non-diamond oracle conditions", async () => {
+      const questionId = ethers.utils.id("legacy-admin-resolve-question");
+      const conditionId = getConditionId(oracle.address, questionId, 2);
+
+      await conditionManagerFacet
+        .connect(marketMaker)
+        .createCondition(oracle.address, questionId, 2, "ipfs://legacy-condition");
+
+      await expect(
+        conditionalTokensFacet
+          .connect(owner)
+          .adminResolveCondition(conditionId, [1, 0])
+      ).to.be.revertedWith("InvalidOracleAddress()");
+    });
+
+    it("should revert when payout length does not match outcome count", async () => {
+      const { conditionId } = await createDiamondOracleCondition();
+
+      await expect(
+        conditionalTokensFacet
+          .connect(owner)
+          .adminResolveCondition(conditionId, [1, 0, 0])
+      ).to.be.revertedWith("InvalidPayoutLength()");
+    });
+
+    it("should revert if the condition is already resolved", async () => {
+      const { conditionId } = await createDiamondOracleCondition();
+      const payouts = [1, 0];
+
+      await conditionalTokensFacet
+        .connect(owner)
+        .adminResolveCondition(conditionId, payouts);
+
+      await expect(
+        conditionalTokensFacet
+          .connect(owner)
+          .adminResolveCondition(conditionId, payouts)
+      ).to.be.revertedWith("ConditionAlreadyResolved()");
     });
   });
 
