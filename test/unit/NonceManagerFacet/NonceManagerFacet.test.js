@@ -150,6 +150,14 @@ describe("NonceManagerFacet", function () {
         nonceMgr.connect(maker).cancelOrder(order3)
       ).to.be.revertedWith("NotOrderMaker()");
     });
+
+    it("should revert when cancelling an already cancelled order", async function () {
+      const order4 = makeOrder(otherUser.address, { salt: 300 });
+      await nonceMgr.connect(otherUser).cancelOrder(order4);
+      await expect(
+        nonceMgr.connect(otherUser).cancelOrder(order4)
+      ).to.be.reverted;
+    });
   });
 
   // ========================================
@@ -206,6 +214,23 @@ describe("NonceManagerFacet", function () {
       });
       const valid = await nonceMgr.isOrderValid(order);
       expect(valid).to.equal(false);
+    });
+
+    it("should revert when setting minValidSalt to a lower or equal value", async function () {
+      const posId = ethers.utils.formatBytes32String("pos-salt-guard");
+      await nonceMgr.connect(maker).cancelOrdersForPosition(posId, 100);
+      // Try setting to same value
+      await expect(
+        nonceMgr.connect(maker).cancelOrdersForPosition(posId, 100)
+      ).to.be.revertedWith("InvalidSaltThreshold()");
+      // Try setting to lower value
+      await expect(
+        nonceMgr.connect(maker).cancelOrdersForPosition(posId, 50)
+      ).to.be.revertedWith("InvalidSaltThreshold()");
+      // Higher value should succeed
+      await expect(
+        nonceMgr.connect(maker).cancelOrdersForPosition(posId, 200)
+      ).to.not.be.reverted;
     });
 
     it("should accept orders with salt at or above minimum", async function () {
