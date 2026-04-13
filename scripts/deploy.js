@@ -150,6 +150,10 @@ async function deployDiamond() {
     "MarketDataFacet",
     "OracleAdapterFacet",
     "OracleManagerFacet",
+    // v2.1 Settlement facets
+    "SignatureVerifierFacet",
+    "NonceManagerFacet",
+    "SettlementFacet",
   ];
   const cut = [];
   for (const FacetName of FacetNames) {
