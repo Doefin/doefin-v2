@@ -1,10 +1,6 @@
 const { expect } = require("chai");
 const { ethers } = require("hardhat");
 const { deployDiamond } = require("../../../scripts/deploy.js");
-const {
-  getSelectors,
-  FacetCutAction,
-} = require("../../../scripts/libraries/diamond.js");
 const { getConditionId, getCollectionId, getPositionId } = require("../../utils/ctfUtils.js");
 
 describe("SettlementFacet", function () {
@@ -94,30 +90,8 @@ describe("SettlementFacet", function () {
   before(async function () {
     [owner, operator, buyer, seller, buyerB, feeReceiver] = await ethers.getSigners();
 
-    // Deploy Diamond with standard facets
+    // Deploy Diamond with all facets (including v2.1 settlement facets)
     diamondAddress = await deployDiamond();
-
-    // Add new v2.1 facets to Diamond
-    const diamondCut = await ethers.getContractAt("IDiamondCut", diamondAddress);
-
-    const facetsToDeploy = [
-      "SignatureVerifierFacet",
-      "NonceManagerFacet",
-      "SettlementFacet",
-    ];
-    const cuts = [];
-    for (const name of facetsToDeploy) {
-      const Factory = await ethers.getContractFactory(name);
-      const facet = await Factory.deploy();
-      await facet.deployed();
-      cuts.push({
-        facetAddress: facet.address,
-        action: FacetCutAction.Add,
-        functionSelectors: getSelectors(facet),
-      });
-    }
-    const tx = await diamondCut.diamondCut(cuts, ethers.constants.AddressZero, "0x");
-    await tx.wait();
 
     // Get facet interfaces on Diamond
     settlement = await ethers.getContractAt("SettlementFacet", diamondAddress);
