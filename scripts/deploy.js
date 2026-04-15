@@ -246,6 +246,36 @@ async function deployDiamond() {
     }
   }
 
+  // --- v2.1 Settlement initialization ---
+  if (process.env.OPERATOR_ADDRESS) {
+    const settlement = await ethers.getContractAt("ISettlement", diamond.address);
+    const setOpTx = await settlement.setOperator(process.env.OPERATOR_ADDRESS);
+    await setOpTx.wait();
+    console.log("Operator set to:", process.env.OPERATOR_ADDRESS);
+  } else {
+    console.log("WARNING: OPERATOR_ADDRESS not set in .env. Call setOperator() manually after deployment.");
+  }
+
+  // Log deployment info for backend configuration
+  try {
+    const verifier = await ethers.getContractAt("ISignatureVerifier", diamond.address);
+    const domainSep = await verifier.getDomainSeparator();
+    const network = await ethers.provider.getNetwork();
+    const blockNumber = await ethers.provider.getBlockNumber();
+
+    console.log("\n========== BACKEND CONFIGURATION ==========");
+    console.log("DIAMOND_CONTRACT_ADDRESS=" + diamond.address);
+    console.log("CHAIN_ID=" + network.chainId);
+    console.log("DOMAIN_SEPARATOR=" + domainSep);
+    console.log("DEPLOY_BLOCK=" + blockNumber);
+    if (process.env.OPERATOR_ADDRESS) {
+      console.log("OPERATOR_ADDRESS=" + process.env.OPERATOR_ADDRESS);
+    }
+    console.log("============================================\n");
+  } catch (e) {
+    console.log("Warning: Could not read deployment info:", e.message);
+  }
+
   return diamond.address;
 }
 
