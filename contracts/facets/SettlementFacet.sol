@@ -29,6 +29,9 @@ contract SettlementFacet is ISettlement {
     uint8 internal constant MATCH_MINT = 2;
     uint8 internal constant MATCH_MERGE = 3;
 
+    // Fee safety cap (5%)
+    uint16 internal constant MAX_FEE_RATE_BPS = 500;
+
     // ========================================
     // MODIFIERS
     // ========================================
@@ -614,6 +617,7 @@ contract SettlementFacet is ISettlement {
         address collateralToken
     ) internal view returns (uint128) {
         if (feeRateBps == 0) return 0;
+        if (feeRateBps > MAX_FEE_RATE_BPS) revert Errors.FeeTooHigh();
         LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
         uint128 unit = uint128(ds.adminConfigStorage.unitPerPair[collateralToken]);
         uint128 complementPrice = unit - price;

@@ -719,6 +719,73 @@ describe("SettlementFacet", function () {
   });
 
   // ========================================
+  // FEE RATE CAP TESTS (HIGH-1)
+  // ========================================
+
+  describe("Fee rate cap (MAX_FEE_RATE_BPS)", function () {
+    const fillAmount = ethers.utils.parseUnits("100", 6);
+    const price = UNIT.div(2);
+
+    it("should revert when feeRateBps exceeds 500 (5%)", async function () {
+      const takerOrder = makeOrder(buyer.address, positionIdA, 0, fillAmount, price, { salt: 21000, feeRateBps: 501 });
+      const makerOrder = makeOrder(seller.address, positionIdA, 1, fillAmount, price, { salt: 21000, feeRateBps: FEE_BPS });
+
+      const takerSig = await signOrder(buyer, takerOrder);
+      const makerSig = await signOrder(seller, makerOrder);
+
+      await expect(
+        settlement.connect(operator).matchOrders(
+          takerOrder, takerSig, 0,
+          [makerOrder], [makerSig], [0],
+          fillAmount, [fillAmount]
+        )
+      ).to.be.revertedWith("FeeTooHigh()");
+    });
+
+    it("should revert when maker feeRateBps exceeds 500", async function () {
+      const takerOrder = makeOrder(buyer.address, positionIdA, 0, fillAmount, price, { salt: 21001, feeRateBps: FEE_BPS });
+      const makerOrder = makeOrder(seller.address, positionIdA, 1, fillAmount, price, { salt: 21001, feeRateBps: 501 });
+
+      const takerSig = await signOrder(buyer, takerOrder);
+      const makerSig = await signOrder(seller, makerOrder);
+
+      await expect(
+        settlement.connect(operator).matchOrders(
+          takerOrder, takerSig, 0,
+          [makerOrder], [makerSig], [0],
+          fillAmount, [fillAmount]
+        )
+      ).to.be.revertedWith("FeeTooHigh()");
+    });
+
+    it("should succeed at exactly 500 bps (5%)", async function () {
+      const takerOrder = makeOrder(buyer.address, positionIdA, 0, fillAmount, price, { salt: 21002, feeRateBps: 500 });
+      const makerOrder = makeOrder(seller.address, positionIdA, 1, fillAmount, price, { salt: 21002, feeRateBps: 500 });
+
+      const takerSig = await signOrder(buyer, takerOrder);
+      const makerSig = await signOrder(seller, makerOrder);
+
+      await settlement.connect(operator).matchOrders(
+        takerOrder, takerSig, 0,
+        [makerOrder], [makerSig], [0],
+        fillAmount, [fillAmount]
+      );
+
+      const takerHash = await sigVerifier.getOrderHash(takerOrder);
+      expect(await settlement.getFilledAmount(takerHash)).to.equal(fillAmount);
+    });
+
+    it("should revert fillOrder when feeRateBps exceeds 500", async function () {
+      const order = makeOrder(buyer.address, positionIdA, 0, fillAmount, price, { salt: 21003, feeRateBps: 10000 });
+      const sig = await signOrder(buyer, order);
+
+      await expect(
+        settlement.connect(operator).fillOrder(order, sig, 0, fillAmount)
+      ).to.be.revertedWith("FeeTooHigh()");
+    });
+  });
+
+  // ========================================
   // PRICE SUM INVARIANT TESTS (CRITICAL-1)
   // ========================================
 
