@@ -431,6 +431,11 @@ contract SettlementFacet is ISettlement {
         uint128 buyerFee = takerIsBuyer ? takerFee : makerFee;
         uint128 sellerFee = takerIsBuyer ? makerFee : takerFee;
 
+        // Verify price compatibility: buyer's price must be >= seller's price
+        uint128 buyerPrice = takerIsBuyer ? taker.pricePerToken : maker.pricePerToken;
+        uint128 sellerPrice = takerIsBuyer ? maker.pricePerToken : taker.pricePerToken;
+        if (buyerPrice < sellerPrice) revert Errors.InvalidMatch();
+
         // Use maker's price as execution price (maker is passive, taker is aggressor)
         uint256 collateralAmount = (uint256(maker.pricePerToken) * uint256(fillAmount)) / unit;
 

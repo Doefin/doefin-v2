@@ -1121,4 +1121,92 @@ describe("SettlementFacet", function () {
       expect(await settlement.getFilledAmount(takerHash)).to.equal(fillAmount);
     });
   });
+
+  // ========================================
+  // COMPLEMENTARY PRICE COMPATIBILITY (MEDIUM-2)
+  // ========================================
+
+  describe("Complementary price compatibility", function () {
+    const fillAmount = ethers.utils.parseUnits("100", 6);
+
+    it("should revert when buyer price < seller price", async function () {
+      // Buyer at 0.3, seller at 0.7 -- buyer cannot afford the seller's ask
+      const buyerPrice = UNIT.mul(3).div(10); // 0.3
+      const sellerPrice = UNIT.mul(7).div(10); // 0.7
+
+      const takerOrder = makeOrder(buyer.address, positionIdA, 0, fillAmount, buyerPrice, { salt: 31000 });
+      const makerOrder = makeOrder(seller.address, positionIdA, 1, fillAmount, sellerPrice, { salt: 31000 });
+
+      const takerSig = await signOrder(buyer, takerOrder);
+      const makerSig = await signOrder(seller, makerOrder);
+
+      await expect(
+        settlement.connect(operator).matchOrders(
+          takerOrder, takerSig, 0,
+          [makerOrder], [makerSig], [0],
+          fillAmount, [fillAmount]
+        )
+      ).to.be.revertedWith("InvalidMatch()");
+    });
+
+    it("should succeed when buyer price > seller price", async function () {
+      // Buyer at 0.7, seller at 0.3 -- buyer willing to pay more than seller asks
+      const buyerPrice = UNIT.mul(7).div(10); // 0.7
+      const sellerPrice = UNIT.mul(3).div(10); // 0.3
+
+      const takerOrder = makeOrder(buyer.address, positionIdA, 0, fillAmount, buyerPrice, { salt: 31001 });
+      const makerOrder = makeOrder(seller.address, positionIdA, 1, fillAmount, sellerPrice, { salt: 31001 });
+
+      const takerSig = await signOrder(buyer, takerOrder);
+      const makerSig = await signOrder(seller, makerOrder);
+
+      await settlement.connect(operator).matchOrders(
+        takerOrder, takerSig, 0,
+        [makerOrder], [makerSig], [0],
+        fillAmount, [fillAmount]
+      );
+
+      const takerHash = await sigVerifier.getOrderHash(takerOrder);
+      expect(await settlement.getFilledAmount(takerHash)).to.equal(fillAmount);
+    });
+
+    it("should succeed when buyer price == seller price", async function () {
+      const price = UNIT.div(2); // 0.5
+
+      const takerOrder = makeOrder(buyer.address, positionIdA, 0, fillAmount, price, { salt: 31002 });
+      const makerOrder = makeOrder(seller.address, positionIdA, 1, fillAmount, price, { salt: 31002 });
+
+      const takerSig = await signOrder(buyer, takerOrder);
+      const makerSig = await signOrder(seller, makerOrder);
+
+      await settlement.connect(operator).matchOrders(
+        takerOrder, takerSig, 0,
+        [makerOrder], [makerSig], [0],
+        fillAmount, [fillAmount]
+      );
+
+      const takerHash = await sigVerifier.getOrderHash(takerOrder);
+      expect(await settlement.getFilledAmount(takerHash)).to.equal(fillAmount);
+    });
+
+    it("should revert when taker is seller and maker buyer price < taker seller price", async function () {
+      // Taker is the seller (side=1) at 0.7, maker is the buyer (side=0) at 0.3
+      const sellerPrice = UNIT.mul(7).div(10);
+      const buyerPrice = UNIT.mul(3).div(10);
+
+      const takerOrder = makeOrder(seller.address, positionIdA, 1, fillAmount, sellerPrice, { salt: 31003 });
+      const makerOrder = makeOrder(buyer.address, positionIdA, 0, fillAmount, buyerPrice, { salt: 31003 });
+
+      const takerSig = await signOrder(seller, takerOrder);
+      const makerSig = await signOrder(buyer, makerOrder);
+
+      await expect(
+        settlement.connect(operator).matchOrders(
+          takerOrder, takerSig, 0,
+          [makerOrder], [makerSig], [0],
+          fillAmount, [fillAmount]
+        )
+      ).to.be.revertedWith("InvalidMatch()");
+    });
+  });
 });
