@@ -261,7 +261,16 @@ contract SettlementFacet is ISettlement {
     // ========================================
 
     function _getDomainSeparator() internal view returns (bytes32) {
+        LibSettlementStorage.SettlementStorage storage ss = LibSettlementStorage.settlementStorage();
+        if (ss.domainSeparator != bytes32(0)) return ss.domainSeparator;
         return LibDoefinOrder.domainSeparator("Doefin Exchange", "2.1", block.chainid, address(this));
+    }
+
+    /// @notice Cache the EIP-712 domain separator (owner only, call once after deployment)
+    function cacheDomainSeparator() external {
+        LibDiamond.enforceIsContractOwner();
+        LibSettlementStorage.SettlementStorage storage ss = LibSettlementStorage.settlementStorage();
+        ss.domainSeparator = LibDoefinOrder.domainSeparator("Doefin Exchange", "2.1", block.chainid, address(this));
     }
 
     /**

@@ -46,4 +46,6 @@ interface ISettlement {
         bytes32 conditionId,
         address collateralToken
     ) external;
+
+    function cacheDomainSeparator() external;
 }

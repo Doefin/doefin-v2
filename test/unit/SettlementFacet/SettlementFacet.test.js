@@ -1255,4 +1255,50 @@ describe("SettlementFacet", function () {
       expect(await settlement.getFilledAmount(takerHash)).to.equal(fillAmount);
     });
   });
+
+  // ========================================
+  // DOMAIN SEPARATOR CACHE (LOW-1)
+  // ========================================
+
+  describe("cacheDomainSeparator", function () {
+    it("should cache domain separator and produce the same value as getDomainSeparator", async function () {
+      const domainSepBefore = await sigVerifier.getDomainSeparator();
+
+      // Cache it
+      await settlement.cacheDomainSeparator();
+
+      // Verify getDomainSeparator still returns the same value
+      const domainSepAfter = await sigVerifier.getDomainSeparator();
+      expect(domainSepAfter).to.equal(domainSepBefore);
+    });
+
+    it("should still settle orders correctly after caching", async function () {
+      const fillAmount = ethers.utils.parseUnits("100", 6);
+      const price = UNIT.div(2);
+
+      // Ensure cache is set
+      await settlement.cacheDomainSeparator();
+
+      const takerOrder = makeOrder(buyer.address, positionIdA, 0, fillAmount, price, { salt: 33000 });
+      const makerOrder = makeOrder(seller.address, positionIdA, 1, fillAmount, price, { salt: 33000 });
+
+      const takerSig = await signOrder(buyer, takerOrder);
+      const makerSig = await signOrder(seller, makerOrder);
+
+      await settlement.connect(operator).matchOrders(
+        takerOrder, takerSig, 0,
+        [makerOrder], [makerSig], [0],
+        fillAmount, [fillAmount]
+      );
+
+      const takerHash = await sigVerifier.getOrderHash(takerOrder);
+      expect(await settlement.getFilledAmount(takerHash)).to.equal(fillAmount);
+    });
+
+    it("should revert cacheDomainSeparator from non-owner", async function () {
+      await expect(
+        settlement.connect(operator).cacheDomainSeparator()
+      ).to.be.revertedWith("NotContractOwner()");
+    });
+  });
 });
