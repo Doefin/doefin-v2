@@ -719,6 +719,117 @@ describe("SettlementFacet", function () {
   });
 
   // ========================================
+  // PRICE SUM INVARIANT TESTS (CRITICAL-1)
+  // ========================================
+
+  describe("Price sum invariant", function () {
+    const fillAmount = ethers.utils.parseUnits("100", 6);
+
+    it("should revert mint when prices do not sum to unit", async function () {
+      // 0.3 + 0.3 = 0.6 != 1.0 — under-collateralized
+      const priceA = UNIT.mul(3).div(10); // 0.3
+      const priceB = UNIT.mul(3).div(10); // 0.3
+
+      const takerOrder = makeOrder(buyer.address, positionIdA, 0, fillAmount, priceA, { salt: 20000 });
+      const makerOrder = makeOrder(buyerB.address, positionIdB, 0, fillAmount, priceB, { salt: 20000 });
+
+      const takerSig = await signOrder(buyer, takerOrder);
+      const makerSig = await signOrder(buyerB, makerOrder);
+
+      await expect(
+        settlement.connect(operator).matchOrders(
+          takerOrder, takerSig, 0,
+          [makerOrder], [makerSig], [0],
+          fillAmount, [fillAmount]
+        )
+      ).to.be.revertedWith("InvalidMatch()");
+    });
+
+    it("should revert mint when prices exceed unit", async function () {
+      // 0.7 + 0.7 = 1.4 > 1.0 — over-collateralized
+      const priceA = UNIT.mul(7).div(10);
+      const priceB = UNIT.mul(7).div(10);
+
+      const takerOrder = makeOrder(buyer.address, positionIdA, 0, fillAmount, priceA, { salt: 20001 });
+      const makerOrder = makeOrder(buyerB.address, positionIdB, 0, fillAmount, priceB, { salt: 20001 });
+
+      const takerSig = await signOrder(buyer, takerOrder);
+      const makerSig = await signOrder(buyerB, makerOrder);
+
+      await expect(
+        settlement.connect(operator).matchOrders(
+          takerOrder, takerSig, 0,
+          [makerOrder], [makerSig], [0],
+          fillAmount, [fillAmount]
+        )
+      ).to.be.revertedWith("InvalidMatch()");
+    });
+
+    it("should succeed mint when prices sum to exactly unit", async function () {
+      const priceA = UNIT.mul(6).div(10); // 0.6
+      const priceB = UNIT.mul(4).div(10); // 0.4
+
+      const takerOrder = makeOrder(buyer.address, positionIdA, 0, fillAmount, priceA, { salt: 20002 });
+      const makerOrder = makeOrder(buyerB.address, positionIdB, 0, fillAmount, priceB, { salt: 20002 });
+
+      const takerSig = await signOrder(buyer, takerOrder);
+      const makerSig = await signOrder(buyerB, makerOrder);
+
+      await settlement.connect(operator).matchOrders(
+        takerOrder, takerSig, 0,
+        [makerOrder], [makerSig], [0],
+        fillAmount, [fillAmount]
+      );
+
+      // Verify positions were minted
+      const buyerPos = await erc1155Facet.balanceOf(buyer.address, positionIdA);
+      expect(buyerPos.gt(0)).to.equal(true);
+    });
+
+    it("should revert merge when payouts exceed fillAmount", async function () {
+      // 0.7 + 0.7 = 1.4 > 1.0
+      const priceA = UNIT.mul(7).div(10);
+      const priceB = UNIT.mul(7).div(10);
+
+      const takerOrder = makeOrder(seller.address, positionIdA, 1, fillAmount, priceA, { salt: 20003 });
+      const makerOrder = makeOrder(buyerB.address, positionIdB, 1, fillAmount, priceB, { salt: 20003 });
+
+      const takerSig = await signOrder(seller, takerOrder);
+      const makerSig = await signOrder(buyerB, makerOrder);
+
+      await expect(
+        settlement.connect(operator).matchOrders(
+          takerOrder, takerSig, 0,
+          [makerOrder], [makerSig], [0],
+          fillAmount, [fillAmount]
+        )
+      ).to.be.revertedWith("InvalidMatch()");
+    });
+
+    it("should succeed merge when payouts equal fillAmount", async function () {
+      const priceA = UNIT.mul(6).div(10); // 0.6
+      const priceB = UNIT.mul(4).div(10); // 0.4
+
+      const takerOrder = makeOrder(seller.address, positionIdA, 1, fillAmount, priceA, { salt: 20004 });
+      const makerOrder = makeOrder(buyerB.address, positionIdB, 1, fillAmount, priceB, { salt: 20004 });
+
+      const takerSig = await signOrder(seller, takerOrder);
+      const makerSig = await signOrder(buyerB, makerOrder);
+
+      const sellerCollBefore = await collateral.balanceOf(seller.address);
+
+      await settlement.connect(operator).matchOrders(
+        takerOrder, takerSig, 0,
+        [makerOrder], [makerSig], [0],
+        fillAmount, [fillAmount]
+      );
+
+      const sellerCollAfter = await collateral.balanceOf(seller.address);
+      expect(sellerCollAfter.sub(sellerCollBefore).gt(0)).to.equal(true);
+    });
+  });
+
+  // ========================================
   // EDGE CASE: EXACT REMAINING FILL
   // ========================================
 

@@ -457,9 +457,12 @@ contract SettlementFacet is ISettlement {
         uint256 unit = ds.adminConfigStorage.unitPerPair[taker.collateralToken];
         address feeReceiver = ds.adminConfigStorage.feeReceiver;
 
-        // Both buyers contribute collateral for the split (total = fillAmount in collateral units)
+        // Both buyers contribute collateral for the split (total must equal fillAmount)
         uint256 takerCollateral = (uint256(taker.pricePerToken) * uint256(fillAmount)) / unit;
         uint256 makerCollateral = (uint256(maker.pricePerToken) * uint256(fillAmount)) / unit;
+
+        // Invariant: prices must sum to unit so total collateral equals the split amount
+        if (takerCollateral + makerCollateral != fillAmount) revert Errors.InvalidMatch();
 
         // Collect collateral from both buyers to Diamond
         IERC20(taker.collateralToken).safeTransferFrom(taker.maker, address(this), takerCollateral);
@@ -542,6 +545,9 @@ contract SettlementFacet is ISettlement {
         // Distribute collateral to sellers based on their prices
         uint256 takerPayout = (uint256(taker.pricePerToken) * uint256(fillAmount)) / unit;
         uint256 makerPayout = (uint256(maker.pricePerToken) * uint256(fillAmount)) / unit;
+
+        // Invariant: payouts must not exceed recovered collateral
+        if (takerPayout + makerPayout > fillAmount) revert Errors.InvalidMatch();
 
         // Deduct fees and transfer
         if (takerPayout > takerFee) {
