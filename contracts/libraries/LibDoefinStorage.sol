@@ -132,28 +132,33 @@ library LibDoefinStorage {
         uint256[10] __gap;
     }
 
+    // DEPRECATED (v2.0): preserved for storage layout safety, do not use
     /// @notice Enum representing whether an order is a Buy or a Sell
     enum OrderDirection {
         Buy,
         Sell
     }
 
+    // DEPRECATED (v2.0): preserved for storage layout safety, do not use
     enum ExecutionType {
         Market,
         Limit
     }
 
+    // DEPRECATED (v2.0): preserved for storage layout safety, do not use
     enum OrderType {
         Standard, // Regular buy/sell in collateral token
         Fixed, // Orders that use quote currency for pricing/settlement
         Dynamic // Orders that use dynamic exchange rates from oracles, priced in collateral token
     }
 
+    // DEPRECATED (v2.0): preserved for storage layout safety, do not use
     struct OrderFeeConfig {
         uint16 makerFeeBps;
         uint16 takerFeeBps;
     }
 
+    // DEPRECATED (v2.0): preserved for storage layout safety, do not use
     struct CrossCurrencyData {
         /// @notice Quote currency token address (e.g., ETH, BTC, WETH)
         address quoteCurrencyToken;
@@ -164,6 +169,7 @@ library LibDoefinStorage {
         uint64 floorRate;
     }
 
+    // DEPRECATED (v2.0): preserved for storage layout safety, do not use
     struct SettlementExecutionContext {
         uint256 fillableAmount;
         Order takerOrder;
@@ -172,6 +178,7 @@ library LibDoefinStorage {
         ExecutionType executionType;
     }
 
+    // DEPRECATED (v2.0): preserved for storage layout safety, do not use
     struct ModifyCollateralContext {
         uint256 positionId;
         uint256 oldAmount;
@@ -184,6 +191,7 @@ library LibDoefinStorage {
         OrderDirection direction;
     }
 
+    // DEPRECATED (v2.0): preserved for storage layout safety, do not use
     struct SimulationContext {
         uint256[] complementaryOrders;
         uint256[] mintOrMergeOrders;
@@ -195,6 +203,7 @@ library LibDoefinStorage {
         OrderType orderType;
     }
 
+    // DEPRECATED (v2.0): preserved for storage layout safety, do not use
     struct Match {
         uint256 matchedOrderId;
         uint256 amount;
@@ -202,12 +211,14 @@ library LibDoefinStorage {
         MatchType matchType;
     }
 
+    // DEPRECATED (v2.0): preserved for storage layout safety, do not use
     struct MatchOrderRoute {
         Match[] matches;
         uint256 totalInputAmount;
         uint256 totalOutputAmount;
     }
 
+    // DEPRECATED (v2.0): preserved for storage layout safety, do not use
     enum MatchType {
         None,
         Complementary,
@@ -216,6 +227,7 @@ library LibDoefinStorage {
         CrossCurrency // Cross-currency matches
     }
 
+    // DEPRECATED (v2.0): preserved for storage layout safety, do not use
     /// @notice Struct representing a single limit or market order
     /// @dev Each order maps to a specific ERC1155 position token and can be either a buy or a sell
     /// @notice Struct representing a single limit or market order
@@ -278,6 +290,7 @@ library LibDoefinStorage {
         bool fillOrKill; // 1 byte
     }
 
+    // DEPRECATED (v2.0): preserved for storage layout safety, do not use
     /// @notice Global storage layout for the Orderbook facet/module
     struct OrderbookStorageStruct {
         uint256 nextOrderId;
@@ -297,6 +310,7 @@ library LibDoefinStorage {
         uint256[10] __gap;
     }
 
+    // DEPRECATED (v2.0): preserved for storage layout safety, do not use
     struct EscrowStorage {
         mapping(address => mapping(address => uint256)) collateralBalances; // user => ERC20 token => amount
         mapping(address => mapping(uint256 => uint256)) lockedERC1155Balances; // user => positionId => amount
@@ -424,7 +438,7 @@ library LibDoefinStorage {
 
         AppStorage storage ds = appStorage();
 
-        ds.orderbookStorage.nextOrderId = 1;
+        ds.orderbookStorage.nextOrderId = 1; // DEPRECATED (v2.0): retained for storage layout safety
         ds.reentrancyStorage._status = 1;
 
         // Set admin config during initialization
