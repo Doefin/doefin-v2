@@ -3,7 +3,6 @@ pragma solidity ^0.8.6;
 
 import {LibDoefinStorage} from "../libraries/LibDoefinStorage.sol";
 import {LibFeeManager} from "../libraries/LibFeeManager.sol";
-import {LibQuoteCurrency} from "../libraries/LibQuoteCurrency.sol";
 import {IAdminConfig} from "../interfaces/IAdminConfig.sol";
 import {LibDiamond} from "../libraries/LibDiamond.sol";
 import {Errors} from "../libraries/Errors.sol";
@@ -336,7 +335,19 @@ contract AdminConfigFacet is IAdminConfig {
      * @return assetIds Array of oracle asset IDs needed for conversion
      */
     function getCrossCurrencyConversionPath(address fromToken, address toToken) external view override returns (bytes32[] memory assetIds) {
-        return LibQuoteCurrency.getCrossCurrencyConversionPath(fromToken, toToken);
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
+        if (!ds.adminConfigStorage.isAllowed[fromToken] || !ds.adminConfigStorage.isAllowed[toToken]) {
+            revert Errors.TokenNotAllowed();
+        }
+        if (fromToken == toToken) {
+            return new bytes32[](0);
+        }
+        bytes32 pathKey = keccak256(abi.encodePacked(fromToken, toToken));
+        bytes32[] storage configuredPath = ds.adminConfigStorage.conversionPaths[pathKey];
+        assetIds = new bytes32[](configuredPath.length);
+        for (uint256 i = 0; i < configuredPath.length; i++) {
+            assetIds[i] = configuredPath[i];
+        }
     }
 
     // ========================================

@@ -23,9 +23,6 @@ import {IERC1155Facet} from "../interfaces/IERC1155.sol";
 import {IERC1155TokenReceiver} from "../interfaces/IERC1155TokenReceiver.sol";
 import {IAccessControl} from "../interfaces/IAccessControl.sol";
 import {IAdminConfig} from "../interfaces/IAdminConfig.sol";
-import {IExchange} from "../interfaces/IExchange.sol";
-import {IMarketExecution} from "../interfaces/IMarketExecution.sol";
-import {IRouteSimulation} from "../interfaces/IRouteSimulation.sol";
 import {IDoefinBlockHeaderOracle} from "../interfaces/IDoefinBlockHeaderOracle.sol";
 import {ISignatureVerifier} from "../interfaces/ISignatureVerifier.sol";
 import {INonceManager} from "../interfaces/INonceManager.sol";
@@ -83,9 +80,6 @@ contract DiamondInit {
         ds.supportedInterfaces[type(IERC1155TokenReceiver).interfaceId] = true;
         ds.supportedInterfaces[type(IAccessControl).interfaceId] = true;
         ds.supportedInterfaces[type(IAdminConfig).interfaceId] = true;
-        ds.supportedInterfaces[type(IExchange).interfaceId] = true;
-        ds.supportedInterfaces[type(IMarketExecution).interfaceId] = true;
-        ds.supportedInterfaces[type(IRouteSimulation).interfaceId] = true;
         ds.supportedInterfaces[type(IDoefinBlockHeaderOracle).interfaceId] = true;
         // v2.1 Settlement interfaces
         ds.supportedInterfaces[type(ISignatureVerifier).interfaceId] = true;

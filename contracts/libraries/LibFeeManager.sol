@@ -3,7 +3,6 @@ pragma solidity ^0.8.6;
 
 import {LibDoefinStorage} from "./LibDoefinStorage.sol";
 import {SafeERC20, IERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {LibDiamond} from "./LibDiamond.sol";
 import {Errors} from "./Errors.sol";
 import {Events} from "./Events.sol";
@@ -15,117 +14,6 @@ import {Events} from "./Events.sol";
  */
 library LibFeeManager {
     using SafeERC20 for IERC20;
-
-    // ----------------------------------------
-    // Fee Configuration
-    // ----------------------------------------
-
-    /**
-     * @notice Get current market fee configuration
-     * @return orderFeeConfig The current fee configuration
-     */
-    function getMarketFees() internal view returns (LibDoefinStorage.OrderFeeConfig memory orderFeeConfig) {
-        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
-        orderFeeConfig = LibDoefinStorage.OrderFeeConfig({
-            makerFeeBps: ds.adminConfigStorage.makerTradingFeeBps,
-            takerFeeBps: ds.adminConfigStorage.takerTradingFeeBps
-        });
-    }
-
-    // ----------------------------------------
-    // Fee Calculations
-    // ----------------------------------------
-
-    /**
-     * @notice Calculate maker fee for a given cost
-     * @param cost The cost amount to calculate fee on
-     * @return The maker fee amount
-     */
-    function computeMakerFee(uint256 cost) internal view returns (uint256) {
-        uint256 bps = LibDoefinStorage.appStorage().adminConfigStorage.makerTradingFeeBps;
-        return Math.mulDiv(cost, bps, 10_000);
-    }
-
-    /**
-     * @notice Calculate fees for complementary and merge matches
-     * @param settlementExecCtx The settlement execution context
-     * @return makerFee The maker fee amount
-     * @return takerFee The taker fee amount
-     * @return cost The base cost amount
-     */
-    function computeTradeExecutionFees(
-        LibDoefinStorage.SettlementExecutionContext memory settlementExecCtx
-    ) internal view returns (uint256 makerFee, uint256 takerFee, uint256 cost) {
-        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
-        LibDoefinStorage.Order memory makerOrder = settlementExecCtx.makerOrder;
-
-        uint256 unitPerPair = ds.adminConfigStorage.unitPerPair[makerOrder.collateralToken];
-        if (unitPerPair == 0) revert Errors.TokenNotAllowed();
-
-        cost = Math.mulDiv(settlementExecCtx.fillableAmount, makerOrder.pricePerToken, unitPerPair);
-        makerFee = Math.mulDiv(cost, makerOrder.makerFeeBps, 10_000);
-        takerFee = Math.mulDiv(cost, makerOrder.takerFeeBps, 10_000);
-    }
-
-    /**
-     * @notice Calculate fees for mint matches (split operations)
-     * @param makerOrder The maker order
-     * @param fillableAmount The amount being filled
-     * @return makerFee The maker fee amount
-     * @return takerFee The taker fee amount
-     * @return makerContribution The maker's contribution to the mint
-     * @return takerContribution The taker's contribution to the mint
-     */
-    function computeMintFees(
-        LibDoefinStorage.Order memory makerOrder,
-        uint256 fillableAmount
-    ) internal view returns (uint256 makerFee, uint256 takerFee, uint256 makerContribution, uint256 takerContribution) {
-        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
-        address collateralToken = makerOrder.collateralToken;
-        uint256 unitPerPair = ds.adminConfigStorage.unitPerPair[collateralToken];
-
-        // Calculate contributions
-        makerContribution = Math.mulDiv(fillableAmount, makerOrder.pricePerToken, unitPerPair);
-        takerContribution = fillableAmount - makerContribution;
-
-        // Calculate fees on respective contributions
-        makerFee = Math.mulDiv(makerContribution, makerOrder.makerFeeBps, 10_000);
-        takerFee = Math.mulDiv(takerContribution, makerOrder.takerFeeBps, 10_000);
-    }
-
-    // ----------------------------------------
-    // Fee Accrual
-    // ----------------------------------------
-
-    /**
-     * @notice Accrue protocol fees from a trade
-     * @param makerFee The maker fee amount
-     * @param takerFee The taker fee amount
-     * @param settlementExecCtx The settlement execution context containing trade details
-     */
-    function accrueFees(uint256 makerFee, uint256 takerFee, LibDoefinStorage.SettlementExecutionContext memory settlementExecCtx) internal {
-        uint256 totalFees = makerFee + takerFee;
-        if (totalFees == 0) return;
-
-        address token = settlementExecCtx.makerOrder.collateralToken;
-
-        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
-        ds.escrowStorage.protocolFees[token] += totalFees;
-
-        emit Events.ProtocolFeesAccrued(
-            token,
-            settlementExecCtx.makerOrder.orderId,
-            settlementExecCtx.takerOrder.orderId,
-            settlementExecCtx.makerOrder.maker,
-            settlementExecCtx.takerOrder.maker,
-            settlementExecCtx.fillableAmount,
-            settlementExecCtx.makerOrder.pricePerToken,
-            makerFee,
-            takerFee,
-            totalFees,
-            ds.escrowStorage.protocolFees[token]
-        );
-    }
 
     // ----------------------------------------
     // Fee Withdrawal (Admin Only)
