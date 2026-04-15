@@ -636,6 +636,7 @@ contract SettlementFacet is ISettlement {
         if (feeRateBps > MAX_FEE_RATE_BPS) revert Errors.FeeTooHigh();
         LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
         uint128 unit = uint128(ds.adminConfigStorage.unitPerPair[collateralToken]);
+        if (price > unit) revert Errors.InvalidPrice();
         uint128 complementPrice = unit - price;
         uint128 effectivePrice = price < complementPrice ? price : complementPrice;
         return uint128((uint256(feeRateBps) * uint256(effectivePrice) * uint256(amount)) / (uint256(unit) * 10000));

@@ -1209,4 +1209,50 @@ describe("SettlementFacet", function () {
       ).to.be.revertedWith("InvalidMatch()");
     });
   });
+
+  // ========================================
+  // FEE UNDERFLOW ON PRICE > UNIT (MEDIUM-4)
+  // ========================================
+
+  describe("_computeFee underflow protection (price > unit)", function () {
+    const fillAmount = ethers.utils.parseUnits("100", 6);
+
+    it("should revert when pricePerToken exceeds UNIT", async function () {
+      // Price = 1.5 UNIT (above 1.0) -- would underflow in unit - price
+      const badPrice = UNIT.mul(3).div(2); // 1500000
+
+      const takerOrder = makeOrder(buyer.address, positionIdA, 0, fillAmount, badPrice, { salt: 32000 });
+      const makerOrder = makeOrder(seller.address, positionIdA, 1, fillAmount, badPrice, { salt: 32000 });
+
+      const takerSig = await signOrder(buyer, takerOrder);
+      const makerSig = await signOrder(seller, makerOrder);
+
+      await expect(
+        settlement.connect(operator).matchOrders(
+          takerOrder, takerSig, 0,
+          [makerOrder], [makerSig], [0],
+          fillAmount, [fillAmount]
+        )
+      ).to.be.revertedWith("InvalidPrice()");
+    });
+
+    it("should succeed when price equals exactly UNIT", async function () {
+      // Price = 1.0 UNIT -- edge case, complementPrice = 0, effectivePrice = 0, fee = 0
+      const takerOrder = makeOrder(buyer.address, positionIdA, 0, fillAmount, UNIT, { salt: 32001 });
+      const makerOrder = makeOrder(seller.address, positionIdA, 1, fillAmount, UNIT, { salt: 32001 });
+
+      const takerSig = await signOrder(buyer, takerOrder);
+      const makerSig = await signOrder(seller, makerOrder);
+
+      // This should succeed -- price == unit means fee = 0 (effectivePrice = min(unit, 0) = 0)
+      await settlement.connect(operator).matchOrders(
+        takerOrder, takerSig, 0,
+        [makerOrder], [makerSig], [0],
+        fillAmount, [fillAmount]
+      );
+
+      const takerHash = await sigVerifier.getOrderHash(takerOrder);
+      expect(await settlement.getFilledAmount(takerHash)).to.equal(fillAmount);
+    });
+  });
 });
