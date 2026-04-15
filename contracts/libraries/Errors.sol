@@ -126,28 +126,6 @@ library Errors {
     /// @notice Thrown when collateral amount is not aligned to unit
     error CollateralNotAligned();
 
-    /// @notice Thrown when unit per pair is not set for token
-    error UnitPerPairNotSet();
-
-    /// @notice Thrown when price exceeds maximum (1.0)
-    error PriceExceedsMaximum();
-
-    // ========================================
-    // ESCROW ERRORS
-    // ========================================
-
-    /// @notice Thrown when insufficient ERC20 balance in escrow
-    error InsufficientERC20Balance();
-
-    /// @notice Thrown when insufficient ERC20 balance in escrow with custom details for debugging
-    error InsufficientERC20EscrowBalance(address user, address token, uint256 requested, uint256 actual);
-
-    /// @notice Thrown when insufficient ERC1155 balance in escrow
-    error InsufficientERC1155Balance(address owner, uint256 tokenId, uint256 requested, uint256 actual);
-
-    /// @notice Thrown when ERC20 allowance is insufficient
-    error InsufficientERC20Allowance(address owner, address token, uint256 required, uint256 approved);
-
     // ========================================
     // FEE MANAGEMENT ERRORS
     // ========================================
@@ -166,54 +144,11 @@ library Errors {
     error ReentrantCall();
 
     // ========================================
-    // ORDERBOOK ERRORS
+    // ORDERBOOK / PRICE ERRORS
     // ========================================
-
-    /// @notice Thrown when order is not active
-    error OrderNotActive();
-
-    /// @notice Thrown when order has expired
-    error OrderExpired();
-
-    /// @notice Thrown when partially filled orders cannot be modified
-    error PartiallyFilledOrdersNotModifiable();
-
-    /// @notice Thrown when no matchable orders are available
-    error NoMatchableOrders();
 
     /// @notice Thrown when order price exceeds maximum
     error InvalidPrice();
-
-    /// @notice Thrown when order amounts are invalid
-    error InvalidAmounts();
-
-    /// @notice Thrown when order is created with past expiry
-    error OrderCreatedWithPastExpiry();
-
-    /// @notice Thrown when invalid quote currency token is provided
-    error InvalidQuoteCurrencyToken();
-
-    /// @notice Thrown when invalid exchange rate is provided
-    error InvalidFloorExchangeRate();
-
-    /// @notice Thrown when cross currency order has the same collateral and quote currency
-    error SameCollateralAndQuoteCurrency();
-
-    // ========================================
-    // SETTLEMENT ERRORS
-    // ========================================
-
-    /// @notice Thrown when position IDs don't match
-    error PositionIdMismatch();
-
-    /// @notice Thrown when order directions are the same for complementary match
-    error SameDirectionForComplementary();
-
-    /// @notice Thrown when order directions differ for mint/merge match
-    error DifferentOrderDirectionForNonComplementary();
-
-    /// @notice Thrown when fill-or-kill order cannot be completely filled
-    error FillOrKillFailed();
 
     // ========================================
     // POSITION REGISTRY ERRORS
@@ -227,9 +162,6 @@ library Errors {
 
     /// @notice Thrown when invalid match between positions
     error InvalidMatch();
-
-    /// @dev added for debugging
-    error NotCrossingPrices();
 
     /// @notice Thrown when complement position is invalid
     error InvalidComplement();
@@ -317,25 +249,6 @@ library Errors {
 
     /// @notice Thrown when decimals value is invalid (zero or greater than 18)
     error InvalidDecimals();
-
-    // ========================================
-    // CROSS-CURRENCY ERRORS
-    // ========================================
-
-    /// @notice Thrown when invalid order type is used for cross-currency operations
-    error InvalidOrderType();
-
-    /// @notice Thrown when buy orders attempt to use dynamic exchange rate (only fixed allowed)
-    error BuyOrdersMustUseFixedRate();
-
-    /// @notice Thrown when cross-currency orders have incompatible quote currencies
-    error IncompatibleQuoteCurrencies();
-
-    /// @notice Thrown when cross-currency order matching is attempted with non-complementary orders
-    error NonComplementaryCrossCurrencyMatch();
-
-    /// @notice Thrown when oracle price is stale for dynamic exchange rate calculation
-    error OraclePriceStale();
 
     // ========================================
     // BLOCK HEADER ORACLE ERRORS
