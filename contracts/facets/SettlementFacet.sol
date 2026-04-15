@@ -105,7 +105,7 @@ contract SettlementFacet is ISettlement {
         bytes32 takerHash = LibDoefinOrder.hashOrderCalldata(takerOrder, domainSep);
         _verifySignature(takerOrder, takerHash, takerSignature, takerSignatureType);
         _validateOrder(ss, takerOrder, takerHash);
-        _checkFillAmount(ss, takerHash, takerOrder.amount, takerFillAmount);
+        _checkFillAmount(ss, takerHash, takerOrder.amount, takerFillAmount, takerOrder.minFillAmount);
 
         // Process each maker (Fix 3: taker fee computed per-maker, not once for full amount)
         uint128 totalTakerFee;
@@ -116,7 +116,7 @@ contract SettlementFacet is ISettlement {
             bytes32 makerHash = LibDoefinOrder.hashOrderCalldata(makerOrders[i], domainSep);
             _verifySignature(makerOrders[i], makerHash, makerSignatures[i], makerSignatureTypes[i]);
             _validateOrder(ss, makerOrders[i], makerHash);
-            _checkFillAmount(ss, makerHash, makerOrders[i].amount, makerFillAmounts[i]);
+            _checkFillAmount(ss, makerHash, makerOrders[i].amount, makerFillAmounts[i], makerOrders[i].minFillAmount);
 
             // Determine and execute settlement path
             uint8 matchType = _determineMatchType(ss, takerOrder, makerOrders[i]);
@@ -160,7 +160,7 @@ contract SettlementFacet is ISettlement {
 
         _verifySignature(order, orderHash, signature, signatureType);
         _validateOrder(ss, order, orderHash);
-        _checkFillAmount(ss, orderHash, order.amount, fillAmount);
+        _checkFillAmount(ss, orderHash, order.amount, fillAmount, order.minFillAmount);
 
         uint128 fee = _computeFee(order.feeRateBps, order.pricePerToken, fillAmount, order.collateralToken);
 
@@ -330,17 +330,23 @@ contract SettlementFacet is ISettlement {
     }
 
     /**
-     * @dev Check fill amount does not exceed remaining
+     * @dev Check fill amount does not exceed remaining and respects minFillAmount
      */
     function _checkFillAmount(
         LibSettlementStorage.SettlementStorage storage ss,
         bytes32 orderHash,
         uint128 orderAmount,
-        uint128 fillAmount
+        uint128 fillAmount,
+        uint128 minFillAmount
     ) internal view {
         uint256 filled = ss.orderHashToFilledAmount[orderHash];
-        if (uint256(fillAmount) > uint256(orderAmount) - filled) {
-            revert Errors.OrderOverfilled(orderHash, fillAmount, uint256(orderAmount) - filled);
+        uint256 remaining = uint256(orderAmount) - filled;
+        if (uint256(fillAmount) > remaining) {
+            revert Errors.OrderOverfilled(orderHash, fillAmount, remaining);
+        }
+        // Enforce minFillAmount — allow exact-remaining fills even if below minimum
+        if (minFillAmount > 0 && fillAmount < minFillAmount && uint256(fillAmount) != remaining) {
+            revert Errors.FillBelowMinimum(orderHash, fillAmount, minFillAmount);
         }
     }
 

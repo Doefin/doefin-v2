@@ -719,6 +719,122 @@ describe("SettlementFacet", function () {
   });
 
   // ========================================
+  // MIN FILL AMOUNT TESTS (HIGH-2)
+  // ========================================
+
+  describe("minFillAmount enforcement", function () {
+    const price = UNIT.div(2);
+    const orderAmount = ethers.utils.parseUnits("1000", 6);
+
+    it("should revert when fill amount is below minFillAmount", async function () {
+      const minFill = ethers.utils.parseUnits("100", 6);
+      const fillAmount = ethers.utils.parseUnits("50", 6); // below min
+
+      const takerOrder = makeOrder(buyer.address, positionIdA, 0, orderAmount, price, { salt: 22000, minFillAmount: minFill });
+      const makerOrder = makeOrder(seller.address, positionIdA, 1, orderAmount, price, { salt: 22000 });
+
+      const takerSig = await signOrder(buyer, takerOrder);
+      const makerSig = await signOrder(seller, makerOrder);
+
+      await expect(
+        settlement.connect(operator).matchOrders(
+          takerOrder, takerSig, 0,
+          [makerOrder], [makerSig], [0],
+          fillAmount, [fillAmount]
+        )
+      ).to.be.reverted;
+    });
+
+    it("should revert when maker fill amount is below maker minFillAmount", async function () {
+      const minFill = ethers.utils.parseUnits("100", 6);
+      const fillAmount = ethers.utils.parseUnits("50", 6);
+
+      const takerOrder = makeOrder(buyer.address, positionIdA, 0, orderAmount, price, { salt: 22001 });
+      const makerOrder = makeOrder(seller.address, positionIdA, 1, orderAmount, price, { salt: 22001, minFillAmount: minFill });
+
+      const takerSig = await signOrder(buyer, takerOrder);
+      const makerSig = await signOrder(seller, makerOrder);
+
+      await expect(
+        settlement.connect(operator).matchOrders(
+          takerOrder, takerSig, 0,
+          [makerOrder], [makerSig], [0],
+          fillAmount, [fillAmount]
+        )
+      ).to.be.reverted;
+    });
+
+    it("should succeed when fill amount equals minFillAmount", async function () {
+      const minFill = ethers.utils.parseUnits("100", 6);
+      const fillAmount = ethers.utils.parseUnits("100", 6);
+
+      const takerOrder = makeOrder(buyer.address, positionIdA, 0, orderAmount, price, { salt: 22002, minFillAmount: minFill });
+      const makerOrder = makeOrder(seller.address, positionIdA, 1, orderAmount, price, { salt: 22002 });
+
+      const takerSig = await signOrder(buyer, takerOrder);
+      const makerSig = await signOrder(seller, makerOrder);
+
+      await settlement.connect(operator).matchOrders(
+        takerOrder, takerSig, 0,
+        [makerOrder], [makerSig], [0],
+        fillAmount, [fillAmount]
+      );
+
+      const takerHash = await sigVerifier.getOrderHash(takerOrder);
+      expect(await settlement.getFilledAmount(takerHash)).to.equal(fillAmount);
+    });
+
+    it("should allow exact-remaining fill even if below minFillAmount", async function () {
+      const minFill = ethers.utils.parseUnits("100", 6);
+      const totalAmount = ethers.utils.parseUnits("150", 6);
+      const firstFill = ethers.utils.parseUnits("100", 6);
+      const remaining = ethers.utils.parseUnits("50", 6); // below min, but is exact remaining
+
+      const takerOrder = makeOrder(buyer.address, positionIdA, 0, totalAmount, price, { salt: 22003, minFillAmount: minFill });
+      const makerOrder = makeOrder(seller.address, positionIdA, 1, totalAmount, price, { salt: 22003 });
+
+      const takerSig = await signOrder(buyer, takerOrder);
+      const makerSig = await signOrder(seller, makerOrder);
+
+      // First fill at minFillAmount
+      await settlement.connect(operator).matchOrders(
+        takerOrder, takerSig, 0,
+        [makerOrder], [makerSig], [0],
+        firstFill, [firstFill]
+      );
+
+      // Fill exact remaining (50 < minFill 100, but it's the last fill)
+      await settlement.connect(operator).matchOrders(
+        takerOrder, takerSig, 0,
+        [makerOrder], [makerSig], [0],
+        remaining, [remaining]
+      );
+
+      const takerHash = await sigVerifier.getOrderHash(takerOrder);
+      expect(await settlement.getFilledAmount(takerHash)).to.equal(totalAmount);
+    });
+
+    it("should succeed when minFillAmount is 0 (no restriction)", async function () {
+      const fillAmount = ethers.utils.parseUnits("1", 6); // tiny fill, minFill=0
+
+      const takerOrder = makeOrder(buyer.address, positionIdA, 0, orderAmount, price, { salt: 22004, minFillAmount: 0 });
+      const makerOrder = makeOrder(seller.address, positionIdA, 1, orderAmount, price, { salt: 22004 });
+
+      const takerSig = await signOrder(buyer, takerOrder);
+      const makerSig = await signOrder(seller, makerOrder);
+
+      await settlement.connect(operator).matchOrders(
+        takerOrder, takerSig, 0,
+        [makerOrder], [makerSig], [0],
+        fillAmount, [fillAmount]
+      );
+
+      const takerHash = await sigVerifier.getOrderHash(takerOrder);
+      expect(await settlement.getFilledAmount(takerHash)).to.equal(fillAmount);
+    });
+  });
+
+  // ========================================
   // FEE RATE CAP TESTS (HIGH-1)
   // ========================================
 
