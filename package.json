@@ -11,6 +11,9 @@
     "compile": "npx hardhat compile",
     "deploy:local": "npx hardhat run scripts/deploy.js --network localhost",
     "deploy:sepolia": "npx hardhat run scripts/deploy.js --network arbitrumSepolia",
+    "deploy:baseSepolia": "npx hardhat run scripts/deploy.js --network baseSepolia",
+    "verify:baseSepolia": "npx hardhat run scripts/verify-settlement-deployment.js --network baseSepolia",
+    "setup:testMarket": "npx hardhat run scripts/setup-test-market.js --network baseSepolia",
     "node": "npx hardhat node",
     "clean": "npx hardhat clean",
     "size": "npx hardhat compile && npx hardhat size-contracts",
@@ -29,6 +32,7 @@
   },
   "homepage": "https://github.com/predexyo/doefin-v2#readme",
   "devDependencies": {
+    "@nomicfoundation/hardhat-verify": "^2.0.14",
     "@nomiclabs/hardhat-ethers": "^2.2.3",
     "@nomiclabs/hardhat-waffle": "^2.0.1",
     "chai": "^4.3.4",
@@ -36,9 +40,11 @@
     "ethereum-waffle": "^3.4.0",
     "ethers": "^5.8.0",
     "hardhat": "^2.25.0",
+    "hardhat-contract-sizer": "^2.10.1",
     "mocha": "^11.7.1",
     "prettier": "^2.3.2",
     "prettier-plugin-solidity": "^1.0.0-beta.13",
+    "solidity-coverage": "^0.8.17",
     "standard": "^16.0.3"
   },
   "dependencies": {
