@@ -1056,4 +1056,69 @@ describe("SettlementFacet", function () {
       ).to.be.reverted;
     });
   });
+
+  // ========================================
+  // ECDSA SIGNATURE MALLEABILITY (HIGH-3)
+  // ========================================
+
+  describe("ECDSA signature malleability rejection", function () {
+    const fillAmount = ethers.utils.parseUnits("100", 6);
+    const price = UNIT.div(2);
+
+    // secp256k1 curve order
+    const SECP256K1_N = ethers.BigNumber.from("0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141");
+
+    it("should reject a malleable signature (high-s value)", async function () {
+      const takerOrder = makeOrder(buyer.address, positionIdA, 0, fillAmount, price, { salt: 30000 });
+      const makerOrder = makeOrder(seller.address, positionIdA, 1, fillAmount, price, { salt: 30000 });
+
+      const takerSig = await signOrder(buyer, takerOrder);
+      const makerSig = await signOrder(seller, makerOrder);
+
+      // Flip the taker signature's s-value to n - s (creates a malleable signature)
+      const sigBytes = ethers.utils.arrayify(takerSig);
+      const r = ethers.utils.hexlify(sigBytes.slice(0, 32));
+      const s = ethers.BigNumber.from(sigBytes.slice(32, 64));
+      const v = sigBytes[64];
+
+      // Compute malleable s: n - s
+      const malleableS = SECP256K1_N.sub(s);
+      // Flip v: 27 -> 28, 28 -> 27
+      const malleableV = v === 27 ? 28 : 27;
+
+      const malleableSig = ethers.utils.hexlify(
+        ethers.utils.concat([
+          r,
+          ethers.utils.hexZeroPad(malleableS.toHexString(), 32),
+          [malleableV],
+        ])
+      );
+
+      await expect(
+        settlement.connect(operator).matchOrders(
+          takerOrder, malleableSig, 0,
+          [makerOrder], [makerSig], [0],
+          fillAmount, [fillAmount]
+        )
+      ).to.be.reverted;
+    });
+
+    it("should accept the original (low-s) signature", async function () {
+      const takerOrder = makeOrder(buyer.address, positionIdA, 0, fillAmount, price, { salt: 30001 });
+      const makerOrder = makeOrder(seller.address, positionIdA, 1, fillAmount, price, { salt: 30001 });
+
+      const takerSig = await signOrder(buyer, takerOrder);
+      const makerSig = await signOrder(seller, makerOrder);
+
+      // ethers.js already produces low-s signatures, so this should succeed
+      await settlement.connect(operator).matchOrders(
+        takerOrder, takerSig, 0,
+        [makerOrder], [makerSig], [0],
+        fillAmount, [fillAmount]
+      );
+
+      const takerHash = await sigVerifier.getOrderHash(takerOrder);
+      expect(await settlement.getFilledAmount(takerHash)).to.equal(fillAmount);
+    });
+  });
 });

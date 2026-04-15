@@ -285,6 +285,11 @@ contract SettlementFacet is ISettlement {
         }
         if (v < 27) v += 27;
 
+        // Reject malleable signatures: s must be in the lower half of the curve order
+        if (uint256(s) > 0x7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF5D576E7357A4501DDFE92F46681B20A0) {
+            revert Errors.InvalidOrderSignature(orderHash);
+        }
+
         address recoveredSigner = ecrecover(orderHash, v, r, s);
         if (recoveredSigner == address(0) || recoveredSigner != order.signer) {
             revert Errors.InvalidOrderSignature(orderHash);
