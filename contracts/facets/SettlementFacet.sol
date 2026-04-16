@@ -485,12 +485,15 @@ contract SettlementFacet is ISettlement {
         uint256 unit = ds.adminConfigStorage.unitPerPair[taker.collateralToken];
         address feeReceiver = ds.adminConfigStorage.feeReceiver;
 
-        // Both buyers contribute collateral for the split (total must equal fillAmount)
+        // Taker pays floor-divided collateral; maker covers the remainder.
+        // This guarantees takerCollateral + makerCollateral == fillAmount by construction,
+        // avoiding strict-equality failures from integer division truncation.
         uint256 takerCollateral = (uint256(taker.pricePerToken) * uint256(fillAmount)) / unit;
-        uint256 makerCollateral = (uint256(maker.pricePerToken) * uint256(fillAmount)) / unit;
+        uint256 makerCollateral = uint256(fillAmount) - takerCollateral;
 
-        // Invariant: prices must sum to unit so total collateral equals the split amount
-        if (takerCollateral + makerCollateral != fillAmount) revert Errors.InvalidMatch();
+        // Safety: maker must not be charged more than their signed price implies (+ 1 wei rounding tolerance)
+        uint256 makerExpected = (uint256(maker.pricePerToken) * uint256(fillAmount)) / unit;
+        if (makerCollateral > makerExpected + 1) revert Errors.InvalidMatch();
 
         // Collect collateral from both buyers to Diamond
         IERC20(taker.collateralToken).safeTransferFrom(taker.maker, address(this), takerCollateral);
@@ -570,12 +573,14 @@ contract SettlementFacet is ISettlement {
             fillAmount
         );
 
-        // Distribute collateral to sellers based on their prices
+        // Taker gets floor-divided payout; maker gets the remainder.
+        // This guarantees takerPayout + makerPayout == fillAmount by construction.
         uint256 takerPayout = (uint256(taker.pricePerToken) * uint256(fillAmount)) / unit;
-        uint256 makerPayout = (uint256(maker.pricePerToken) * uint256(fillAmount)) / unit;
+        uint256 makerPayout = uint256(fillAmount) - takerPayout;
 
-        // Invariant: payouts must not exceed recovered collateral
-        if (takerPayout + makerPayout > fillAmount) revert Errors.InvalidMatch();
+        // Safety: maker must not receive more than their signed price implies (+ 1 wei rounding tolerance)
+        uint256 makerExpected = (uint256(maker.pricePerToken) * uint256(fillAmount)) / unit;
+        if (makerPayout > makerExpected + 1) revert Errors.InvalidMatch();
 
         // Deduct fees and transfer
         if (takerPayout > takerFee) {
