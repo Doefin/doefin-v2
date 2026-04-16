@@ -142,11 +142,6 @@ async function deployDiamond() {
     "DoefinV1BlockHeaderOracle",
     "AccessControlFacet",
     "AdminConfigFacet",
-    "OrderCreationFacet", // Split from ExchangeFacet to reduce size
-    "OrderManagementFacet", // Split from ExchangeFacet to reduce size
-    "ExchangeViewFacet", // Read-only exchange queries
-    "MarketExecutionFacet",
-    "RouteSimulationFacet",
     "MarketDataFacet",
     "OracleAdapterFacet",
     "OracleManagerFacet",

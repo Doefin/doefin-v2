@@ -33,8 +33,10 @@ library LibSettlementStorage {
         mapping(bytes32 => bytes32) positionToCondition;
         /// @notice Position ID to its collateral token address
         mapping(bytes32 => address) positionToCollateral;
+        /// @notice Cached EIP-712 domain separator (set via cacheDomainSeparator())
+        bytes32 domainSeparator;
         /// @notice Reserved for future storage fields
-        uint256[50] __gap;
+        uint256[49] __gap;
     }
 
     /// @notice Returns a pointer to the settlement storage struct at the fixed slot

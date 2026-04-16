@@ -2,7 +2,7 @@
 // Based on Diamond Standard by Nick Mudge: https://github.com/mudgen/diamond-3-hardhat
 // Uses shared logic from Gnosis Conditional Tokens Framework: https://github.com/gnosis/conditional-tokens-contracts
 
-pragma solidity ^0.8.0;
+pragma solidity ^0.8.6;
 
 /******************************************************************************\
 * Author: Nick Mudge <nick@perfectabstractions.com> (https://twitter.com/mudgen)
@@ -23,9 +23,6 @@ import {IERC1155Facet} from "../interfaces/IERC1155.sol";
 import {IERC1155TokenReceiver} from "../interfaces/IERC1155TokenReceiver.sol";
 import {IAccessControl} from "../interfaces/IAccessControl.sol";
 import {IAdminConfig} from "../interfaces/IAdminConfig.sol";
-import {IExchange} from "../interfaces/IExchange.sol";
-import {IMarketExecution} from "../interfaces/IMarketExecution.sol";
-import {IRouteSimulation} from "../interfaces/IRouteSimulation.sol";
 import {IDoefinBlockHeaderOracle} from "../interfaces/IDoefinBlockHeaderOracle.sol";
 import {ISignatureVerifier} from "../interfaces/ISignatureVerifier.sol";
 import {INonceManager} from "../interfaces/INonceManager.sol";
@@ -53,7 +50,7 @@ contract DiamondInit {
      * @dev Called via delegatecall from DiamondCutFacet during deployment
      * @param _owner Address to be set as the contract owner with administrative privileges
      * @custom:delegation Executed via delegatecall to maintain diamond storage context
-     * @custom:fees Initializes protocol fees: 5% resolution, 1% maker, 2% taker
+     * @custom:fees Initializes protocol fees: 5% resolution. maker/taker trading fees are v2.0 params (set to 0).
      * @custom:interfaces Registers all supported ERC-165 interfaces for protocol compliance
      * @custom:deployment One-time setup function for diamond initialization
      * @custom:owner Sets contract owner for administrative operations
@@ -63,12 +60,15 @@ contract DiamondInit {
     function init(address _owner) external {
         LibDiamond.setContractOwner(_owner);
 
-        // Initialize Doefin storage with fee configuration
+        // Initialize Doefin storage
+        // Note: makerTradingFeeBps and takerTradingFeeBps are v2.0 parameters,
+        // v2.1 settlement uses per-order feeRateBps. resolutionFeeBps is still
+        // used by ConditionalTokensFacet.redeemPositions().
         LibDoefinStorage.initialize(
-            _owner, // feeReceiver
-            500, // resolutionFeeBps (5%)
-            100, // makerTradingFeeBps (1%)
-            200 // takerTradingFeeBps (2%)
+            _owner, // feeReceiver (used by CTF redemption and fee withdrawal)
+            500, // resolutionFeeBps (5%) — used by ConditionalTokensFacet
+            0, // makerTradingFeeBps — DEPRECATED (v2.0), not used in v2.1
+            0 // takerTradingFeeBps — DEPRECATED (v2.0), not used in v2.1
         );
 
         // adding ERC165 data
@@ -83,9 +83,6 @@ contract DiamondInit {
         ds.supportedInterfaces[type(IERC1155TokenReceiver).interfaceId] = true;
         ds.supportedInterfaces[type(IAccessControl).interfaceId] = true;
         ds.supportedInterfaces[type(IAdminConfig).interfaceId] = true;
-        ds.supportedInterfaces[type(IExchange).interfaceId] = true;
-        ds.supportedInterfaces[type(IMarketExecution).interfaceId] = true;
-        ds.supportedInterfaces[type(IRouteSimulation).interfaceId] = true;
         ds.supportedInterfaces[type(IDoefinBlockHeaderOracle).interfaceId] = true;
         // v2.1 Settlement interfaces
         ds.supportedInterfaces[type(ISignatureVerifier).interfaceId] = true;

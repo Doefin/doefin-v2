@@ -84,7 +84,7 @@ describe("AdminConfigFacet", function () {
   it("should set trading fees", async function () {
     await expect(setTradingFeesBps({ adminConfig, makerBps: 300, takerBps: 400, caller: owner }))
       .to.emit(adminConfig, "TradingFeesUpdated")
-      .withArgs(100, 200, 300, 400);
+      .withArgs(0, 0, 300, 400);
   });
 
   it("should revert on too high trading fees", async function () {

@@ -29,6 +29,9 @@ contract SettlementFacet is ISettlement {
     uint8 internal constant MATCH_MINT = 2;
     uint8 internal constant MATCH_MERGE = 3;
 
+    // Fee safety cap (5%)
+    uint16 internal constant MAX_FEE_RATE_BPS = 500;
+
     // ========================================
     // MODIFIERS
     // ========================================
@@ -102,7 +105,7 @@ contract SettlementFacet is ISettlement {
         bytes32 takerHash = LibDoefinOrder.hashOrderCalldata(takerOrder, domainSep);
         _verifySignature(takerOrder, takerHash, takerSignature, takerSignatureType);
         _validateOrder(ss, takerOrder, takerHash);
-        _checkFillAmount(ss, takerHash, takerOrder.amount, takerFillAmount);
+        _checkFillAmount(ss, takerHash, takerOrder.amount, takerFillAmount, takerOrder.minFillAmount);
 
         // Process each maker (Fix 3: taker fee computed per-maker, not once for full amount)
         uint128 totalTakerFee;
@@ -113,7 +116,7 @@ contract SettlementFacet is ISettlement {
             bytes32 makerHash = LibDoefinOrder.hashOrderCalldata(makerOrders[i], domainSep);
             _verifySignature(makerOrders[i], makerHash, makerSignatures[i], makerSignatureTypes[i]);
             _validateOrder(ss, makerOrders[i], makerHash);
-            _checkFillAmount(ss, makerHash, makerOrders[i].amount, makerFillAmounts[i]);
+            _checkFillAmount(ss, makerHash, makerOrders[i].amount, makerFillAmounts[i], makerOrders[i].minFillAmount);
 
             // Determine and execute settlement path
             uint8 matchType = _determineMatchType(ss, takerOrder, makerOrders[i]);
@@ -157,7 +160,7 @@ contract SettlementFacet is ISettlement {
 
         _verifySignature(order, orderHash, signature, signatureType);
         _validateOrder(ss, order, orderHash);
-        _checkFillAmount(ss, orderHash, order.amount, fillAmount);
+        _checkFillAmount(ss, orderHash, order.amount, fillAmount, order.minFillAmount);
 
         uint128 fee = _computeFee(order.feeRateBps, order.pricePerToken, fillAmount, order.collateralToken);
 
@@ -258,7 +261,16 @@ contract SettlementFacet is ISettlement {
     // ========================================
 
     function _getDomainSeparator() internal view returns (bytes32) {
+        LibSettlementStorage.SettlementStorage storage ss = LibSettlementStorage.settlementStorage();
+        if (ss.domainSeparator != bytes32(0)) return ss.domainSeparator;
         return LibDoefinOrder.domainSeparator("Doefin Exchange", "2.1", block.chainid, address(this));
+    }
+
+    /// @notice Cache the EIP-712 domain separator (owner only, call once after deployment)
+    function cacheDomainSeparator() external {
+        LibDiamond.enforceIsContractOwner();
+        LibSettlementStorage.SettlementStorage storage ss = LibSettlementStorage.settlementStorage();
+        ss.domainSeparator = LibDoefinOrder.domainSeparator("Doefin Exchange", "2.1", block.chainid, address(this));
     }
 
     /**
@@ -281,6 +293,11 @@ contract SettlementFacet is ISettlement {
             v := byte(0, calldataload(add(signature.offset, 64)))
         }
         if (v < 27) v += 27;
+
+        // Reject malleable signatures: s must be in the lower half of the curve order
+        if (uint256(s) > 0x7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF5D576E7357A4501DDFE92F46681B20A0) {
+            revert Errors.InvalidOrderSignature(orderHash);
+        }
 
         address recoveredSigner = ecrecover(orderHash, v, r, s);
         if (recoveredSigner == address(0) || recoveredSigner != order.signer) {
@@ -327,17 +344,23 @@ contract SettlementFacet is ISettlement {
     }
 
     /**
-     * @dev Check fill amount does not exceed remaining
+     * @dev Check fill amount does not exceed remaining and respects minFillAmount
      */
     function _checkFillAmount(
         LibSettlementStorage.SettlementStorage storage ss,
         bytes32 orderHash,
         uint128 orderAmount,
-        uint128 fillAmount
+        uint128 fillAmount,
+        uint128 minFillAmount
     ) internal view {
         uint256 filled = ss.orderHashToFilledAmount[orderHash];
-        if (uint256(fillAmount) > uint256(orderAmount) - filled) {
-            revert Errors.OrderOverfilled(orderHash, fillAmount, uint256(orderAmount) - filled);
+        uint256 remaining = uint256(orderAmount) - filled;
+        if (uint256(fillAmount) > remaining) {
+            revert Errors.OrderOverfilled(orderHash, fillAmount, remaining);
+        }
+        // Enforce minFillAmount — allow exact-remaining fills even if below minimum
+        if (minFillAmount > 0 && fillAmount < minFillAmount && uint256(fillAmount) != remaining) {
+            revert Errors.FillBelowMinimum(orderHash, fillAmount, minFillAmount);
         }
     }
 
@@ -417,6 +440,11 @@ contract SettlementFacet is ISettlement {
         uint128 buyerFee = takerIsBuyer ? takerFee : makerFee;
         uint128 sellerFee = takerIsBuyer ? makerFee : takerFee;
 
+        // Verify price compatibility: buyer's price must be >= seller's price
+        uint128 buyerPrice = takerIsBuyer ? taker.pricePerToken : maker.pricePerToken;
+        uint128 sellerPrice = takerIsBuyer ? maker.pricePerToken : taker.pricePerToken;
+        if (buyerPrice < sellerPrice) revert Errors.InvalidMatch();
+
         // Use maker's price as execution price (maker is passive, taker is aggressor)
         uint256 collateralAmount = (uint256(maker.pricePerToken) * uint256(fillAmount)) / unit;
 
@@ -457,9 +485,15 @@ contract SettlementFacet is ISettlement {
         uint256 unit = ds.adminConfigStorage.unitPerPair[taker.collateralToken];
         address feeReceiver = ds.adminConfigStorage.feeReceiver;
 
-        // Both buyers contribute collateral for the split (total = fillAmount in collateral units)
+        // Taker pays floor-divided collateral; maker covers the remainder.
+        // This guarantees takerCollateral + makerCollateral == fillAmount by construction,
+        // avoiding strict-equality failures from integer division truncation.
         uint256 takerCollateral = (uint256(taker.pricePerToken) * uint256(fillAmount)) / unit;
-        uint256 makerCollateral = (uint256(maker.pricePerToken) * uint256(fillAmount)) / unit;
+        uint256 makerCollateral = uint256(fillAmount) - takerCollateral;
+
+        // Safety: maker must not be charged more than their signed price implies (+ 1 wei rounding tolerance)
+        uint256 makerExpected = (uint256(maker.pricePerToken) * uint256(fillAmount)) / unit;
+        if (makerCollateral > makerExpected + 1) revert Errors.InvalidMatch();
 
         // Collect collateral from both buyers to Diamond
         IERC20(taker.collateralToken).safeTransferFrom(taker.maker, address(this), takerCollateral);
@@ -539,9 +573,14 @@ contract SettlementFacet is ISettlement {
             fillAmount
         );
 
-        // Distribute collateral to sellers based on their prices
+        // Taker gets floor-divided payout; maker gets the remainder.
+        // This guarantees takerPayout + makerPayout == fillAmount by construction.
         uint256 takerPayout = (uint256(taker.pricePerToken) * uint256(fillAmount)) / unit;
-        uint256 makerPayout = (uint256(maker.pricePerToken) * uint256(fillAmount)) / unit;
+        uint256 makerPayout = uint256(fillAmount) - takerPayout;
+
+        // Safety: maker must not receive more than their signed price implies (+ 1 wei rounding tolerance)
+        uint256 makerExpected = (uint256(maker.pricePerToken) * uint256(fillAmount)) / unit;
+        if (makerPayout > makerExpected + 1) revert Errors.InvalidMatch();
 
         // Deduct fees and transfer
         if (takerPayout > takerFee) {
@@ -608,8 +647,10 @@ contract SettlementFacet is ISettlement {
         address collateralToken
     ) internal view returns (uint128) {
         if (feeRateBps == 0) return 0;
+        if (feeRateBps > MAX_FEE_RATE_BPS) revert Errors.FeeTooHigh();
         LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
         uint128 unit = uint128(ds.adminConfigStorage.unitPerPair[collateralToken]);
+        if (price > unit) revert Errors.InvalidPrice();
         uint128 complementPrice = unit - price;
         uint128 effectivePrice = price < complementPrice ? price : complementPrice;
         return uint128((uint256(feeRateBps) * uint256(effectivePrice) * uint256(amount)) / (uint256(unit) * 10000));

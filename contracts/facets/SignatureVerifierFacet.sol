@@ -187,6 +187,11 @@ contract SignatureVerifierFacet is ISignatureVerifier {
             v += 27;
         }
 
+        // Reject malleable signatures: s must be in the lower half of the curve order
+        if (uint256(s) > 0x7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF5D576E7357A4501DDFE92F46681B20A0) {
+            return address(0); // Will be caught by the caller checking recoveredSigner == address(0)
+        }
+
         return ecrecover(digest, v, r, s);
     }
 }

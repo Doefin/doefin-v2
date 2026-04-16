@@ -5,3 +5,5 @@ cache
 artifacts
 .env
 .DS_Store
+.claude
+docs/

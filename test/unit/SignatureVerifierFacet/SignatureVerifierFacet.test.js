@@ -337,4 +337,49 @@ describe("SignatureVerifierFacet", function () {
       );
     });
   });
+
+  // ========================================
+  // ECDSA SIGNATURE MALLEABILITY (HIGH-3)
+  // ========================================
+
+  describe("ECDSA signature malleability rejection", function () {
+    const SECP256K1_N = ethers.BigNumber.from("0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141");
+
+    it("should reject a malleable signature (high-s value)", async function () {
+      const order = makeOrder(eoaSigner.address, eoaSigner.address);
+      const domain = makeDomain(verifier.address);
+      const signature = await signOrder(eoaSigner, domain, order);
+
+      // Extract r, s, v and flip s to n - s
+      const sigBytes = ethers.utils.arrayify(signature);
+      const r = ethers.utils.hexlify(sigBytes.slice(0, 32));
+      const s = ethers.BigNumber.from(sigBytes.slice(32, 64));
+      const v = sigBytes[64];
+
+      const malleableS = SECP256K1_N.sub(s);
+      const malleableV = v === 27 ? 28 : 27;
+
+      const malleableSig = ethers.utils.hexlify(
+        ethers.utils.concat([
+          r,
+          ethers.utils.hexZeroPad(malleableS.toHexString(), 32),
+          [malleableV],
+        ])
+      );
+
+      await expectRevertWithSelector(
+        verifier.verifyOrderSignature(order, malleableSig, 0),
+        "InvalidOrderSignature(bytes32)"
+      );
+    });
+
+    it("should accept the original (low-s) signature", async function () {
+      const order = makeOrder(eoaSigner.address, eoaSigner.address);
+      const domain = makeDomain(verifier.address);
+      const signature = await signOrder(eoaSigner, domain, order);
+
+      const result = await verifier.verifyOrderSignature(order, signature, 0);
+      expect(result).to.equal(true);
+    });
+  });
 });
