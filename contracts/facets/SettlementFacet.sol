@@ -119,7 +119,7 @@ contract SettlementFacet is ISettlement {
             _checkFillAmount(ss, makerHash, makerOrders[i].amount, makerFillAmounts[i], makerOrders[i].minFillAmount);
 
             // Determine and execute settlement path
-            uint8 matchType = _determineMatchType(ss, takerOrder, makerOrders[i]);
+            uint8 matchType = _determineMatchType(takerOrder, makerOrders[i]);
             uint128 makerFee = _computeFee(makerOrders[i].feeRateBps, makerOrders[i].pricePerToken, makerFillAmounts[i], makerOrders[i].collateralToken);
             uint128 takerFeeForThisMaker = _computeFee(takerOrder.feeRateBps, takerOrder.pricePerToken, makerFillAmounts[i], takerOrder.collateralToken);
             totalTakerFee += takerFeeForThisMaker;
@@ -208,33 +208,6 @@ contract SettlementFacet is ISettlement {
         LibSettlementStorage.SettlementStorage storage ss = LibSettlementStorage.settlementStorage();
         ss.tradingPaused = false;
         emit Events.SettlementTradingUnpaused(msg.sender);
-    }
-
-    /**
-     * @notice Register a position pair (complement mapping) for settlement
-     * @dev Sets both directions: A→B and B→A. Owner only.
-     * @param positionIdA Position ID for outcome A
-     * @param positionIdB Position ID for outcome B (complement)
-     * @param conditionId The CTF condition ID both positions belong to
-     * @param collateralToken The collateral token for these positions
-     */
-    function registerPositionPair(
-        bytes32 positionIdA,
-        bytes32 positionIdB,
-        bytes32 conditionId,
-        address collateralToken
-    ) external {
-        LibDiamond.enforceIsContractOwner();
-        LibSettlementStorage.SettlementStorage storage ss = LibSettlementStorage.settlementStorage();
-
-        ss.positionToComplement[positionIdA] = positionIdB;
-        ss.positionToComplement[positionIdB] = positionIdA;
-
-        ss.positionToCondition[positionIdA] = conditionId;
-        ss.positionToCondition[positionIdB] = conditionId;
-
-        ss.positionToCollateral[positionIdA] = collateralToken;
-        ss.positionToCollateral[positionIdB] = collateralToken;
     }
 
     // ========================================
@@ -369,11 +342,13 @@ contract SettlementFacet is ISettlement {
     // ========================================
 
     /**
-     * @dev Determine settlement path based on position relationship and order sides
+     * @dev Determine settlement path based on position relationship and order sides.
+     * @dev Complement lookup reads the CTF registry (LibPositionRegistry) as the single
+     *      source of truth. Any position that has been through splitPosition is
+     *      registered automatically, so no owner-only registration step is required.
      * @return matchType 1=Complementary, 2=Mint, 3=Merge
      */
     function _determineMatchType(
-        LibSettlementStorage.SettlementStorage storage ss,
         LibDoefinOrder.DoefinOrder calldata taker,
         LibDoefinOrder.DoefinOrder calldata maker
     ) internal view returns (uint8) {
@@ -382,14 +357,32 @@ contract SettlementFacet is ISettlement {
             return MATCH_COMPLEMENTARY;
         }
 
-        // Check if positions are complements
-        bytes32 complement = ss.positionToComplement[taker.positionId];
-        if (complement == maker.positionId) {
+        // Check if positions are complements via the CTF registry
+        if (_isBinaryComplement(uint256(taker.positionId), uint256(maker.positionId))) {
             if (taker.side == 0 && maker.side == 0) return MATCH_MINT;
             if (taker.side == 1 && maker.side == 1) return MATCH_MERGE;
         }
 
         revert Errors.InvalidMatch();
+    }
+
+    /**
+     * @dev Registry-backed complement check. Returns false (not revert) for
+     *      unregistered positions, non-binary markets, or cross-market pairs,
+     *      so `_determineMatchType` can fall through to a single InvalidMatch()
+     *      revert instead of leaking low-level registry errors to callers.
+     */
+    function _isBinaryComplement(uint256 takerPos, uint256 makerPos) private view returns (bool) {
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
+        bytes32 marketKey = ds.positionRegistry.marketKeyByPositionId[takerPos];
+        if (marketKey == bytes32(0)) return false;
+        // Cross-market pairs are never complements
+        if (ds.positionRegistry.marketKeyByPositionId[makerPos] != marketKey) return false;
+        uint256[] storage positionIds = ds.positionRegistry.marketsByKey[marketKey].positionIds;
+        if (positionIds.length != 2) return false;
+        if (positionIds[0] == takerPos) return positionIds[1] == makerPos;
+        if (positionIds[1] == takerPos) return positionIds[0] == makerPos;
+        return false;
     }
 
     // ========================================
@@ -481,7 +474,6 @@ contract SettlementFacet is ISettlement {
         if (taker.collateralToken != maker.collateralToken) revert Errors.InvalidMatch();
 
         LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
-        LibSettlementStorage.SettlementStorage storage ss = LibSettlementStorage.settlementStorage();
         uint256 unit = ds.adminConfigStorage.unitPerPair[taker.collateralToken];
         address feeReceiver = ds.adminConfigStorage.feeReceiver;
 
@@ -507,8 +499,11 @@ contract SettlementFacet is ISettlement {
             IERC20(maker.collateralToken).safeTransferFrom(maker.maker, feeReceiver, makerFee);
         }
 
-        // Split position: Diamond mints both outcome tokens to itself
-        bytes32 conditionId = ss.positionToCondition[taker.positionId];
+        // Split position: Diamond mints both outcome tokens to itself.
+        // Read conditionId from the CTF registry — populated by the initial splitPosition
+        // that seeded this market. _determineMatchType already verified both positions
+        // belong to the same binary market, so this lookup cannot be zero here.
+        bytes32 conditionId = ds.positionRegistry.conditionIdByPositionId[uint256(taker.positionId)];
         // Build partition for the two complement positions
         // positionId encodes the indexSet — we need to reconstruct the partition
         // For a binary market with positions at indexSets [1, 2], partition = [1, 2]
@@ -548,7 +543,6 @@ contract SettlementFacet is ISettlement {
         if (taker.collateralToken != maker.collateralToken) revert Errors.InvalidMatch();
 
         LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
-        LibSettlementStorage.SettlementStorage storage ss = LibSettlementStorage.settlementStorage();
         uint256 unit = ds.adminConfigStorage.unitPerPair[taker.collateralToken];
         address feeReceiver = ds.adminConfigStorage.feeReceiver;
 
@@ -556,8 +550,10 @@ contract SettlementFacet is ISettlement {
         LibERC1155.safeTransferFrom(address(this), taker.maker, address(this), uint256(taker.positionId), fillAmount, "");
         LibERC1155.safeTransferFrom(address(this), maker.maker, address(this), uint256(maker.positionId), fillAmount, "");
 
-        // Merge positions: Diamond burns both outcome tokens, recovers collateral
-        bytes32 conditionId = ss.positionToCondition[taker.positionId];
+        // Merge positions: Diamond burns both outcome tokens, recovers collateral.
+        // Read conditionId from the CTF registry — _determineMatchType already verified
+        // both positions belong to the same binary market, so this cannot be zero.
+        bytes32 conditionId = ds.positionRegistry.conditionIdByPositionId[uint256(taker.positionId)];
         uint256[] memory partition = new uint256[](2);
         partition[0] = _getIndexSet(taker.positionId);
         partition[1] = _getIndexSet(maker.positionId);
@@ -661,22 +657,12 @@ contract SettlementFacet is ISettlement {
     // ========================================
 
     /**
-     * @dev Extract the index set from a positionId
-     *      positionId = keccak256(collateralToken, collectionId) where collectionId encodes the indexSet
-     *      For settlement, we store the indexSet in positionToCondition mapping's context.
-     *      This is a simplified helper — the actual indexSet must be looked up or derived.
-     *      For binary markets: position A has indexSet 1, position B has indexSet 2.
+     * @dev Extract the index set for a positionId from the CTF position registry.
+     * @dev positionId = keccak256(collateralToken, collectionId), where collectionId
+     *      encodes the indexSet via alt-bn128 EC arithmetic — it cannot be reversed,
+     *      so we look it up in the registry populated during splitPosition.
      */
     function _getIndexSet(bytes32 positionId) internal view returns (uint256) {
-        // In the CTF, positions don't directly encode their indexSet in the positionId.
-        // We need to look it up. For now, we use a convention: the settlement storage
-        // maps positionId -> its complement. For a binary market with partition [1, 2],
-        // if positionToComplement[A] == B, then A has indexSet 1 and B has indexSet 2.
-        // The match engine provides the correct partition order.
-        //
-        // Since the task doc uses positionId as bytes32 but the CTF partition uses uint256[],
-        // and positions are registered with their partition during splitPosition,
-        // we use the positionId's numeric value to find its indexSet from the position registry.
         LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
         bytes32 marketKey = ds.positionRegistry.marketKeyByPositionId[uint256(positionId)];
         LibDoefinStorage.MarketMetadata storage meta = ds.positionRegistry.marketsByKey[marketKey];

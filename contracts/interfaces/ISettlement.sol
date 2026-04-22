@@ -40,12 +40,5 @@ interface ISettlement {
 
     function isTradingPaused() external view returns (bool);
 
-    function registerPositionPair(
-        bytes32 positionIdA,
-        bytes32 positionIdB,
-        bytes32 conditionId,
-        address collateralToken
-    ) external;
-
     function cacheDomainSeparator() external;
 }

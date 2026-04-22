@@ -12,6 +12,17 @@ library LibSettlementStorage {
     bytes32 constant STORAGE_POSITION = keccak256("doefin.settlement.storage");
 
     /// @notice Storage struct for the settlement system
+    /// @dev SCRUM-89: The three former position-lookup mappings at slots 6/7/8
+    ///      (positionToComplement / positionToCondition / positionToCollateral)
+    ///      are now reserved/unused. SettlementFacet reads the CTF position
+    ///      registry (LibPositionRegistry in AppStorage) instead — it is
+    ///      populated automatically on every splitPosition.
+    ///
+    ///      These slots are kept as named `__reserved_scrum89_*` placeholders
+    ///      rather than deleted so that domainSeparator (slot 9) and __gap keep
+    ///      their offsets across the diamond-cut upgrade. Any value previously
+    ///      written to these slots (mapping *roots* are always zero, so in
+    ///      practice nothing) stays inert.
     struct SettlementStorage {
         /// @notice The authorized operator address that can submit matched orders
         address operator;
@@ -27,12 +38,13 @@ library LibSettlementStorage {
         mapping(address => mapping(bytes32 => uint256)) makerPositionToMinSalt;
         /// @notice Delegated signers: maker => signer => authorized
         mapping(address => mapping(address => bool)) registeredOrderSigners;
-        /// @notice Position ID to its complement position ID
-        mapping(bytes32 => bytes32) positionToComplement;
-        /// @notice Position ID to its parent condition ID
-        mapping(bytes32 => bytes32) positionToCondition;
-        /// @notice Position ID to its collateral token address
-        mapping(bytes32 => address) positionToCollateral;
+        /// @dev Reserved (SCRUM-89): was positionToComplement. Do not reuse — reading
+        ///      this slot returns 0 on every live Diamond (mapping roots are zero).
+        bytes32 __reserved_scrum89_positionToComplement;
+        /// @dev Reserved (SCRUM-89): was positionToCondition.
+        bytes32 __reserved_scrum89_positionToCondition;
+        /// @dev Reserved (SCRUM-89): was positionToCollateral.
+        bytes32 __reserved_scrum89_positionToCollateral;
         /// @notice Cached EIP-712 domain separator (set via cacheDomainSeparator())
         bytes32 domainSeparator;
         /// @notice Reserved for future storage fields
