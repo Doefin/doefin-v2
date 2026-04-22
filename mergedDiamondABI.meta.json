@@ -1,7 +1,7 @@
 {
   "contractName": "Diamond",
   "description": "Merged ABI for the Doefin v3 Diamond proxy (all active facets).",
-  "generatedAt": "2026-04-20T12:19:13.186Z",
+  "generatedAt": "2026-04-22T17:20:29.062Z",
   "contracts": [
     "Diamond",
     "DiamondCutFacet",
@@ -22,12 +22,12 @@
     "BlockScholesOracleAdapter",
     "MarketDataFacet"
   ],
-  "totalEntries": 288,
+  "totalEntries": 287,
   "entriesByType": {
     "constructor": 1,
     "fallback": 1,
     "receive": 1,
-    "function": 130,
+    "function": 129,
     "event": 57,
     "error": 98
   },
@@ -64,7 +64,7 @@
     },
     {
       "contract": "SettlementFacet",
-      "added": 45,
+      "added": 44,
       "duplicates": 3
     },
     {
@@ -3233,34 +3233,6 @@
         }
       ],
       "name": "registerOrderSigner",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "bytes32",
-          "name": "positionIdA",
-          "type": "bytes32"
-        },
-        {
-          "internalType": "bytes32",
-          "name": "positionIdB",
-          "type": "bytes32"
-        },
-        {
-          "internalType": "bytes32",
-          "name": "conditionId",
-          "type": "bytes32"
-        },
-        {
-          "internalType": "address",
-          "name": "collateralToken",
-          "type": "address"
-        }
-      ],
-      "name": "registerPositionPair",
       "outputs": [],
       "stateMutability": "nonpayable",
       "type": "function"

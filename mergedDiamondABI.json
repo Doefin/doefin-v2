@@ -3116,34 +3116,6 @@
     "inputs": [
       {
         "internalType": "bytes32",
-        "name": "positionIdA",
-        "type": "bytes32"
-      },
-      {
-        "internalType": "bytes32",
-        "name": "positionIdB",
-        "type": "bytes32"
-      },
-      {
-        "internalType": "bytes32",
-        "name": "conditionId",
-        "type": "bytes32"
-      },
-      {
-        "internalType": "address",
-        "name": "collateralToken",
-        "type": "address"
-      }
-    ],
-    "name": "registerPositionPair",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "bytes32",
         "name": "adapterId",
         "type": "bytes32"
       }

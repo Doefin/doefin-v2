@@ -97,7 +97,6 @@ async function main() {
   const collectionIdA = await ctf.getCollectionId(ethers.constants.HashZero, conditionId, 1);
   const collectionIdB = await ctf.getCollectionId(ethers.constants.HashZero, conditionId, 2);
 
-  // getPositionId returns uint256; registerPositionPair takes bytes32
   const positionIdAUint = await ctf.getPositionId(collateralToken, collectionIdA);
   const positionIdBUint = await ctf.getPositionId(collateralToken, collectionIdB);
 
@@ -108,23 +107,13 @@ async function main() {
   console.log("positionIdB (NO): ", positionIdB);
   console.log("");
 
-  // =====================================================
-  // Step 4 — Register position pair in settlement storage
-  // =====================================================
-  const settlement = await ethers.getContractAt("ISettlement", diamondAddress);
-  const tx2 = await settlement.registerPositionPair(
-    positionIdA,
-    positionIdB,
-    conditionId,
-    collateralToken
-  );
-  await tx2.wait();
-  console.log("registerPositionPair tx:", tx2.hash);
-  console.log("Position pair registered.");
-  console.log("");
+  // Settlement complement registration happens automatically when Step 5 splits
+  // the position — LibPositionRegistry.registerPositionPairs is invoked inside
+  // LibCTFCondition._splitPosition. No owner-only registerPositionPair call is
+  // needed (SCRUM-89).
 
   // =====================================================
-  // Step 5 — Fund test wallets with ERC20
+  // Step 4 — Fund test wallets with ERC20
   // =====================================================
   const buyerAddress =
     process.env.TEST_BUYER_ADDRESS ||
@@ -146,7 +135,7 @@ async function main() {
   console.log("");
 
   // =====================================================
-  // Step 6 — Split positions (deployer mints YES + NO position tokens)
+  // Step 5 — Split positions (deployer mints YES + NO position tokens)
   // =====================================================
   const SPLIT_AMOUNT = ethers.utils.parseUnits("500", 6); // 500 tUSDC worth of positions
 
@@ -174,7 +163,7 @@ async function main() {
   console.log("splitPosition tx:", tx5.hash);
 
   // =====================================================
-  // Step 7 — Transfer positionA (YES) tokens to seller
+  // Step 6 — Transfer positionA (YES) tokens to seller
   // Seller will sell YES tokens; they need them before settlement
   // =====================================================
   const erc1155 = await ethers.getContractAt("IERC1155Facet", diamondAddress);
@@ -190,7 +179,7 @@ async function main() {
   console.log("");
 
   // =====================================================
-  // Step 8 — Set approvals
+  // Step 7 — Set approvals
   // =====================================================
   console.log("========== MANUAL APPROVAL STEPS (if keys not available below) ==========");
   console.log("BUYER must run:");
@@ -230,7 +219,7 @@ async function main() {
   console.log("");
 
   // =====================================================
-  // Step 9 — Print backend configuration
+  // Step 8 — Print backend configuration
   // =====================================================
   console.log("========== BACKEND TEST CONFIGURATION ==========");
   console.log("# Add these to your .env for E2E tests:");
