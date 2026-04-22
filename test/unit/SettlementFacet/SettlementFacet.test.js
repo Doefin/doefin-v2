@@ -170,10 +170,10 @@ describe("SettlementFacet", function () {
       owner.address, buyerB.address, positionIdB, splitAmount, "0x"
     );
 
-    // Register position pair in settlement storage (Fix 1)
-    const posIdABytes32 = ethers.utils.hexZeroPad(positionIdA.toHexString(), 32);
-    const posIdBBytes32 = ethers.utils.hexZeroPad(positionIdB.toHexString(), 32);
-    await settlement.registerPositionPair(posIdABytes32, posIdBBytes32, conditionId, collateral.address);
+    // SCRUM-89: position-pair registration now flows automatically from the initial
+    // splitPosition above into the CTF position registry (LibPositionRegistry). No
+    // additional owner-only registration is needed for settlement to recognise the
+    // pair as complements.
   });
 
   // ========================================
@@ -1399,6 +1399,245 @@ describe("SettlementFacet", function () {
       await expect(
         settlement.connect(operator).cacheDomainSeparator()
       ).to.be.revertedWith("NotContractOwner()");
+    });
+  });
+
+  // ========================================
+  // SCRUM-89: AUTO-POPULATED COMPLEMENT REGISTRY
+  // ========================================
+  //
+  // Regression suite for the production bug where Mint/Merge reverted with
+  // InvalidMatch() for any market whose positions were created purely through
+  // the normal splitPosition path (i.e. without a separate owner-only
+  // registerPositionPair call). After SCRUM-89, SettlementFacet reads the CTF
+  // position registry (LibPositionRegistry in AppStorage.positionRegistry) as
+  // the single source of truth — every splitPosition auto-registers the pair,
+  // so no owner action is needed per market.
+  //
+  // The suite creates a FRESH binary market on the existing Diamond and
+  // exercises every settlement path end-to-end. If any of these tests fails,
+  // the production bug has re-emerged.
+  describe("SCRUM-89: fresh-market complement auto-registration", function () {
+    let freshConditionId, freshPositionIdA, freshPositionIdB;
+    let alice, bob, carol; // fresh actors to avoid fill-state carryover
+    const FRESH_FEE_BPS = 100; // 1%
+
+    before(async function () {
+      const signers = await ethers.getSigners();
+      alice = signers[7];
+      bob = signers[8];
+      carol = signers[9];
+
+      // Create a NEW binary condition that has never been registered
+      // via registerPositionPair (impossible now — the function was removed).
+      const questionId = ethers.utils.formatBytes32String("scrum-89-fresh-1");
+      freshConditionId = getConditionId(owner.address, questionId, 2);
+      await conditionMgr.createCondition(owner.address, questionId, 2, "ipfs://scrum-89");
+
+      const collectionIdA = await getCollectionId(ethers.constants.HashZero, freshConditionId, 1, ethers.provider);
+      const collectionIdB = await getCollectionId(ethers.constants.HashZero, freshConditionId, 2, ethers.provider);
+      freshPositionIdA = getPositionId(collateral.address, collectionIdA);
+      freshPositionIdB = getPositionId(collateral.address, collectionIdB);
+
+      // Seed funding + approvals for fresh actors
+      const mintAmount = ethers.utils.parseUnits("10000", 6);
+      await collateral.mint(alice.address, mintAmount);
+      await collateral.mint(bob.address, mintAmount);
+      await collateral.mint(carol.address, mintAmount);
+      await collateral.connect(alice).approve(diamondAddress, ethers.constants.MaxUint256);
+      await collateral.connect(bob).approve(diamondAddress, ethers.constants.MaxUint256);
+      await collateral.connect(carol).approve(diamondAddress, ethers.constants.MaxUint256);
+      await erc1155Facet.connect(alice).setApprovalForAll(diamondAddress, true);
+      await erc1155Facet.connect(bob).setApprovalForAll(diamondAddress, true);
+      await erc1155Facet.connect(carol).setApprovalForAll(diamondAddress, true);
+
+      // Bootstrap split — this is the ONLY registration path. It emits
+      // PositionPairsRegistered and writes to the CTF registry in AppStorage.
+      // Settlement must now recognise the pair purely from this side effect.
+      const splitAmt = ethers.utils.parseUnits("1000", 6);
+      await collateral.mint(owner.address, splitAmt);
+      await conditionalTokens.connect(owner).splitPosition(
+        collateral.address, ethers.constants.HashZero, freshConditionId, [1, 2], splitAmt
+      );
+      // Distribute position tokens so merge tests have something to unwind
+      await erc1155Facet.connect(owner).safeTransferFrom(owner.address, alice.address, freshPositionIdA, splitAmt, "0x");
+      await erc1155Facet.connect(owner).safeTransferFrom(owner.address, bob.address, freshPositionIdB, splitAmt, "0x");
+    });
+
+    function freshOrder(maker, positionId, side, amount, price, overrides = {}) {
+      return {
+        salt: 1,
+        maker,
+        signer: maker,
+        positionId: ethers.utils.hexZeroPad(ethers.BigNumber.from(positionId).toHexString(), 32),
+        collateralToken: collateral.address,
+        side,
+        amount,
+        pricePerToken: price,
+        minFillAmount: 0,
+        orderType: 0,
+        quoteCurrency: ethers.constants.AddressZero,
+        exchangeRate: 0,
+        feeRateBps: FRESH_FEE_BPS,
+        expiration: 0,
+        nonce: 0,
+        ...overrides,
+      };
+    }
+
+    it("Mint: two buyers of complement positions settle without any owner registration (regression)", async function () {
+      // This is the exact scenario that reverted InvalidMatch() on Base Sepolia
+      // markets 88/89/90 before SCRUM-89.
+      const fillAmount = ethers.utils.parseUnits("100", 6);
+      const priceA = UNIT.mul(6).div(10);
+      const priceB = UNIT.mul(4).div(10);
+
+      const takerOrder = freshOrder(carol.address, freshPositionIdA, 0, fillAmount, priceA, { salt: 89001 });
+      const makerOrder = freshOrder(alice.address, freshPositionIdB, 0, fillAmount, priceB, { salt: 89001 });
+
+      const takerSig = await signOrder(carol, takerOrder);
+      const makerSig = await signOrder(alice, makerOrder);
+
+      const carolPosBefore = await erc1155Facet.balanceOf(carol.address, freshPositionIdA);
+      const alicePosBefore = await erc1155Facet.balanceOf(alice.address, freshPositionIdB);
+
+      await settlement.connect(operator).matchOrders(
+        takerOrder, takerSig, 0,
+        [makerOrder], [makerSig], [0],
+        fillAmount, [fillAmount]
+      );
+
+      expect((await erc1155Facet.balanceOf(carol.address, freshPositionIdA)).sub(carolPosBefore)).to.equal(fillAmount);
+      expect((await erc1155Facet.balanceOf(alice.address, freshPositionIdB)).sub(alicePosBefore)).to.equal(fillAmount);
+    });
+
+    it("Merge: two sellers of complement positions settle without any owner registration (regression)", async function () {
+      const fillAmount = ethers.utils.parseUnits("100", 6);
+      const priceA = UNIT.mul(6).div(10);
+      const priceB = UNIT.mul(4).div(10);
+
+      const takerOrder = freshOrder(alice.address, freshPositionIdA, 1, fillAmount, priceA, { salt: 89002 });
+      const makerOrder = freshOrder(bob.address, freshPositionIdB, 1, fillAmount, priceB, { salt: 89002 });
+
+      const takerSig = await signOrder(alice, takerOrder);
+      const makerSig = await signOrder(bob, makerOrder);
+
+      const aliceCollBefore = await collateral.balanceOf(alice.address);
+      const bobCollBefore = await collateral.balanceOf(bob.address);
+
+      await settlement.connect(operator).matchOrders(
+        takerOrder, takerSig, 0,
+        [makerOrder], [makerSig], [0],
+        fillAmount, [fillAmount]
+      );
+
+      expect((await collateral.balanceOf(alice.address)).gt(aliceCollBefore)).to.equal(true);
+      expect((await collateral.balanceOf(bob.address)).gt(bobCollBefore)).to.equal(true);
+    });
+
+    it("Complementary: same position, opposite sides on a fresh market still settles", async function () {
+      // Complementary match does not need the registry at all — it's detected by
+      // (taker.positionId == maker.positionId && taker.side != maker.side).
+      // Kept as a sanity test to prove the registry-based refactor did not
+      // regress the Complementary path.
+      const fillAmount = ethers.utils.parseUnits("50", 6);
+      const price = UNIT.div(2);
+
+      const takerOrder = freshOrder(carol.address, freshPositionIdA, 0, fillAmount, price, { salt: 89003 });
+      const makerOrder = freshOrder(alice.address, freshPositionIdA, 1, fillAmount, price, { salt: 89003 });
+
+      const takerSig = await signOrder(carol, takerOrder);
+      const makerSig = await signOrder(alice, makerOrder);
+
+      await settlement.connect(operator).matchOrders(
+        takerOrder, takerSig, 0,
+        [makerOrder], [makerSig], [0],
+        fillAmount, [fillAmount]
+      );
+
+      const takerHash = await sigVerifier.getOrderHash(takerOrder);
+      expect(await settlement.getFilledAmount(takerHash)).to.equal(fillAmount);
+    });
+
+    it("Negative: Mint across two unrelated markets reverts InvalidMatch()", async function () {
+      // Create a SECOND fresh market, then try to Mint one position from market A
+      // against one position from market B. The registry guard must catch this
+      // as a cross-market pair (not complements).
+      const q2 = ethers.utils.formatBytes32String("scrum-89-fresh-2");
+      const cond2 = getConditionId(owner.address, q2, 2);
+      await conditionMgr.createCondition(owner.address, q2, 2, "ipfs://scrum-89-2");
+      const coll2A = await getCollectionId(ethers.constants.HashZero, cond2, 1, ethers.provider);
+      const pos2A = getPositionId(collateral.address, coll2A);
+      const splitAmt = ethers.utils.parseUnits("500", 6);
+      await collateral.mint(owner.address, splitAmt);
+      await conditionalTokens.connect(owner).splitPosition(
+        collateral.address, ethers.constants.HashZero, cond2, [1, 2], splitAmt
+      );
+
+      const fillAmount = ethers.utils.parseUnits("10", 6);
+      const price = UNIT.div(2);
+
+      // Taker's position is in market 1, maker's position is in market 2 — not a pair.
+      const takerOrder = freshOrder(carol.address, freshPositionIdA, 0, fillAmount, price, { salt: 89004 });
+      const makerOrder = freshOrder(alice.address, pos2A, 0, fillAmount, price, { salt: 89004 });
+      const takerSig = await signOrder(carol, takerOrder);
+      const makerSig = await signOrder(alice, makerOrder);
+
+      await expect(
+        settlement.connect(operator).matchOrders(
+          takerOrder, takerSig, 0,
+          [makerOrder], [makerSig], [0],
+          fillAmount, [fillAmount]
+        )
+      ).to.be.revertedWith("InvalidMatch()");
+    });
+
+    it("Negative: Mint against an entirely unregistered positionId reverts InvalidMatch()", async function () {
+      // Fabricate a positionId that was never split (not in any market).
+      const ghost = ethers.BigNumber.from("0xdeadbeefcafebabe00000000000000000000000000000000000000000000beef");
+      const fillAmount = ethers.utils.parseUnits("10", 6);
+      const price = UNIT.div(2);
+
+      const takerOrder = freshOrder(carol.address, freshPositionIdA, 0, fillAmount, price, { salt: 89005 });
+      const makerOrder = freshOrder(alice.address, ghost, 0, fillAmount, price, { salt: 89005 });
+      const takerSig = await signOrder(carol, takerOrder);
+      const makerSig = await signOrder(alice, makerOrder);
+
+      await expect(
+        settlement.connect(operator).matchOrders(
+          takerOrder, takerSig, 0,
+          [makerOrder], [makerSig], [0],
+          fillAmount, [fillAmount]
+        )
+      ).to.be.revertedWith("InvalidMatch()");
+    });
+
+    it("Negative: Mint with side 0/side 1 on complement positions reverts InvalidMatch()", async function () {
+      // Same market, complement positions, but one BUY and one SELL → not a valid Mint
+      // (would require both to be buyers) and not a valid Merge (would require both sellers).
+      // The guard must catch this as an invalid side combination.
+      const fillAmount = ethers.utils.parseUnits("10", 6);
+      const price = UNIT.div(2);
+
+      const takerOrder = freshOrder(carol.address, freshPositionIdA, 0, fillAmount, price, { salt: 89006 });
+      const makerOrder = freshOrder(alice.address, freshPositionIdB, 1, fillAmount, price, { salt: 89006 });
+      const takerSig = await signOrder(carol, takerOrder);
+      const makerSig = await signOrder(alice, makerOrder);
+
+      await expect(
+        settlement.connect(operator).matchOrders(
+          takerOrder, takerSig, 0,
+          [makerOrder], [makerSig], [0],
+          fillAmount, [fillAmount]
+        )
+      ).to.be.revertedWith("InvalidMatch()");
+    });
+
+    it("Negative: registerPositionPair selector no longer exists on the facet", async function () {
+      // Belt-and-suspenders: the ABI surface should no longer carry the
+      // owner-only registerPositionPair. If this test fails, the facet cut
+      // still exposes the dead selector and should be re-cut with Remove.
+      expect(settlement.registerPositionPair).to.equal(undefined);
     });
   });
 });
