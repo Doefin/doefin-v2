@@ -39,8 +39,8 @@ async function main() {
     console.log("📊 Current block height:", currentBlockHeight.toString());
     
     // === SIMPLE CONFIGURATION - EDIT THESE VALUES DIRECTLY ===
-    const TARGET_BLOCK_HEIGHT = 933408;  // Bitcoin block number to target (next difficulty adjustment)
-    const TARGET_DIFFICULTY = "147000000000000";  // Target difficulty (147T)
+    const TARGET_BLOCK_HEIGHT = 949000;  // Bitcoin block number to target (next difficulty adjustment)
+    const TARGET_DIFFICULTY = "169000000000000";  // Target difficulty (169T)
     
     // Configuration for question creation
     const QUESTION_CONFIG = {
@@ -60,7 +60,7 @@ async function main() {
     console.log("\n2️⃣ Question Configuration:");
     console.log("   Type:", Object.keys(QuestionType)[QUESTION_CONFIG.type]);
     console.log("   Target Block Height:", QUESTION_CONFIG.targetBlockHeight.toString());
-    console.log("   Target Difficulty:", TARGET_DIFFICULTY, "(147T)");
+    console.log("   Target Difficulty:", TARGET_DIFFICULTY, "(169T)");
     console.log("   Outcome Slots:", QUESTION_CONFIG.outcomeSlotCount);
     console.log("   Metadata URI:", QUESTION_CONFIG.metadataURI);
     
