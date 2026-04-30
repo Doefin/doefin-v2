@@ -53,7 +53,7 @@ async function main() {
     // -------------------------------------------------------------------------
     console.log("\n--- Step 1: Deploy new SettlementFacet ---");
     const SettlementFacet = await ethers.getContractFactory("SettlementFacet");
-    let newFacetAddress = process.env.NEW_SETTLEMENT_FACET_ADDRESS;
+    let newFacetAddress = process.env.NEW_SETTLEMENT_FACET_ADDRESS || process.env.SETTLEMENT_FACET;
     if (newFacetAddress) {
         console.log("Reusing existing deployment at:", newFacetAddress);
     } else {
@@ -61,7 +61,7 @@ async function main() {
         await facet.deployed();
         newFacetAddress = facet.address;
         console.log("Deployed at:", newFacetAddress);
-        console.log("  NEW_SETTLEMENT_FACET_ADDRESS=" + newFacetAddress);
+        console.log("  SETTLEMENT_FACET=" + newFacetAddress);
     }
 
     // -------------------------------------------------------------------------
