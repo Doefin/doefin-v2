@@ -139,7 +139,10 @@ library LibCTFCondition {
             amount
         );
 
-        LibPositionRegistry.registerPositionPairs(positionIds, partition, conditionId, parentCollectionId, collateralToken);
+        // Registry was already populated by the initial splitPosition that seeded
+        // this market. Settlement mints must not re-run the consistency check —
+        // it is order-sensitive and the partition here is derived from taker/maker
+        // assignment, not the canonical registration order.
 
         if (freeIndexSet == 0) {
             if (parentCollectionId == bytes32(0)) {

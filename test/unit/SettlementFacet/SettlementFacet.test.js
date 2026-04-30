@@ -1492,6 +1492,7 @@ describe("SettlementFacet", function () {
       const priceA = UNIT.mul(6).div(10);
       const priceB = UNIT.mul(4).div(10);
 
+      // taker=A (indexSet=1), maker=B (indexSet=2) — partition arrives as [1,2], canonical order
       const takerOrder = freshOrder(carol.address, freshPositionIdA, 0, fillAmount, priceA, { salt: 89001 });
       const makerOrder = freshOrder(alice.address, freshPositionIdB, 0, fillAmount, priceB, { salt: 89001 });
 
@@ -1509,6 +1510,35 @@ describe("SettlementFacet", function () {
 
       expect((await erc1155Facet.balanceOf(carol.address, freshPositionIdA)).sub(carolPosBefore)).to.equal(fillAmount);
       expect((await erc1155Facet.balanceOf(alice.address, freshPositionIdB)).sub(alicePosBefore)).to.equal(fillAmount);
+    });
+
+    it("Mint: taker holds higher indexSet (YES=2), maker holds lower (NO=1) — SCRUM-120 regression", async function () {
+      // Production failure: taker=YES (indexSet=2), maker=NO (indexSet=1).
+      // _settleMint built partition as [2,1] (taker-first). registerPositionPairs
+      // compared it against the stored [1,2] and reverted InvalidMatch().
+      // Fixed by removing registerPositionPairs from _splitPositionInternal.
+      const fillAmount = ethers.utils.parseUnits("100", 6);
+      const priceYes = UNIT.mul(606).div(1000);
+      const priceNo  = UNIT.mul(450).div(1000);
+
+      // taker=B (indexSet=2, YES), maker=A (indexSet=1, NO) — partition arrives as [2,1]
+      const takerOrder = freshOrder(carol.address, freshPositionIdB, 0, fillAmount, priceYes, { salt: 120001 });
+      const makerOrder = freshOrder(alice.address, freshPositionIdA, 0, fillAmount, priceNo,  { salt: 120001 });
+
+      const takerSig = await signOrder(carol, takerOrder);
+      const makerSig = await signOrder(alice, makerOrder);
+
+      const carolPosBefore = await erc1155Facet.balanceOf(carol.address, freshPositionIdB);
+      const alicePosBefore = await erc1155Facet.balanceOf(alice.address, freshPositionIdA);
+
+      await settlement.connect(operator).matchOrders(
+        takerOrder, takerSig, 0,
+        [makerOrder], [makerSig], [0],
+        fillAmount, [fillAmount]
+      );
+
+      expect((await erc1155Facet.balanceOf(carol.address, freshPositionIdB)).sub(carolPosBefore)).to.equal(fillAmount);
+      expect((await erc1155Facet.balanceOf(alice.address, freshPositionIdA)).sub(alicePosBefore)).to.equal(fillAmount);
     });
 
     it("Merge: two sellers of complement positions settle without any owner registration (regression)", async function () {
