@@ -726,9 +726,9 @@ describe("SettlementFacet", function () {
     const price = UNIT.div(2);
     const orderAmount = ethers.utils.parseUnits("1000", 6);
 
-    it("should revert when fill amount is below minFillAmount", async function () {
+    it("should succeed when fill amount is below minFillAmount (enforcement is off-chain)", async function () {
       const minFill = ethers.utils.parseUnits("100", 6);
-      const fillAmount = ethers.utils.parseUnits("50", 6); // below min
+      const fillAmount = ethers.utils.parseUnits("50", 6); // below min — no longer rejected on-chain
 
       const takerOrder = makeOrder(buyer.address, positionIdA, 0, orderAmount, price, { salt: 22000, minFillAmount: minFill });
       const makerOrder = makeOrder(seller.address, positionIdA, 1, orderAmount, price, { salt: 22000 });
@@ -736,16 +736,17 @@ describe("SettlementFacet", function () {
       const takerSig = await signOrder(buyer, takerOrder);
       const makerSig = await signOrder(seller, makerOrder);
 
-      await expect(
-        settlement.connect(operator).matchOrders(
-          takerOrder, takerSig, 0,
-          [makerOrder], [makerSig], [0],
-          fillAmount, [fillAmount]
-        )
-      ).to.be.reverted;
+      await settlement.connect(operator).matchOrders(
+        takerOrder, takerSig, 0,
+        [makerOrder], [makerSig], [0],
+        fillAmount, [fillAmount]
+      );
+
+      const takerHash = await sigVerifier.getOrderHash(takerOrder);
+      expect(await settlement.getFilledAmount(takerHash)).to.equal(fillAmount);
     });
 
-    it("should revert when maker fill amount is below maker minFillAmount", async function () {
+    it("should succeed when maker fill amount is below maker minFillAmount (enforcement is off-chain)", async function () {
       const minFill = ethers.utils.parseUnits("100", 6);
       const fillAmount = ethers.utils.parseUnits("50", 6);
 
@@ -755,13 +756,14 @@ describe("SettlementFacet", function () {
       const takerSig = await signOrder(buyer, takerOrder);
       const makerSig = await signOrder(seller, makerOrder);
 
-      await expect(
-        settlement.connect(operator).matchOrders(
-          takerOrder, takerSig, 0,
-          [makerOrder], [makerSig], [0],
-          fillAmount, [fillAmount]
-        )
-      ).to.be.reverted;
+      await settlement.connect(operator).matchOrders(
+        takerOrder, takerSig, 0,
+        [makerOrder], [makerSig], [0],
+        fillAmount, [fillAmount]
+      );
+
+      const takerHash = await sigVerifier.getOrderHash(takerOrder);
+      expect(await settlement.getFilledAmount(takerHash)).to.equal(fillAmount);
     });
 
     it("should succeed when fill amount equals minFillAmount", async function () {
@@ -1011,12 +1013,11 @@ describe("SettlementFacet", function () {
     });
 
     it("should revert merge when prices diverge significantly from unit", async function () {
-      // 0.7 + 0.7 = 1.4 — takerPayout=70, makerPayout=30, makerExpected=70
-      // 30 <= 71 → passes. But the taker is getting 70 from fillAmount=100.
-      // For a true revert, use prices that sum far below unit so the maker
-      // remainder far exceeds their expected payout.
-      const priceA = UNIT.mul(7).div(10);
-      const priceB = UNIT.mul(7).div(10);
+      // New crossing guard: P_t + P_m > unit → revert InvalidMatch
+      // 0.3 + 0.3 = 0.6 — sum < unit, so merge is valid (taker gets generous payout)
+      // Use 0.8 + 0.8 = 1.6 > unit — both floors exceed what collateral can cover
+      const priceA = UNIT.mul(8).div(10); // 0.8
+      const priceB = UNIT.mul(8).div(10); // 0.8
 
       const takerOrder = makeOrder(seller.address, positionIdA, 1, fillAmount, priceA, { salt: 20003 });
       const makerOrder = makeOrder(buyerB.address, positionIdB, 1, fillAmount, priceB, { salt: 20003 });
@@ -1024,20 +1025,20 @@ describe("SettlementFacet", function () {
       const takerSig = await signOrder(seller, takerOrder);
       const makerSig = await signOrder(buyerB, makerOrder);
 
-      // takerPayout = 70, makerPayout = 100 - 70 = 30, makerExpected = 70
-      // 30 <= 71 → passes. This is by design: maker gets less than expected (safe).
-      // The overflow case is caught by Solidity's checked arithmetic:
-      // If takerPayout > fillAmount, the subtraction reverts.
-      // Let's test with a truly broken case instead.
+      await expect(
+        settlement.connect(operator).matchOrders(
+          takerOrder, takerSig, 0,
+          [makerOrder], [makerSig], [0],
+          fillAmount, [fillAmount]
+        )
+      ).to.be.revertedWith("InvalidMatch()");
     });
 
-    it("should revert merge when taker price exceeds unit (arithmetic overflow)", async function () {
-      // Price > unit triggers InvalidPrice in _computeFee, not here.
-      // For merge, the danger is takerPayout > fillAmount causing underflow.
-      // With the MEDIUM-4 fix, price > unit is caught in _computeFee.
-      // Let's verify the merge path with extremely low prices (sum << unit).
-      const priceA = UNIT.div(100); // 0.01
-      const priceB = UNIT.div(100); // 0.01
+    it("should revert merge when prices sum exceeds unit", async function () {
+      // New crossing guard: P_t + P_m > unit → revert InvalidMatch
+      // 0.7 + 0.7 = 1.4 > unit — taker floor + maker floor > total collateral available
+      const priceA = UNIT.mul(7).div(10); // 0.7
+      const priceB = UNIT.mul(7).div(10); // 0.7
 
       const takerOrder = makeOrder(seller.address, positionIdA, 1, fillAmount, priceA, { salt: 20006 });
       const makerOrder = makeOrder(buyerB.address, positionIdB, 1, fillAmount, priceB, { salt: 20006 });
@@ -1045,10 +1046,6 @@ describe("SettlementFacet", function () {
       const takerSig = await signOrder(seller, takerOrder);
       const makerSig = await signOrder(buyerB, makerOrder);
 
-      // takerPayout = 0.01 * 100 / 1 = 1 USDC
-      // makerPayout = 100 - 1 = 99 USDC (remainder)
-      // makerExpected = 0.01 * 100 / 1 = 1 USDC
-      // 99 > 1 + 1 → reverts
       await expect(
         settlement.connect(operator).matchOrders(
           takerOrder, takerSig, 0,
@@ -1668,6 +1665,209 @@ describe("SettlementFacet", function () {
       // owner-only registerPositionPair. If this test fails, the facet cut
       // still exposes the dead selector and should be re-cut with Remove.
       expect(settlement.registerPositionPair).to.equal(undefined);
+    });
+  });
+
+  // ========================================
+  // SCRUM-121: EFFECTIVE PRICE SETTLEMENT
+  // ========================================
+
+  describe("SCRUM-121: Effective price for Mint and Merge", function () {
+    // Use feeRateBps=0 throughout so fee math doesn't obscure collateral assertions.
+
+    describe("Mint — fill at maker's effective price (unit − P_m)", function () {
+      it("should give taker price improvement: taker pays unit−P_m, not P_t", async function () {
+        // Proposal Example 1 (single pair): P_t=606k, P_m=450k, fill=1_000_000
+        // Old: takerCollateral = P_t * fill / unit = 606_000
+        // New: makerCollateral = P_m * fill / unit = 450_000
+        //      takerCollateral = fill - makerCollateral  = 550_000
+        const fill = ethers.BigNumber.from(1_000_000);
+        const Pt   = ethers.BigNumber.from(606_000);
+        const Pm   = ethers.BigNumber.from(450_000);
+
+        const takerOrder = makeOrder(buyer.address,  positionIdA, 0, fill, Pt, { salt: 121001, feeRateBps: 0 });
+        const makerOrder = makeOrder(buyerB.address,  positionIdB, 0, fill, Pm, { salt: 121001, feeRateBps: 0 });
+
+        const takerSig = await signOrder(buyer,  takerOrder);
+        const makerSig = await signOrder(buyerB,  makerOrder);
+
+        const buyerCollBefore  = await collateral.balanceOf(buyer.address);
+        const buyerBCollBefore = await collateral.balanceOf(buyerB.address);
+
+        await settlement.connect(operator).matchOrders(
+          takerOrder, takerSig, 0,
+          [makerOrder], [makerSig], [0],
+          fill, [fill]
+        );
+
+        const takerPaid = buyerCollBefore.sub(await collateral.balanceOf(buyer.address));
+        const makerPaid = buyerBCollBefore.sub(await collateral.balanceOf(buyerB.address));
+
+        // Taker pays effective price (unit − P_m), not their own P_t
+        expect(takerPaid).to.equal(fill.sub(Pm.mul(fill).div(UNIT))); // = 550_000
+        expect(makerPaid).to.equal(Pm.mul(fill).div(UNIT));           // = 450_000
+        // Sanity: total collateral into diamond == fill (used to mint)
+        expect(takerPaid.add(makerPaid)).to.equal(fill);
+      });
+
+      it("should fill at exactly P_t when prices sum to unit (no improvement)", async function () {
+        // P_t=600k, P_m=400k, sum=unit → effective price = unit − P_m = P_t exactly
+        const fill = ethers.BigNumber.from(1_000_000);
+        const Pt   = UNIT.mul(6).div(10); // 600_000
+        const Pm   = UNIT.mul(4).div(10); // 400_000
+
+        const takerOrder = makeOrder(buyer.address,  positionIdA, 0, fill, Pt, { salt: 121002, feeRateBps: 0 });
+        const makerOrder = makeOrder(buyerB.address,  positionIdB, 0, fill, Pm, { salt: 121002, feeRateBps: 0 });
+
+        const takerSig = await signOrder(buyer,  takerOrder);
+        const makerSig = await signOrder(buyerB,  makerOrder);
+
+        const buyerCollBefore  = await collateral.balanceOf(buyer.address);
+        const buyerBCollBefore = await collateral.balanceOf(buyerB.address);
+
+        await settlement.connect(operator).matchOrders(
+          takerOrder, takerSig, 0,
+          [makerOrder], [makerSig], [0],
+          fill, [fill]
+        );
+
+        const takerPaid = buyerCollBefore.sub(await collateral.balanceOf(buyer.address));
+        const makerPaid = buyerBCollBefore.sub(await collateral.balanceOf(buyerB.address));
+
+        expect(takerPaid).to.equal(fill.sub(Pm.mul(fill).div(UNIT))); // 600_000
+        expect(makerPaid).to.equal(Pm.mul(fill).div(UNIT));           // 400_000
+        expect(takerPaid.add(makerPaid)).to.equal(fill);
+      });
+
+      it("should revert when P_t + P_m < unit (no crossing)", async function () {
+        // P_t=500k, P_m=400k → sum=900k < unit → InvalidMatch
+        const fill = ethers.BigNumber.from(1_000_000);
+        const Pt   = UNIT.div(2);          // 500_000
+        const Pm   = UNIT.mul(4).div(10);  // 400_000
+
+        const takerOrder = makeOrder(buyer.address,  positionIdA, 0, fill, Pt, { salt: 121003, feeRateBps: 0 });
+        const makerOrder = makeOrder(buyerB.address,  positionIdB, 0, fill, Pm, { salt: 121003, feeRateBps: 0 });
+
+        const takerSig = await signOrder(buyer,  takerOrder);
+        const makerSig = await signOrder(buyerB,  makerOrder);
+
+        await expect(
+          settlement.connect(operator).matchOrders(
+            takerOrder, takerSig, 0,
+            [makerOrder], [makerSig], [0],
+            fill, [fill]
+          )
+        ).to.be.revertedWith("InvalidMatch()");
+      });
+
+      it("1:many Mint — taker vs two NO makers at different prices", async function () {
+        // Proposal Example 1: P_t=606k, maker A P_m=450k fill=400k, maker B P_m=400k fill=1_300k
+        // Old: taker pays P_t * totalFill / unit = 606k * 1_700k / 1M = 1_030_200 (wrong)
+        // New: taker pays (fill_A − P_mA*fill_A/unit) + (fill_B − P_mB*fill_B/unit)
+        //              = 220_000 + 780_000 = 1_000_000
+        const fillA   = ethers.BigNumber.from(400_000);
+        const fillB   = ethers.BigNumber.from(1_300_000);
+        const totalFill = fillA.add(fillB);
+        const Pt  = ethers.BigNumber.from(606_000);
+        const PmA = ethers.BigNumber.from(450_000);
+        const PmB = ethers.BigNumber.from(400_000);
+
+        const takerOrder  = makeOrder(buyer.address,  positionIdA, 0, totalFill, Pt,  { salt: 121004, feeRateBps: 0 });
+        const makerOrderA = makeOrder(buyerB.address,  positionIdB, 0, fillA,    PmA, { salt: 121004, feeRateBps: 0 });
+        const makerOrderB = makeOrder(seller.address, positionIdB, 0, fillB,    PmB, { salt: 121004, feeRateBps: 0 });
+
+        const takerSig  = await signOrder(buyer,  takerOrder);
+        const makerSigA = await signOrder(buyerB,  makerOrderA);
+        const makerSigB = await signOrder(seller, makerOrderB);
+
+        const buyerCollBefore  = await collateral.balanceOf(buyer.address);
+        const buyerBCollBefore = await collateral.balanceOf(buyerB.address);
+        const sellerCollBefore = await collateral.balanceOf(seller.address);
+
+        await settlement.connect(operator).matchOrders(
+          takerOrder, takerSig, 0,
+          [makerOrderA, makerOrderB], [makerSigA, makerSigB], [0, 0],
+          totalFill, [fillA, fillB]
+        );
+
+        const takerPaid   = buyerCollBefore.sub(await collateral.balanceOf(buyer.address));
+        const makerAPaid  = buyerBCollBefore.sub(await collateral.balanceOf(buyerB.address));
+        const makerBPaid  = sellerCollBefore.sub(await collateral.balanceOf(seller.address));
+
+        // Maker A pays P_mA * fillA / unit = 450k * 400k / 1M = 180_000
+        expect(makerAPaid).to.equal(PmA.mul(fillA).div(UNIT));
+        // Maker B pays P_mB * fillB / unit = 400k * 1_300k / 1M = 520_000
+        expect(makerBPaid).to.equal(PmB.mul(fillB).div(UNIT));
+        // Taker pays remainder = totalFill − makerAPaid − makerBPaid = 1_700k − 700k = 1_000_000
+        expect(takerPaid).to.equal(totalFill.sub(makerAPaid).sub(makerBPaid));
+        // Taker receives all YES tokens
+        const takerHash = await sigVerifier.getOrderHash(takerOrder);
+        expect(await settlement.getFilledAmount(takerHash)).to.equal(totalFill);
+      });
+    });
+
+    describe("Merge — payout at maker's effective return (unit − P_m)", function () {
+      it("should give taker price improvement: taker receives unit−P_m, not P_t", async function () {
+        // P_t=400k (floor), P_m=300k → effective return = unit − P_m = 700k > P_t ✓
+        const fill = ethers.BigNumber.from(1_000_000);
+        const Pt   = UNIT.mul(4).div(10);  // 400_000
+        const Pm   = UNIT.mul(3).div(10);  // 300_000
+
+        // Give seller and buyerB fresh position tokens for this merge
+        const splitAmt = ethers.utils.parseUnits("10", 6);
+        await collateral.mint(owner.address, splitAmt);
+        await conditionalTokens.connect(owner).splitPosition(
+          collateral.address, ethers.constants.HashZero, conditionId, [1, 2], splitAmt
+        );
+        await erc1155Facet.connect(owner).safeTransferFrom(owner.address, seller.address,  positionIdA, splitAmt, "0x");
+        await erc1155Facet.connect(owner).safeTransferFrom(owner.address, buyerB.address, positionIdB, splitAmt, "0x");
+
+        const takerOrder = makeOrder(seller.address,  positionIdA, 1, fill, Pt, { salt: 121005, feeRateBps: 0 });
+        const makerOrder = makeOrder(buyerB.address, positionIdB, 1, fill, Pm, { salt: 121005, feeRateBps: 0 });
+
+        const takerSig = await signOrder(seller,  takerOrder);
+        const makerSig = await signOrder(buyerB, makerOrder);
+
+        const sellerCollBefore = await collateral.balanceOf(seller.address);
+        const buyerBCollBefore = await collateral.balanceOf(buyerB.address);
+
+        await settlement.connect(operator).matchOrders(
+          takerOrder, takerSig, 0,
+          [makerOrder], [makerSig], [0],
+          fill, [fill]
+        );
+
+        const takerReceived = (await collateral.balanceOf(seller.address)).sub(sellerCollBefore);
+        const makerReceived = (await collateral.balanceOf(buyerB.address)).sub(buyerBCollBefore);
+
+        // Maker receives exactly P_m * fill / unit = 300_000
+        expect(makerReceived).to.equal(Pm.mul(fill).div(UNIT));
+        // Taker receives the complement = fill − makerReceived = 700_000
+        expect(takerReceived).to.equal(fill.sub(Pm.mul(fill).div(UNIT)));
+        // Total = fill (all merged collateral distributed)
+        expect(takerReceived.add(makerReceived)).to.equal(fill);
+      });
+
+      it("should revert when P_t + P_m > unit (floors exceed available collateral)", async function () {
+        // P_t=700k, P_m=400k → sum=1_100k > unit → InvalidMatch
+        const fill = ethers.BigNumber.from(1_000_000);
+        const Pt   = UNIT.mul(7).div(10);  // 700_000
+        const Pm   = UNIT.mul(4).div(10);  // 400_000
+
+        const takerOrder = makeOrder(seller.address,  positionIdA, 1, fill, Pt, { salt: 121006, feeRateBps: 0 });
+        const makerOrder = makeOrder(buyerB.address, positionIdB, 1, fill, Pm, { salt: 121006, feeRateBps: 0 });
+
+        const takerSig = await signOrder(seller,  takerOrder);
+        const makerSig = await signOrder(buyerB, makerOrder);
+
+        await expect(
+          settlement.connect(operator).matchOrders(
+            takerOrder, takerSig, 0,
+            [makerOrder], [makerSig], [0],
+            fill, [fill]
+          )
+        ).to.be.revertedWith("InvalidMatch()");
+      });
     });
   });
 });
