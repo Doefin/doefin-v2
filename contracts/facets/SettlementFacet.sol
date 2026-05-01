@@ -477,15 +477,14 @@ contract SettlementFacet is ISettlement {
         uint256 unit = ds.adminConfigStorage.unitPerPair[taker.collateralToken];
         address feeReceiver = ds.adminConfigStorage.feeReceiver;
 
-        // Taker pays floor-divided collateral; maker covers the remainder.
-        // This guarantees takerCollateral + makerCollateral == fillAmount by construction,
-        // avoiding strict-equality failures from integer division truncation.
-        uint256 takerCollateral = (uint256(taker.pricePerToken) * uint256(fillAmount)) / unit;
-        uint256 makerCollateral = uint256(fillAmount) - takerCollateral;
+        // Validate crossing: taker's ceiling >= effective price (unit - maker.price)
+        if (uint256(taker.pricePerToken) + uint256(maker.pricePerToken) < unit) revert Errors.InvalidMatch();
 
-        // Safety: maker must not be charged more than their signed price implies (+ 1 wei rounding tolerance)
-        uint256 makerExpected = (uint256(maker.pricePerToken) * uint256(fillAmount)) / unit;
-        if (makerCollateral > makerExpected + 1) revert Errors.InvalidMatch();
+        // Maker pays their committed price; taker pays the complement (effective price = unit - P_m)
+        uint256 makerCollateral = (uint256(maker.pricePerToken) * uint256(fillAmount)) / unit;
+        uint256 takerCollateral = uint256(fillAmount) - makerCollateral;
+        // 1-wei rounding surplus (from integer division) flows to taker by construction.
+        // Do not add a makerExpected + 1 tolerance — this is intentional.
 
         // Collect collateral from both buyers to Diamond
         IERC20(taker.collateralToken).safeTransferFrom(taker.maker, address(this), takerCollateral);
@@ -569,14 +568,14 @@ contract SettlementFacet is ISettlement {
             fillAmount
         );
 
-        // Taker gets floor-divided payout; maker gets the remainder.
-        // This guarantees takerPayout + makerPayout == fillAmount by construction.
-        uint256 takerPayout = (uint256(taker.pricePerToken) * uint256(fillAmount)) / unit;
-        uint256 makerPayout = uint256(fillAmount) - takerPayout;
+        // Validate crossing: taker's floor <= effective return (unit - maker.price)
+        if (uint256(taker.pricePerToken) + uint256(maker.pricePerToken) > unit) revert Errors.InvalidMatch();
 
-        // Safety: maker must not receive more than their signed price implies (+ 1 wei rounding tolerance)
-        uint256 makerExpected = (uint256(maker.pricePerToken) * uint256(fillAmount)) / unit;
-        if (makerPayout > makerExpected + 1) revert Errors.InvalidMatch();
+        // Maker receives their committed price; taker receives the complement (effective return = unit - P_m)
+        uint256 makerPayout = (uint256(maker.pricePerToken) * uint256(fillAmount)) / unit;
+        uint256 takerPayout = uint256(fillAmount) - makerPayout;
+        // 1-wei rounding surplus (from integer division) flows to taker by construction.
+        // Do not add a makerExpected + 1 tolerance — this is intentional.
 
         // Deduct fees and transfer
         if (takerPayout > takerFee) {
