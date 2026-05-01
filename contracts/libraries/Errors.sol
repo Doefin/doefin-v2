@@ -395,9 +395,6 @@ library Errors {
     /// @notice Thrown when minValidSalt is not strictly greater than the current value
     error InvalidSaltThreshold();
 
-    /// @notice Thrown when fill amount is below the order's minimum fill amount
-    error FillBelowMinimum(bytes32 orderHash, uint128 fillAmount, uint128 minFillAmount);
-
     /// @notice Thrown when taker and maker are the same address (self-trade prevention)
     error SelfTrade();
 }
