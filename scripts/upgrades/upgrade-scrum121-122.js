@@ -47,7 +47,8 @@ async function main() {
     // This avoids needing the real private key during local fork testing.
     let deployer;
     const OPERATOR_ADDRESS = process.env.OPERATOR_ADDRESS;
-    if (OPERATOR_ADDRESS) {
+    const isLocalNetwork = ["hardhat", "localhost"].includes(hre.network.name);
+    if (OPERATOR_ADDRESS && isLocalNetwork) {
         await hre.network.provider.request({
             method: "hardhat_impersonateAccount",
             params: [OPERATOR_ADDRESS],
