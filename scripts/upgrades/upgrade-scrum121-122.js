@@ -43,7 +43,25 @@ async function main() {
     const DIAMOND_ADDRESS = process.env.DIAMOND_ADDRESS;
     if (!DIAMOND_ADDRESS) throw new Error("DIAMOND_ADDRESS not set in environment");
 
-    const [deployer] = await ethers.getSigners();
+    // OPERATOR_ADDRESS: when set, impersonate that address on the fork (Anvil only).
+    // This avoids needing the real private key during local fork testing.
+    let deployer;
+    const OPERATOR_ADDRESS = process.env.OPERATOR_ADDRESS;
+    if (OPERATOR_ADDRESS) {
+        await hre.network.provider.request({
+            method: "hardhat_impersonateAccount",
+            params: [OPERATOR_ADDRESS],
+        });
+        await hre.network.provider.send("hardhat_setBalance", [
+            OPERATOR_ADDRESS,
+            "0x1000000000000000000", // fund with 1 ETH for gas
+        ]);
+        deployer = await ethers.getSigner(OPERATOR_ADDRESS);
+        console.log("Impersonating operator:", OPERATOR_ADDRESS);
+    } else {
+        [deployer] = await ethers.getSigners();
+    }
+
     console.log("Deployer:", deployer.address);
     console.log("Diamond :", DIAMOND_ADDRESS);
     console.log("Network :", hre.network.name);
