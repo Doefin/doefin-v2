@@ -1848,6 +1848,45 @@ describe("SettlementFacet", function () {
         expect(takerReceived.add(makerReceived)).to.equal(fill);
       });
 
+      it("should settle at exactly taker's floor when P_t + P_m = unit (no improvement)", async function () {
+        // P_t=700k, P_m=300k → sum=unit → effective return = unit − P_m = P_t exactly
+        const fill = ethers.BigNumber.from(1_000_000);
+        const Pt   = UNIT.mul(7).div(10);  // 700_000
+        const Pm   = UNIT.mul(3).div(10);  // 300_000
+
+        const splitAmt = ethers.utils.parseUnits("10", 6);
+        await collateral.mint(owner.address, splitAmt);
+        await conditionalTokens.connect(owner).splitPosition(
+          collateral.address, ethers.constants.HashZero, conditionId, [1, 2], splitAmt
+        );
+        await erc1155Facet.connect(owner).safeTransferFrom(owner.address, seller.address,  positionIdA, splitAmt, "0x");
+        await erc1155Facet.connect(owner).safeTransferFrom(owner.address, buyerB.address, positionIdB, splitAmt, "0x");
+
+        const takerOrder = makeOrder(seller.address,  positionIdA, 1, fill, Pt, { salt: 121007, feeRateBps: 0 });
+        const makerOrder = makeOrder(buyerB.address, positionIdB, 1, fill, Pm, { salt: 121007, feeRateBps: 0 });
+
+        const takerSig = await signOrder(seller,  takerOrder);
+        const makerSig = await signOrder(buyerB, makerOrder);
+
+        const sellerCollBefore = await collateral.balanceOf(seller.address);
+        const buyerBCollBefore = await collateral.balanceOf(buyerB.address);
+
+        await settlement.connect(operator).matchOrders(
+          takerOrder, takerSig, 0,
+          [makerOrder], [makerSig], [0],
+          fill, [fill]
+        );
+
+        const takerReceived = (await collateral.balanceOf(seller.address)).sub(sellerCollBefore);
+        const makerReceived = (await collateral.balanceOf(buyerB.address)).sub(buyerBCollBefore);
+
+        // Maker receives P_m * fill / unit = 300_000
+        expect(makerReceived).to.equal(Pm.mul(fill).div(UNIT));
+        // Taker receives complement = fill − makerReceived = 700_000 = P_t exactly
+        expect(takerReceived).to.equal(fill.sub(Pm.mul(fill).div(UNIT)));
+        expect(takerReceived.add(makerReceived)).to.equal(fill);
+      });
+
       it("should revert when P_t + P_m > unit (floors exceed available collateral)", async function () {
         // P_t=700k, P_m=400k → sum=1_100k > unit → InvalidMatch
         const fill = ethers.BigNumber.from(1_000_000);
