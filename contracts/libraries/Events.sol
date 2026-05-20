@@ -468,4 +468,9 @@ library Events {
     /// @param positionId The position ID
     /// @param minValidSalt The new minimum valid salt
     event PositionOrdersCancelled(address indexed maker, bytes32 indexed positionId, uint256 minValidSalt);
+
+    /// @notice Emitted when the authorized settlement operator is changed (SEC-011)
+    /// @param oldOperator Previous operator address (may be `address(0)` on first-set)
+    /// @param newOperator New operator address (never `address(0)`)
+    event OperatorUpdated(address indexed oldOperator, address indexed newOperator);
 }

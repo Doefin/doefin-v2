@@ -176,14 +176,22 @@ contract SettlementFacet is ISettlement {
     // ========================================
 
     /**
-     * @notice Set the authorized operator address
-     * @dev Only contract owner
-     * @param _operator The new operator address
+     * @notice Set the authorized operator address.
+     * @dev Only contract owner.
+     * @param _operator The new operator address. Must not be `address(0)`.
+     * @custom:audit SEC-011 — pre-fix this function accepted `address(0)` (silently
+     *      disabling settlement until a follow-up call) and emitted no event. Now reverts
+     *      on zero and emits `OperatorUpdated(old, new)`.
+     * @custom:reverts Errors.ZeroAddress when `_operator == address(0)`.
+     * @custom:emits OperatorUpdated
      */
     function setOperator(address _operator) external {
         LibDiamond.enforceIsContractOwner();
+        if (_operator == address(0)) revert Errors.ZeroAddress();
         LibSettlementStorage.SettlementStorage storage ss = LibSettlementStorage.settlementStorage();
+        address oldOperator = ss.operator;
         ss.operator = _operator;
+        emit Events.OperatorUpdated(oldOperator, _operator);
     }
 
     /**
