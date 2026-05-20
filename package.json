@@ -12,6 +12,8 @@
     "deploy:local": "npx hardhat run scripts/deploy.js --network localhost",
     "deploy:sepolia": "npx hardhat run scripts/deploy.js --network arbitrumSepolia",
     "deploy:baseSepolia": "npx hardhat run scripts/deploy.js --network baseSepolia",
+    "deploy:safe:baseSepolia": "npx hardhat run scripts/deploy-safe-owned.js --network baseSepolia",
+    "deploy:safe:base": "npx hardhat run scripts/deploy-safe-owned.js --network base",
     "verify:baseSepolia": "npx hardhat run scripts/verify-settlement-deployment.js --network baseSepolia",
     "setup:testMarket": "npx hardhat run scripts/setup-test-market.js --network baseSepolia",
     "node": "npx hardhat node",
@@ -50,6 +52,8 @@
   "devDependencies": {
     "@nomicfoundation/hardhat-verify": "^2.0.14",
     "@nomiclabs/hardhat-ethers": "^2.2.3",
+    "@safe-global/api-kit": "^2.5.6",
+    "@safe-global/protocol-kit": "^5.0.4",
     "@nomiclabs/hardhat-waffle": "^2.0.1",
     "chai": "^4.3.4",
     "dotenv": "^8.6.0",
