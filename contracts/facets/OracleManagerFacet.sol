@@ -5,9 +5,9 @@ import {LibDoefinStorage} from "../libraries/LibDoefinStorage.sol";
 import {IBaseOracleAdapter} from "../interfaces/IBaseOracleAdapter.sol";
 import {IOracleManager} from "../interfaces/IOracleManager.sol";
 import {LibDiamond} from "../libraries/LibDiamond.sol";
+import {LibSignature} from "../libraries/LibSignature.sol";
 import {Errors} from "../libraries/Errors.sol";
 import {Events} from "../libraries/Events.sol";
-import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
 
 /**
  * @title OracleManagerFacet
@@ -530,32 +530,18 @@ contract OracleManagerFacet is IOracleManager {
     }
 
     /**
-     * @dev Recovers signer address from EIP-712 signature using ECDSA
-     * @dev Validates signature format and uses ecrecover for address recovery
-     * @dev Essential for verifying manual price update authenticity
+     * @dev Recovers signer address from EIP-712 signature using ECDSA.
+     * @dev Delegates to {LibSignature.recoverMemory} so the v-normalization and the
+     *      low-`s` malleability check are applied uniformly across all facets.
      * @param digest EIP-712 message hash to verify signature against
      * @param signature 65-byte ECDSA signature (r + s + v format)
-     * @return Recovered signer address (zero if signature invalid)
-     * @custom:signature Standard ECDSA signature recovery implementation
-     * @custom:validation Ensures signature is exactly 65 bytes for proper ECDSA format
-     * @custom:security Uses ecrecover for cryptographic signature verification
+     * @return Recovered signer address (zero if signature invalid or `s` is high)
+     * @custom:audit SEC-005 — pre-fix this copy lacked v normalization AND the low-`s`
+     *      malleability check entirely; a counterparty could replay or trivially
+     *      malleate a signed manual-price-update message. Now routed through {LibSignature}.
      * @custom:revert Errors.InvalidSignatureLength if signature not exactly 65 bytes
      */
     function _recoverSigner(bytes32 digest, bytes memory signature) internal pure returns (address) {
-        if (signature.length != 65) {
-            revert Errors.InvalidSignatureLength();
-        }
-
-        bytes32 r;
-        bytes32 s;
-        uint8 v;
-
-        assembly {
-            r := mload(add(signature, 32))
-            s := mload(add(signature, 64))
-            v := byte(0, mload(add(signature, 96)))
-        }
-
-        return ecrecover(digest, v, r, s);
+        return LibSignature.recoverMemory(digest, signature);
     }
 }
