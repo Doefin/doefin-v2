@@ -196,13 +196,8 @@ library Events {
     // ========================================
     // FEE EVENTS
     // ========================================
-
-    /// @notice Emitted when protocol fees are withdrawn by admin
-    /// @param token Address of the token
-    /// @param recipient Address receiving the fees
-    /// @param amount Amount withdrawn
-    /// @param remainingFees Remaining fees after withdrawal
-    event ProtocolFeesWithdrawn(address indexed token, address indexed recipient, uint256 amount, uint256 remainingFees);
+    // (SEC-012) `ProtocolFeesWithdrawn` was removed — dead since LibFeeManager was
+    // deleted in v3 cleanup; zero emit sites remained in the codebase.
 
     // ========================================
     // ORACLE MANAGEMENT EVENTS
