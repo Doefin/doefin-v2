@@ -109,10 +109,16 @@ describe("Batch Submission Settlement Fix Verification", function () {
       const currentHeight = await getCurrentBlockHeight(blockHeaderOracle);
       console.log(`📊 Initial height: ${currentHeight}`);
       
-      // Step 2: Create a condition for a specific block that we will submit
-      // Oracle is initialized with 17 blocks (935468-935484), so next block is 935485
-      const targetBlockHeight = 935485;
-      const settlementBlockHeight = targetBlockHeight + SETTLEMENT_DELAY; // 935491
+      // Step 2: Create a condition for a specific block that we will submit.
+      // Derive the target from the data: the oracle is initialized with the
+      // first `initBlocks.length` blocks of `productionBlocks` starting at
+      // `initialHeight`, so the next un-submitted block is at
+      // `initialHeight + initBlocks.length`. This keeps the test in sync when
+      // `test/data/blocks-production.json` is refreshed to a different
+      // production range (otherwise `validateDifficultyThreshold` would
+      // revert ValueOutOfRange because the hardcoded target lags the data).
+      const targetBlockHeight = initialHeight + initBlocks.length;
+      const settlementBlockHeight = targetBlockHeight + SETTLEMENT_DELAY;
       
       console.log(`🎯 Target block: ${targetBlockHeight}`);
       console.log(`⏰ Settlement block: ${settlementBlockHeight}`);
@@ -240,9 +246,10 @@ describe("Batch Submission Settlement Fix Verification", function () {
       expect(conditionId).to.not.be.undefined;
       console.log(`🆔 Condition ID: ${conditionId}`);
       
-      // Step 3: Submit blocks 935485 through 935491 via BATCH submission
-      // This should include both the target block (935485) and settlement block (935491)
-      const blocksToSubmit = productionBlocks.slice(17, 24); // 935485-935491
+      // Step 3: Submit `targetBlockHeight` through `settlementBlockHeight` via
+      // BATCH submission. The slice picks up the 7 blocks immediately after
+      // the init range (target through target + SETTLEMENT_DELAY inclusive).
+      const blocksToSubmit = productionBlocks.slice(17, 24);
       
       console.log(`📦 Batch submitting ${blocksToSubmit.length} blocks (${blocksToSubmit[0].blockNumber} to ${blocksToSubmit[blocksToSubmit.length-1].blockNumber})`);
       console.log(`   This batch includes target block ${targetBlockHeight} and settlement block ${settlementBlockHeight}`);
