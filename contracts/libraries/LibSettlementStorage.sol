@@ -19,10 +19,19 @@ library LibSettlementStorage {
     ///      populated automatically on every splitPosition.
     ///
     ///      These slots are kept as named `__reserved_scrum89_*` placeholders
-    ///      rather than deleted so that domainSeparator (slot 9) and __gap keep
-    ///      their offsets across the diamond-cut upgrade. Any value previously
-    ///      written to these slots (mapping *roots* are always zero, so in
-    ///      practice nothing) stays inert.
+    ///      rather than deleted so that the slots used by other fields keep
+    ///      their offsets. Any value previously written to these slots
+    ///      (mapping *roots* are always zero, so in practice nothing) stays inert.
+    ///
+    ///      SEC-004 (mainnet audit): the former `domainSeparator` cache field is
+    ///      removed in this fresh-deploy storage-layout change. All three v2.1
+    ///      facets now recompute the separator via
+    ///      {LibDoefinOrder.diamondDomainSeparator} on every call. Removing the
+    ///      cache eliminates the `chainId` drift hazard between facets and matches
+    ///      the no-cache behaviour the other facets already had.
+    ///      `__reserved_sec004_domainSeparator` preserves the slot offset so the
+    ///      following `__gap` stays at the same downstream slot — important for
+    ///      any future diamond-cut upgrade to a fresh-deploy v3.1 implementation.
     struct SettlementStorage {
         /// @notice The authorized operator address that can submit matched orders
         address operator;
@@ -45,8 +54,10 @@ library LibSettlementStorage {
         bytes32 __reserved_scrum89_positionToCondition;
         /// @dev Reserved (SCRUM-89): was positionToCollateral.
         bytes32 __reserved_scrum89_positionToCollateral;
-        /// @notice Cached EIP-712 domain separator (set via cacheDomainSeparator())
-        bytes32 domainSeparator;
+        /// @dev Reserved (SEC-004): was `domainSeparator`. Removed in the mainnet audit;
+        ///      the separator is recomputed on every call instead. Slot preserved so
+        ///      `__gap` and future appended fields keep stable downstream offsets.
+        bytes32 __reserved_sec004_domainSeparator;
         /// @notice Reserved for future storage fields
         uint256[49] __gap;
     }

@@ -3,6 +3,7 @@ pragma solidity ^0.8.6;
 
 import {LibDoefinOrder} from "../libraries/LibDoefinOrder.sol";
 import {LibSettlementStorage} from "../libraries/LibSettlementStorage.sol";
+import {LibOrderValidity} from "../libraries/LibOrderValidity.sol";
 import {Errors} from "../libraries/Errors.sol";
 import {Events} from "../libraries/Events.sol";
 import {INonceManager} from "../interfaces/INonceManager.sol";
@@ -15,7 +16,10 @@ import {INonceManager} from "../interfaces/INonceManager.sol";
  *      1. Individual order cancellation by hash
  *      2. Bulk cancellation via nonce increment (invalidates all orders with nonce < new value)
  *      3. Position-based cancellation via minimum salt (invalidates orders for a specific position)
- *      The SettlementFacet calls isOrderValid() before executing fills.
+ *      `isOrderValid` is the bool-returning wrapper over the shared {LibOrderValidity}
+ *      predicate, used by the off-chain orderbook. SettlementFacet does NOT call
+ *      `isOrderValid` directly — it inlines the same rules through `_validateOrder` so it
+ *      can revert with specific reasons (CPX-003).
  */
 contract NonceManagerFacet is INonceManager {
     // ========================================
@@ -130,20 +134,17 @@ contract NonceManagerFacet is INonceManager {
 
     /**
      * @notice Check if an order is valid (not cancelled, nonce OK, salt OK, not expired)
-     * @dev Used by SettlementFacet before executing a fill
+     * @dev Bool wrapper over the shared {LibOrderValidity.check} predicate, intended for
+     *      off-chain orderbook consumers. The settlement hot path does NOT call this
+     *      function — it inlines the same rules through `SettlementFacet._validateOrder`
+     *      to revert with specific reasons (CPX-003).
      * @param order The DoefinOrder to validate
      * @return True if the order passes all validity checks
      */
     function isOrderValid(LibDoefinOrder.DoefinOrder calldata order) external view returns (bool) {
         LibSettlementStorage.SettlementStorage storage ss = LibSettlementStorage.settlementStorage();
         bytes32 orderHash = _getOrderHash(order);
-
-        if (ss.cancelledOrders[orderHash]) return false;
-        if (order.nonce < ss.makerToNonce[order.maker]) return false;
-        if (order.salt < ss.makerPositionToMinSalt[order.maker][order.positionId]) return false;
-        if (order.expiration != 0 && block.timestamp >= order.expiration) return false;
-
-        return true;
+        return LibOrderValidity.check(ss, order, orderHash);
     }
 
     // ========================================
@@ -160,15 +161,11 @@ contract NonceManagerFacet is INonceManager {
     }
 
     /**
-     * @dev Compute the EIP-712 domain separator
-     * @return The domain separator
+     * @dev Compute the EIP-712 domain separator.
+     * @return The domain separator.
+     * @custom:audit SEC-004 — delegates to {LibDoefinOrder.diamondDomainSeparator}.
      */
     function _getDomainSeparator() internal view returns (bytes32) {
-        return LibDoefinOrder.domainSeparator(
-            "Doefin Exchange",
-            "2.1",
-            block.chainid,
-            address(this)
-        );
+        return LibDoefinOrder.diamondDomainSeparator(address(this));
     }
 }

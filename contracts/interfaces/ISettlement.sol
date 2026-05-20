@@ -39,6 +39,4 @@ interface ISettlement {
     function getOperator() external view returns (address);
 
     function isTradingPaused() external view returns (bool);
-
-    function cacheDomainSeparator() external;
 }

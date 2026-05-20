@@ -121,6 +121,16 @@ library LibDoefinOrder {
         );
     }
 
+    /// @notice Convenience helper: compute the canonical Diamond domain separator using the
+    ///         current `block.chainid` and the supplied verifying contract.
+    /// @dev Used by all three v2.1 facets (Settlement, SignatureVerifier, NonceManager) so
+    ///      they cannot drift. SEC-004 — pre-fix, SettlementFacet cached the separator with
+    ///      no `chainId` guard while the other two facets recomputed it on every call; a
+    ///      chain fork could leave cancellations unable to match the settlement digest.
+    function diamondDomainSeparator(address verifyingContract) internal view returns (bytes32) {
+        return domainSeparator("Doefin Exchange", "2.1", block.chainid, verifyingContract);
+    }
+
     /// @notice Compute the full EIP-712 hash (\\x19\\x01 + domain + struct)
     /// @param order The order to hash
     /// @param _domainSeparator The pre-computed domain separator
