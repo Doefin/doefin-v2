@@ -1,0 +1,19 @@
+# Echidna config for the Doefin v3 invariant harness.
+#   echidna . --contract DoefinInvariantHarness --config security/echidna.config.yaml
+#
+# property mode: Echidna asserts every echidna_* function (returns bool) stays
+# true across random sequences of the harness's state-mutating functions.
+testMode: "property"
+prefix: "echidna_"
+testLimit: 50000          # raise via --test-limit for the deep overnight run
+seqLen: 50                # transactions per fuzzing sequence
+shrinkLimit: 5000
+deployer: "0x30000"
+sender: ["0x10000", "0x20000", "0x30000"]
+psender: "0x10000"
+corpusDir: "audit/output/echidna/corpus"
+coverage: true
+# Compile only the harness's dependency closure with the solc framework — this
+# excludes DoefinV1BlockHeaderOracleFacet (unlinked BlockHeaderUtils library),
+# which the harness does not use. viaIR is required by the project.
+cryticArgs: ["--compile-force-framework", "solc", "--solc-remaps", "@openzeppelin=node_modules/@openzeppelin", "--solc-solcs-select", "0.8.20", "--solc-args", "--via-ir --optimize --optimize-runs 1"]

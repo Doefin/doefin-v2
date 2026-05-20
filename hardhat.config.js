@@ -3,6 +3,7 @@ require("@nomiclabs/hardhat-waffle");
 require("@nomicfoundation/hardhat-verify");
 require("solidity-coverage");
 require("hardhat-contract-sizer");
+require("hardhat-gas-reporter");
 require("dotenv").config();
 
 const allowUnlimitedContractSizeForTests =
@@ -35,6 +36,16 @@ module.exports = {
     runOnCompile: true,
     disambiguatePaths: false,
   },
+  gasReporter: {
+    // Enabled only when REPORT_GAS=true (npm run audit:gas).
+    enabled: process.env.REPORT_GAS === "true",
+    // Base is an OP-stack L2 — report L1 calldata cost alongside L2 execution.
+    L2: "base",
+    offline: true, // no price API calls — report gas units, deterministic
+    outputFile: "audit/output/gas/gas-report.txt",
+    reportFormat: "markdown",
+    noColors: true,
+  },
   networks: {
     hardhat: {
       blockGasLimit: 50000000, // Increase from default 30M for large contracts
@@ -45,34 +56,32 @@ module.exports = {
       url: "http://127.0.0.1:8545",
       chainId: 31337,
     },
+    // url/accounts fall back to safe defaults so `hardhat compile` works
+    // without a .env (e.g. inside the audit container). Deploying to these
+    // networks still requires the real env vars.
     arbitrumSepolia: {
-      url: process.env.SEPOLIA_RPC_URL,
-      accounts: [process.env.PRIVATE_KEY],
+      url: process.env.SEPOLIA_RPC_URL || "",
+      accounts: process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : [],
       chainId: 421614,
     },
     baseSepolia: {
-      url: process.env.BASE_SEPOLIA_RPC_ENDPOINT,
-      accounts: [process.env.PRIVATE_KEY],
+      url: process.env.BASE_SEPOLIA_RPC_ENDPOINT || "",
+      accounts: process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : [],
       chainId: 84532,
     },
     arbitrumOne: {
-      url: process.env.ARBITRUM_MAINNET_RPC_URL,
-      accounts: [process.env.PRIVATE_KEY],
+      url: process.env.ARBITRUM_MAINNET_RPC_URL || "",
+      accounts: process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : [],
     },
   },
   etherscan: {
-    apiKey: {
-      mainnet: process.env.ETHERSCAN_API_KEY || "",
-      arbitrumOne: process.env.ARBISCAN_API_KEY || "",
-      arbitrumSepolia: process.env.ARBISCAN_API_KEY || "",
-      baseSepolia: process.env.BASESCAN_API_KEY || "",
-    },
+    apiKey: process.env.ETHERSCAN_API_KEY || "",
     customChains: [
       {
         network: "baseSepolia",
         chainId: 84532,
         urls: {
-          apiURL: "https://api-sepolia.basescan.org/api",
+          apiURL: "https://api.etherscan.io/v2/api?chainid=84532",
           browserURL: "https://sepolia.basescan.org",
         },
       },

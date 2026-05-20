@@ -1,0 +1,17 @@
+node_modules/
+contracts/mock/
+contracts/audit/
+contracts/Diamond.sol
+contracts/upgradeInitializers/
+contracts/facets/DiamondCutFacet.sol
+contracts/facets/DiamondLoupeFacet.sol
+contracts/facets/OwnershipFacet.sol
+contracts/libraries/LibDiamond.sol
+contracts/facets/ConditionalTokensFacet.sol
+contracts/facets/ConditionManagerFacet.sol
+contracts/libraries/LibConditionMetadata.sol
+contracts/libraries/LibCTHelpers.sol
+contracts/libraries/LibCTFCondition.sol
+contracts/facets/DoefinV1BlockHeaderOracleFacet.sol
+contracts/libraries/BlockHeaderUtils.sol
+contracts/libraries/LibDoefinBlockHeaderOracle.sol

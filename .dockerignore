@@ -1,0 +1,12 @@
+# Keep the Docker build context small — only package.json + package-lock.json
+# are COPYed by security/Dockerfile; everything else is mounted at runtime.
+node_modules
+artifacts
+cache
+coverage
+coverage.json
+audit/output
+.git
+.env
+*.log
+.DS_Store

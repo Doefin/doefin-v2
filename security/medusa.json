@@ -1,0 +1,34 @@
+{
+  "fuzzing": {
+    "workers": 4,
+    "workerResetLimit": 50,
+    "timeout": 0,
+    "testLimit": 50000,
+    "callSequenceLength": 50,
+    "corpusDirectory": "/src/audit/output/medusa/corpus",
+    "coverageEnabled": true,
+    "targetContracts": ["DoefinInvariantHarness"],
+    "deploymentOrder": ["DoefinInvariantHarness"],
+    "deployerAddress": "0x30000",
+    "senderAddresses": ["0x10000", "0x20000", "0x30000"],
+    "blockGasLimit": 125000000,
+    "transactionGasLimit": 12500000,
+    "testing": {
+      "stopOnFailedTest": false,
+      "stopOnFailedContractMatching": false,
+      "stopOnNoTests": true,
+      "testAllContracts": false,
+      "assertionTesting": { "enabled": true, "testViewMethods": false },
+      "propertyTesting": { "enabled": true, "testPrefixes": ["echidna_"] },
+      "optimizationTesting": { "enabled": false }
+    }
+  },
+  "compilation": {
+    "platform": "crytic-compile",
+    "platformConfig": {
+      "target": "/src/contracts/audit/DoefinInvariantHarness.sol",
+      "args": ["--compile-force-framework", "solc", "--solc-remaps", "@openzeppelin=/src/node_modules/@openzeppelin", "--solc-solcs-select", "0.8.20", "--solc-args", "--via-ir --optimize --optimize-runs 1 --allow-paths /src"]
+    }
+  },
+  "logging": { "level": "info" }
+}
