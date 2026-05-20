@@ -8,6 +8,8 @@ import {LibCTFCondition} from "../libraries/LibCTFCondition.sol";
 import {LibERC1155} from "../libraries/LibERC1155.sol";
 import {LibReentrancyGuard} from "../libraries/LibReentrancyGuard.sol";
 import {LibDiamond} from "../libraries/LibDiamond.sol";
+import {LibSignature} from "../libraries/LibSignature.sol";
+import {LibOrderValidity} from "../libraries/LibOrderValidity.sol";
 import {Errors} from "../libraries/Errors.sol";
 import {Events} from "../libraries/Events.sol";
 import {ISettlement} from "../interfaces/ISettlement.sol";
@@ -29,7 +31,8 @@ contract SettlementFacet is ISettlement {
     uint8 internal constant MATCH_MINT = 2;
     uint8 internal constant MATCH_MERGE = 3;
 
-    // Fee safety cap (5%)
+    // Fee safety cap (5%). Per-order `feeRateBps` is signed by the maker.
+    // All fees flow to `ds.adminConfigStorage.feeReceiver` (not the operator).
     uint16 internal constant MAX_FEE_RATE_BPS = 500;
 
     // ========================================
@@ -89,53 +92,111 @@ contract SettlementFacet is ISettlement {
         }
         if (takerFillAmount == 0) revert Errors.ZeroAmount();
 
-        // Fix 4: Validate fill amount consistency
-        {
-            uint128 totalMakerFill;
-            for (uint256 i; i < makerFillAmounts.length; ++i) {
-                totalMakerFill += makerFillAmounts[i];
-            }
-            if (totalMakerFill != takerFillAmount) revert Errors.MismatchedInputLengths();
-        }
-
         LibSettlementStorage.SettlementStorage storage ss = LibSettlementStorage.settlementStorage();
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
         bytes32 domainSep = _getDomainSeparator();
 
-        // Validate taker
+        // Validate taker once. The settlement-only invariants in `_validateOrder` (collateral
+        // allow-list, non-zero unit, `pricePerToken <= unit`) hold for every maker too
+        // because `_validateOrder` is called per-maker below; the `_settleX` routines may
+        // therefore trust `unit != 0` and `price <= unit`.
         bytes32 takerHash = LibDoefinOrder.hashOrderCalldata(takerOrder, domainSep);
         _verifySignature(takerOrder, takerHash, takerSignature, takerSignatureType);
         _validateOrder(ss, takerOrder, takerHash);
         _checkFillAmount(ss, takerHash, takerOrder.amount, takerFillAmount);
 
-        // Process each maker (Fix 3: taker fee computed per-maker, not once for full amount)
+        // GAS-004: hoist `unit` and `feeReceiver` for the taker collateral once per loop,
+        // pass them into the settle/fee helpers so they're not re-resolved per call.
+        // SEC-001 is checked again inside each `_settleX` so taker/maker tokens cannot
+        // diverge — if either differs, the call reverts before any transfer.
+        uint256 takerUnit = ds.adminConfigStorage.unitPerPair[takerOrder.collateralToken];
+        address feeReceiver = ds.adminConfigStorage.feeReceiver;
+
+        // CPX-006 + GAS-006: single linear maker loop. The aggregate
+        // `sum(makerFillAmounts) == takerFillAmount` consistency check that previously
+        // ran in a separate pre-loop is now accumulated alongside the main work. Each
+        // leg is independently bounded by `_checkFillAmount` (per-maker remaining
+        // capacity); the aggregate is a router-input consistency invariant.
+        uint128 totalMakerFill;
         uint128 totalTakerFee;
-        for (uint256 i; i < makerOrders.length; ++i) {
-            if (makerFillAmounts[i] == 0) revert Errors.ZeroAmount();
-            if (makerOrders[i].maker == takerOrder.maker) revert Errors.SelfTrade();
-
-            bytes32 makerHash = LibDoefinOrder.hashOrderCalldata(makerOrders[i], domainSep);
-            _verifySignature(makerOrders[i], makerHash, makerSignatures[i], makerSignatureTypes[i]);
-            _validateOrder(ss, makerOrders[i], makerHash);
-            _checkFillAmount(ss, makerHash, makerOrders[i].amount, makerFillAmounts[i]);
-
-            // Determine and execute settlement path
-            uint8 matchType = _determineMatchType(takerOrder, makerOrders[i]);
-            uint128 makerFee = _computeFee(makerOrders[i].feeRateBps, makerOrders[i].pricePerToken, makerFillAmounts[i], makerOrders[i].collateralToken);
-            uint128 takerFeeForThisMaker = _computeFee(takerOrder.feeRateBps, takerOrder.pricePerToken, makerFillAmounts[i], takerOrder.collateralToken);
-            totalTakerFee += takerFeeForThisMaker;
-
-            _executeSettlement(takerOrder, makerOrders[i], makerFillAmounts[i], takerFeeForThisMaker, makerFee, matchType);
-
-            // Update maker fill state
-            ss.orderHashToFilledAmount[makerHash] += makerFillAmounts[i];
-
-            emit Events.OrderSettled(makerHash, makerOrders[i].maker, makerFillAmounts[i], makerFee);
-            emit Events.OrdersMatched(takerHash, makerHash, matchType, makerFillAmounts[i]);
+        uint256 makerCount = makerOrders.length;
+        for (uint256 i; i < makerCount;) {
+            uint128 fill = makerFillAmounts[i];
+            totalMakerFill += fill;
+            totalTakerFee += _settleAgainstMaker(
+                takerOrder,
+                makerOrders[i],
+                makerSignatures[i],
+                makerSignatureTypes[i],
+                fill,
+                takerHash,
+                domainSep,
+                takerUnit,
+                feeReceiver,
+                ss,
+                ds
+            );
+            unchecked { ++i; }
         }
+        // Router-input invariant: total maker fill equals declared taker fill.
+        if (totalMakerFill != takerFillAmount) revert Errors.MismatchedInputLengths();
 
         // Update taker fill state
         ss.orderHashToFilledAmount[takerHash] += takerFillAmount;
         emit Events.OrderSettled(takerHash, takerOrder.maker, takerFillAmount, totalTakerFee);
+    }
+
+    /**
+     * @dev Single-maker loop body extracted from {matchOrders} (CPX-006). Handles signature
+     *      verification, the shared order-validity rules, fill-amount cap, match-type
+     *      routing, settlement execution, and maker-side fill bookkeeping + events.
+     * @return takerFeeForThisLeg The taker's per-leg fee, summed by the caller.
+     */
+    function _settleAgainstMaker(
+        LibDoefinOrder.DoefinOrder calldata takerOrder,
+        LibDoefinOrder.DoefinOrder calldata makerOrder,
+        bytes calldata makerSignature,
+        uint8 makerSignatureType,
+        uint128 fillAmount,
+        bytes32 takerHash,
+        bytes32 domainSep,
+        uint256 takerUnit,
+        address feeReceiver,
+        LibSettlementStorage.SettlementStorage storage ss,
+        LibDoefinStorage.AppStorage storage ds
+    ) private returns (uint128 takerFeeForThisLeg) {
+        if (fillAmount == 0) revert Errors.ZeroAmount();
+        if (makerOrder.maker == takerOrder.maker) revert Errors.SelfTrade();
+
+        bytes32 makerHash = LibDoefinOrder.hashOrderCalldata(makerOrder, domainSep);
+        _verifySignature(makerOrder, makerHash, makerSignature, makerSignatureType);
+        _validateOrder(ss, makerOrder, makerHash);
+        _checkFillAmount(ss, makerHash, makerOrder.amount, fillAmount);
+
+        // Determine and execute settlement path. Fees are computed per-leg (Fix 3) using
+        // the hoisted `takerUnit`; maker fee uses its own collateral unit because the
+        // settle helpers re-assert `taker.collateralToken == maker.collateralToken`.
+        uint8 matchType = _determineMatchType(takerOrder, makerOrder);
+        uint128 makerFee = _computeFee(makerOrder.feeRateBps, makerOrder.pricePerToken, fillAmount, takerUnit);
+        takerFeeForThisLeg = _computeFee(takerOrder.feeRateBps, takerOrder.pricePerToken, fillAmount, takerUnit);
+
+        _executeSettlement(
+            takerOrder,
+            makerOrder,
+            fillAmount,
+            takerFeeForThisLeg,
+            makerFee,
+            matchType,
+            takerUnit,
+            feeReceiver,
+            ds
+        );
+
+        // Update maker fill state
+        ss.orderHashToFilledAmount[makerHash] += fillAmount;
+
+        emit Events.OrderSettled(makerHash, makerOrder.maker, fillAmount, makerFee);
+        emit Events.OrdersMatched(takerHash, makerHash, matchType, fillAmount);
     }
 
     /**
@@ -162,10 +223,13 @@ contract SettlementFacet is ISettlement {
         _validateOrder(ss, order, orderHash);
         _checkFillAmount(ss, orderHash, order.amount, fillAmount);
 
-        uint128 fee = _computeFee(order.feeRateBps, order.pricePerToken, fillAmount, order.collateralToken);
+        // GAS-004: read `unit` once; `_computeFee` is now pure.
+        // `_validateOrder` already enforces `unit != 0` and `price <= unit` (SEC-002/BIZ-004).
+        uint256 unit = LibDoefinStorage.appStorage().adminConfigStorage.unitPerPair[order.collateralToken];
+        uint128 fee = _computeFee(order.feeRateBps, order.pricePerToken, fillAmount, unit);
 
         // Transfer collateral between maker and operator based on side
-        _executeOperatorFill(order, fillAmount, fee);
+        _executeOperatorFill(order, fillAmount, fee, unit);
 
         ss.orderHashToFilledAmount[orderHash] += fillAmount;
         emit Events.OrderSettled(orderHash, order.maker, fillAmount, fee);
@@ -241,21 +305,21 @@ contract SettlementFacet is ISettlement {
     // INTERNAL: VALIDATION
     // ========================================
 
+    /// @dev Recomputed on every call via {LibDoefinOrder.diamondDomainSeparator}.
+    /// @custom:audit SEC-004 — the storage-cached separator was removed: it had no
+    ///      `chainId` guard and the other two facets always recomputed; a chain fork would
+    ///      have made cancellations and settlement disagree on the digest. The `~300 gas`
+    ///      saved by the cache is negligible on Base L2 next to that hazard.
     function _getDomainSeparator() internal view returns (bytes32) {
-        LibSettlementStorage.SettlementStorage storage ss = LibSettlementStorage.settlementStorage();
-        if (ss.domainSeparator != bytes32(0)) return ss.domainSeparator;
-        return LibDoefinOrder.domainSeparator("Doefin Exchange", "2.1", block.chainid, address(this));
-    }
-
-    /// @notice Cache the EIP-712 domain separator (owner only, call once after deployment)
-    function cacheDomainSeparator() external {
-        LibDiamond.enforceIsContractOwner();
-        LibSettlementStorage.SettlementStorage storage ss = LibSettlementStorage.settlementStorage();
-        ss.domainSeparator = LibDoefinOrder.domainSeparator("Doefin Exchange", "2.1", block.chainid, address(this));
+        return LibDoefinOrder.diamondDomainSeparator(address(this));
     }
 
     /**
-     * @dev Verify EIP-712 order signature (EOA or EIP-1271)
+     * @dev Verify an EIP-712 order signature (EOA or EIP-1271).
+     * @custom:audit SEC-005 — routed through `LibSignature` (single source of truth) and
+     *      uses the typed `IERC1271(maker).isValidSignature` dispatch instead of the raw
+     *      `staticcall` previously used here. The compiler now decodes the return value
+     *      and the catch-block makes a non-IERC1271 maker fail closed.
      */
     function _verifySignature(
         LibDoefinOrder.DoefinOrder calldata order,
@@ -263,24 +327,7 @@ contract SettlementFacet is ISettlement {
         bytes calldata signature,
         uint8 signatureType
     ) internal view {
-        if (signature.length != 65) revert Errors.InvalidSignatureLength();
-
-        bytes32 r;
-        bytes32 s;
-        uint8 v;
-        assembly {
-            r := calldataload(signature.offset)
-            s := calldataload(add(signature.offset, 32))
-            v := byte(0, calldataload(add(signature.offset, 64)))
-        }
-        if (v < 27) v += 27;
-
-        // Reject malleable signatures: s must be in the lower half of the curve order
-        if (uint256(s) > 0x7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF5D576E7357A4501DDFE92F46681B20A0) {
-            revert Errors.InvalidOrderSignature(orderHash);
-        }
-
-        address recoveredSigner = ecrecover(orderHash, v, r, s);
+        address recoveredSigner = LibSignature.recoverCalldata(orderHash, signature);
         if (recoveredSigner == address(0) || recoveredSigner != order.signer) {
             revert Errors.InvalidOrderSignature(orderHash);
         }
@@ -289,13 +336,11 @@ contract SettlementFacet is ISettlement {
             // EOA: signer must be maker
             if (order.signer != order.maker) revert Errors.InvalidOrderSignature(orderHash);
         } else if (signatureType == 1) {
-            // EIP-1271: check registered signer or call isValidSignature
+            // EIP-1271: short-circuit on a pre-registered EOA signer; otherwise dispatch to
+            // IERC1271(maker).isValidSignature.
             LibSettlementStorage.SettlementStorage storage ss = LibSettlementStorage.settlementStorage();
             if (!ss.registeredOrderSigners[order.maker][order.signer]) {
-                (bool success, bytes memory result) = order.maker.staticcall(
-                    abi.encodeWithSignature("isValidSignature(bytes32,bytes)", orderHash, signature)
-                );
-                if (!success || result.length < 32 || abi.decode(result, (bytes4)) != bytes4(0x1626ba7e)) {
+                if (!LibSignature.verifyEIP1271(order.maker, orderHash, signature)) {
                     revert Errors.InvalidOrderSignature(orderHash);
                 }
             }
@@ -305,13 +350,30 @@ contract SettlementFacet is ISettlement {
     }
 
     /**
-     * @dev Validate order is not cancelled, nonce is current, salt is valid, not expired
+     * @dev Validate an order on the settlement hot path: shared orderbook-validity rules
+     *      from {LibOrderValidity} plus the settlement-only invariants (collateral
+     *      whitelist, non-zero unit, price bounds, supported side).
+     * @custom:audit CPX-003 — the shared rules now live in {LibOrderValidity}. The bool
+     *      wrapper {NonceManagerFacet.isOrderValid} stays for off-chain orderbook use,
+     *      so this function only needs to encode "why" each rule failed and add the
+     *      settlement-only invariants. Pre-fix, the rules were duplicated.
+     * @custom:security SEC-002 — the collateral token must be allow-listed and must have a
+     *      non-zero `unitPerPair`. Without this central gate a compromised operator could
+     *      settle trades for an unwhitelisted/removed token: a removed token has `unit==0`
+     *      (div-by-zero panic on the price math) and a zero-fee order against a mis-set
+     *      `unitPerPair` would settle at a wrong price with no revert.
+     * @custom:security BIZ-004 — `pricePerToken` must not exceed `unitPerPair` (a price of
+     *      one whole token). Reuses the SEC-002 `unitPerPair` read.
+     * @custom:security BIZ-006 — `side` must be 0 (buy) or 1 (sell); a `side >= 2` order
+     *      would otherwise reach the complementary path through `_determineMatchType`.
      */
     function _validateOrder(
         LibSettlementStorage.SettlementStorage storage ss,
         LibDoefinOrder.DoefinOrder calldata order,
         bytes32 orderHash
     ) internal view {
+        // Replays the shared LibOrderValidity rules but reverts with a specific reason so
+        // a failed match doesn't return a generic boolean to the operator.
         if (ss.cancelledOrders[orderHash]) revert Errors.OrderCancelled(orderHash);
         if (order.nonce < ss.makerToNonce[order.maker]) {
             revert Errors.OrderNonceInvalid(orderHash, order.nonce, ss.makerToNonce[order.maker]);
@@ -322,6 +384,19 @@ contract SettlementFacet is ISettlement {
         if (order.expiration != 0 && block.timestamp >= order.expiration) {
             revert Errors.OrderCancelled(orderHash);
         }
+
+        // BIZ-006: reject orders with an unsupported side before any settlement routing.
+        if (order.side > 1) revert Errors.InvalidMatch();
+
+        // SEC-002: enforce the collateral allow-list and a non-zero settlement unit on the
+        // settlement hot path — the gate is otherwise silently skipped.
+        LibDoefinStorage.AdminConfigStorage storage cfg = LibDoefinStorage.appStorage().adminConfigStorage;
+        if (!cfg.isAllowed[order.collateralToken]) revert Errors.TokenNotAllowed();
+        uint256 unit = cfg.unitPerPair[order.collateralToken];
+        if (unit == 0) revert Errors.InvalidUnitPerPair();
+
+        // BIZ-004: a price above one whole token (unit) is never valid.
+        if (uint256(order.pricePerToken) > unit) revert Errors.InvalidPrice();
     }
 
     /**
@@ -393,7 +468,9 @@ contract SettlementFacet is ISettlement {
     // ========================================
 
     /**
-     * @dev Route to the correct settlement path
+     * @dev Route to the correct settlement path. Threads the per-loop hoisted `unit` and
+     *      `feeReceiver` (GAS-004) and the AppStorage pointer (GAS-002) so the helpers do
+     *      not re-resolve them per call.
      */
     function _executeSettlement(
         LibDoefinOrder.DoefinOrder calldata taker,
@@ -401,14 +478,17 @@ contract SettlementFacet is ISettlement {
         uint128 fillAmount,
         uint128 takerFee,
         uint128 makerFee,
-        uint8 matchType
+        uint8 matchType,
+        uint256 unit,
+        address feeReceiver,
+        LibDoefinStorage.AppStorage storage ds
     ) internal {
         if (matchType == MATCH_COMPLEMENTARY) {
-            _settleComplementary(taker, maker, fillAmount, takerFee, makerFee);
+            _settleComplementary(taker, maker, fillAmount, takerFee, makerFee, unit, feeReceiver);
         } else if (matchType == MATCH_MINT) {
-            _settleMint(taker, maker, fillAmount, takerFee, makerFee);
+            _settleMint(taker, maker, fillAmount, takerFee, makerFee, unit, feeReceiver, ds);
         } else if (matchType == MATCH_MERGE) {
-            _settleMerge(taker, maker, fillAmount, takerFee, makerFee);
+            _settleMerge(taker, maker, fillAmount, takerFee, makerFee, unit, feeReceiver, ds);
         }
     }
 
@@ -417,17 +497,22 @@ contract SettlementFacet is ISettlement {
      *      Buyer pays collateral to seller + buyer's own fee to feeReceiver.
      *      Seller pays their own fee to feeReceiver from proceeds.
      *      Seller transfers position tokens to buyer.
+     * @custom:security SEC-001 — both orders must be denominated in the same collateral
+     *      token. Without this guard a compromised operator could pair a maker SELL signed
+     *      in token A with a taker BUY in token B; settlement would execute wholly in token B
+     *      (the maker's signed token is never read on this path). Matches the identical
+     *      guard at the top of `_settleMint` and `_settleMerge`.
      */
     function _settleComplementary(
         LibDoefinOrder.DoefinOrder calldata taker,
         LibDoefinOrder.DoefinOrder calldata maker,
         uint128 fillAmount,
         uint128 takerFee,
-        uint128 makerFee
+        uint128 makerFee,
+        uint256 unit,
+        address feeReceiver
     ) internal {
-        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
-        uint256 unit = ds.adminConfigStorage.unitPerPair[taker.collateralToken];
-        address feeReceiver = ds.adminConfigStorage.feeReceiver;
+        if (taker.collateralToken != maker.collateralToken) revert Errors.InvalidMatch();
 
         // Determine buyer/seller and their respective fees
         bool takerIsBuyer = taker.side == 0;
@@ -472,20 +557,22 @@ contract SettlementFacet is ISettlement {
         LibDoefinOrder.DoefinOrder calldata maker,
         uint128 fillAmount,
         uint128 takerFee,
-        uint128 makerFee
+        uint128 makerFee,
+        uint256 unit,
+        address feeReceiver,
+        LibDoefinStorage.AppStorage storage ds
     ) internal {
         if (taker.collateralToken != maker.collateralToken) revert Errors.InvalidMatch();
-
-        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
-        uint256 unit = ds.adminConfigStorage.unitPerPair[taker.collateralToken];
-        address feeReceiver = ds.adminConfigStorage.feeReceiver;
 
         // Validate crossing: taker's ceiling >= effective price (unit - maker.price)
         if (uint256(taker.pricePerToken) + uint256(maker.pricePerToken) < unit) revert Errors.InvalidMatch();
 
-        // Maker pays their committed price; taker pays the complement (effective price = unit - P_m)
+        // Maker pays their committed price; taker pays the complement (effective price = unit - P_m).
+        // GAS-007: `fillAmount - makerCollateral` is guarded by the crossing check above —
+        // when `P_t + P_m >= unit`, `makerCollateral = (P_m * fill) / unit <= fill`.
         uint256 makerCollateral = (uint256(maker.pricePerToken) * uint256(fillAmount)) / unit;
-        uint256 takerCollateral = uint256(fillAmount) - makerCollateral;
+        uint256 takerCollateral;
+        unchecked { takerCollateral = uint256(fillAmount) - makerCollateral; }
         // 1-wei rounding surplus (from integer division) flows to taker by construction.
         // Do not add a makerExpected + 1 tolerance — this is intentional.
 
@@ -502,16 +589,8 @@ contract SettlementFacet is ISettlement {
         }
 
         // Split position: Diamond mints both outcome tokens to itself.
-        // Read conditionId from the CTF registry — populated by the initial splitPosition
-        // that seeded this market. _determineMatchType already verified both positions
-        // belong to the same binary market, so this lookup cannot be zero here.
-        bytes32 conditionId = ds.positionRegistry.conditionIdByPositionId[uint256(taker.positionId)];
-        // Build partition for the two complement positions
-        // positionId encodes the indexSet — we need to reconstruct the partition
-        // For a binary market with positions at indexSets [1, 2], partition = [1, 2]
-        uint256[] memory partition = new uint256[](2);
-        partition[0] = _getIndexSet(taker.positionId);
-        partition[1] = _getIndexSet(maker.positionId);
+        // CPX-007 + GAS-002: shared with `_settleMerge` via {_conditionAndPartition}.
+        (bytes32 conditionId, uint256[] memory partition) = _conditionAndPartition(taker.positionId, maker.positionId, ds);
 
         // Use internal variant that skips reentrancy guard — caller (matchOrders) already holds the lock.
         // Safe because sender == address(this) means no external calls in the split path.
@@ -540,25 +619,26 @@ contract SettlementFacet is ISettlement {
         LibDoefinOrder.DoefinOrder calldata maker,
         uint128 fillAmount,
         uint128 takerFee,
-        uint128 makerFee
+        uint128 makerFee,
+        uint256 unit,
+        address feeReceiver,
+        LibDoefinStorage.AppStorage storage ds
     ) internal {
         if (taker.collateralToken != maker.collateralToken) revert Errors.InvalidMatch();
 
-        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
-        uint256 unit = ds.adminConfigStorage.unitPerPair[taker.collateralToken];
-        address feeReceiver = ds.adminConfigStorage.feeReceiver;
+        // BIZ-002: validate the crossing (taker's floor <= effective return = unit - P_m)
+        // BEFORE any state mutation, mirroring `_settleMint`. Pre-fix the check ran after
+        // the CTF burn — atomic revert still ensured no fund loss, but the effects-before-
+        // checks ordering was inconsistent and harder to reason about.
+        if (uint256(taker.pricePerToken) + uint256(maker.pricePerToken) > unit) revert Errors.InvalidMatch();
 
         // Collect position tokens from both sellers to Diamond
         LibERC1155.safeTransferFrom(address(this), taker.maker, address(this), uint256(taker.positionId), fillAmount, "");
         LibERC1155.safeTransferFrom(address(this), maker.maker, address(this), uint256(maker.positionId), fillAmount, "");
 
         // Merge positions: Diamond burns both outcome tokens, recovers collateral.
-        // Read conditionId from the CTF registry — _determineMatchType already verified
-        // both positions belong to the same binary market, so this cannot be zero.
-        bytes32 conditionId = ds.positionRegistry.conditionIdByPositionId[uint256(taker.positionId)];
-        uint256[] memory partition = new uint256[](2);
-        partition[0] = _getIndexSet(taker.positionId);
-        partition[1] = _getIndexSet(maker.positionId);
+        // CPX-007 + GAS-002: shared with `_settleMint` via {_conditionAndPartition}.
+        (bytes32 conditionId, uint256[] memory partition) = _conditionAndPartition(taker.positionId, maker.positionId, ds);
 
         // Use internal variant that skips reentrancy guard — caller (matchOrders) already holds the lock.
         // Safe because sender == address(this) means no external calls in the merge path.
@@ -571,24 +651,27 @@ contract SettlementFacet is ISettlement {
             fillAmount
         );
 
-        // Validate crossing: taker's floor <= effective return (unit - maker.price)
-        if (uint256(taker.pricePerToken) + uint256(maker.pricePerToken) > unit) revert Errors.InvalidMatch();
-
-        // Maker receives their committed price; taker receives the complement (effective return = unit - P_m)
+        // Maker receives their committed price; taker receives the complement (effective return = unit - P_m).
+        // GAS-007: `fillAmount - makerPayout` is guarded by the crossing check above —
+        // when `P_t + P_m <= unit`, `makerPayout = (P_m * fill) / unit <= fill`.
         uint256 makerPayout = (uint256(maker.pricePerToken) * uint256(fillAmount)) / unit;
-        uint256 takerPayout = uint256(fillAmount) - makerPayout;
+        uint256 takerPayout;
+        unchecked { takerPayout = uint256(fillAmount) - makerPayout; }
         // 1-wei rounding surplus (from integer division) flows to taker by construction.
         // Do not add a makerExpected + 1 tolerance — this is intentional.
 
-        // Deduct fees and transfer
-        if (takerPayout > takerFee) {
-            IERC20(taker.collateralToken).safeTransfer(taker.maker, takerPayout - takerFee);
-        }
-        if (makerPayout > makerFee) {
-            IERC20(maker.collateralToken).safeTransfer(maker.maker, makerPayout - makerFee);
-        }
+        // BIZ-001: checked subtraction. Pre-fix, the payout transfers were guarded by
+        // `if (payout > fee)`, but `totalFees` was remitted unconditionally — if `fee >= payout`
+        // ever held, a party's payout was silently skipped while its fee was still paid out,
+        // producing total-out > fillAmount. At MAX_FEE_RATE_BPS=100 (1%) the case is unreachable,
+        // but a future cap raise would re-arm it with no test signal. A checked subtraction
+        // makes the latent solvency hazard a clean revert.
+        uint256 takerNet = takerPayout - takerFee;
+        uint256 makerNet = makerPayout - makerFee;
+        IERC20(taker.collateralToken).safeTransfer(taker.maker, takerNet);
+        IERC20(maker.collateralToken).safeTransfer(maker.maker, makerNet);
 
-        // Send fees
+        // Send fees (single recipient, single transfer)
         uint256 totalFees = uint256(takerFee) + uint256(makerFee);
         if (totalFees > 0) {
             IERC20(taker.collateralToken).safeTransfer(feeReceiver, totalFees);
@@ -597,20 +680,33 @@ contract SettlementFacet is ISettlement {
 
     /**
      * @dev Operator direct fill — operator is the counterparty
+     * @custom:security SEC-003 — `collateralAmount` is floored by integer division; when
+     *      `price * fillAmount < unit` it truncates to 0, which would hand the maker free
+     *      position tokens for no payment. The `collateralAmount < fee` check also prevents
+     *      the `collateralAmount - fee` subtraction below from underflow-panicking.
      */
     function _executeOperatorFill(
         LibDoefinOrder.DoefinOrder calldata order,
         uint128 fillAmount,
-        uint128 fee
+        uint128 fee,
+        uint256 unit
     ) internal {
-        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
-        uint256 unit = ds.adminConfigStorage.unitPerPair[order.collateralToken];
-        address feeReceiver = ds.adminConfigStorage.feeReceiver;
+        address feeReceiver = LibDoefinStorage.appStorage().adminConfigStorage.feeReceiver;
         uint256 collateralAmount = (uint256(order.pricePerToken) * uint256(fillAmount)) / unit;
+
+        // SEC-003: reject dust fills that round the collateral leg down to nothing, and
+        // guard the `collateralAmount - fee` subtraction against underflow.
+        if (collateralAmount == 0) revert Errors.ZeroAmount();
+        if (collateralAmount < fee) revert Errors.InvalidPrice();
+
+        // GAS-007: `collateralAmount - fee` is guarded by the `collateralAmount < fee`
+        // check above, so the subtraction cannot underflow.
+        uint256 netCollateral;
+        unchecked { netCollateral = collateralAmount - fee; }
 
         if (order.side == 0) {
             // Order is a buy: maker pays collateral to operator, operator gives position tokens
-            IERC20(order.collateralToken).safeTransferFrom(order.maker, msg.sender, collateralAmount - fee);
+            IERC20(order.collateralToken).safeTransferFrom(order.maker, msg.sender, netCollateral);
             if (fee > 0) {
                 IERC20(order.collateralToken).safeTransferFrom(order.maker, feeReceiver, fee);
             }
@@ -619,7 +715,7 @@ contract SettlementFacet is ISettlement {
         } else {
             // Order is a sell: maker gives position tokens, operator pays collateral
             LibERC1155.safeTransferFrom(address(this), order.maker, msg.sender, uint256(order.positionId), fillAmount, "");
-            IERC20(order.collateralToken).safeTransferFrom(msg.sender, order.maker, collateralAmount - fee);
+            IERC20(order.collateralToken).safeTransferFrom(msg.sender, order.maker, netCollateral);
             if (fee > 0) {
                 IERC20(order.collateralToken).safeTransferFrom(msg.sender, feeReceiver, fee);
             }
@@ -631,27 +727,29 @@ contract SettlementFacet is ISettlement {
     // ========================================
 
     /**
-     * @dev Symmetric fee: fee = rate * min(price, 1-price) * amount / (unit * 10000)
+     * @dev Symmetric fee: fee = rate * min(price, 1-price) * amount / (unit * 10000).
      * @param feeRateBps Fee rate in basis points
      * @param price Price per token
      * @param amount Fill amount
-     * @param collateralToken Collateral token (for unit lookup)
+     * @param unit Pre-resolved `unitPerPair[collateralToken]` (passed by the caller;
+     *             GAS-004 — was previously a per-call SLOAD).
      * @return fee The computed fee
+     * @custom:audit GAS-004 — pure function: `unit` is now an input parameter, not a
+     *      per-call SLOAD. The `feeRateBps <= MAX_FEE_RATE_BPS` and `price <= unit` guards
+     *      are correctness guards (NOT redundant with `_validateOrder`), so they remain.
      */
     function _computeFee(
         uint16 feeRateBps,
         uint128 price,
         uint128 amount,
-        address collateralToken
-    ) internal view returns (uint128) {
+        uint256 unit
+    ) internal pure returns (uint128) {
         if (feeRateBps == 0) return 0;
         if (feeRateBps > MAX_FEE_RATE_BPS) revert Errors.FeeTooHigh();
-        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
-        uint128 unit = uint128(ds.adminConfigStorage.unitPerPair[collateralToken]);
-        if (price > unit) revert Errors.InvalidPrice();
-        uint128 complementPrice = unit - price;
-        uint128 effectivePrice = price < complementPrice ? price : complementPrice;
-        return uint128((uint256(feeRateBps) * uint256(effectivePrice) * uint256(amount)) / (uint256(unit) * 10000));
+        if (uint256(price) > unit) revert Errors.InvalidPrice();
+        uint256 complementPrice = unit - uint256(price);
+        uint256 effectivePrice = uint256(price) < complementPrice ? uint256(price) : complementPrice;
+        return uint128((uint256(feeRateBps) * effectivePrice * uint256(amount)) / (unit * 10000));
     }
 
     // ========================================
@@ -659,21 +757,61 @@ contract SettlementFacet is ISettlement {
     // ========================================
 
     /**
+     * @dev Resolve the (conditionId, partition) pair for a binary-complement maker/taker
+     *      match. Previously duplicated verbatim across `_settleMint:497-506` and
+     *      `_settleMerge:550-553` (CPX-007 + GAS-002).
+     * @param takerPositionId The taker's CTF position id.
+     * @param makerPositionId The maker's CTF position id.
+     * @param ds The shared AppStorage pointer (caller already resolves the namespace once
+     *           per maker iteration to avoid re-SLOADing the registry root).
+     * @return conditionId The CTF condition that both positions belong to.
+     * @return partition A fresh memory array of length 2 with the matching index sets.
+     */
+    function _conditionAndPartition(
+        bytes32 takerPositionId,
+        bytes32 makerPositionId,
+        LibDoefinStorage.AppStorage storage ds
+    ) private view returns (bytes32 conditionId, uint256[] memory partition) {
+        // `_determineMatchType` has already verified that both positions belong to the
+        // same binary market, so neither lookup can be zero here.
+        conditionId = ds.positionRegistry.conditionIdByPositionId[uint256(takerPositionId)];
+        partition = new uint256[](2);
+        partition[0] = _getIndexSetIn(takerPositionId, ds);
+        partition[1] = _getIndexSetIn(makerPositionId, ds);
+    }
+
+    /**
      * @dev Extract the index set for a positionId from the CTF position registry.
      * @dev positionId = keccak256(collateralToken, collectionId), where collectionId
      *      encodes the indexSet via alt-bn128 EC arithmetic — it cannot be reversed,
      *      so we look it up in the registry populated during splitPosition.
+     * @dev The "scan" is a linear walk over `meta.positionIds` whose length is always 2
+     *      for binary markets (the only kind v3 currently routes through settlement),
+     *      so the cost is bounded — but it is NOT O(1) (the pre-fix comment said so;
+     *      corrected here per CPX-007).
      */
     function _getIndexSet(bytes32 positionId) internal view returns (uint256) {
-        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
+        return _getIndexSetIn(positionId, LibDoefinStorage.appStorage());
+    }
+
+    /**
+     * @dev Variant of {_getIndexSet} that accepts a caller-resolved AppStorage pointer
+     *      so we don't re-resolve the namespace per partition slot.
+     */
+    function _getIndexSetIn(
+        bytes32 positionId,
+        LibDoefinStorage.AppStorage storage ds
+    ) private view returns (uint256) {
         bytes32 marketKey = ds.positionRegistry.marketKeyByPositionId[uint256(positionId)];
         LibDoefinStorage.MarketMetadata storage meta = ds.positionRegistry.marketsByKey[marketKey];
 
-        // Find which partition slot this positionId occupies
-        for (uint256 i; i < meta.positionIds.length; ++i) {
+        // Linear scan over the market's position slots (length 2 for binary markets).
+        uint256 len = meta.positionIds.length;
+        for (uint256 i; i < len;) {
             if (meta.positionIds[i] == uint256(positionId)) {
                 return meta.partitions[i];
             }
+            unchecked { ++i; }
         }
         revert Errors.InvalidPositionId();
     }
