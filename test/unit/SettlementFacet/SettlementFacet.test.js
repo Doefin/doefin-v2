@@ -536,12 +536,11 @@ describe("SettlementFacet", function () {
       // = 200 * 500000 * 1000000000 / 10000000000
       // Wait, let me compute properly:
       // effectivePrice = min(500000, 500000) = 500000
-      // fee = 200 * 500000 * 1000000000 / (1000000 * 10000) = 100000000000000 / 10000000000 = 10000
+      // fee = FEE_BPS * 500000 * 1000000000 / (1000000 * 10000)
       const expected = computeExpectedFee(FEE_BPS, price, fillAmount, UNIT);
 
-      // Manual check: 200 * 500000 * 1000000000 / (1000000 * 10000) = 10000000000
-      // Hmm, BigNumber math:
-      const manual = ethers.BigNumber.from(200)
+      // Manual check using the live FEE_BPS (SEC-006 lowered MAX_FEE_RATE_BPS to 100).
+      const manual = ethers.BigNumber.from(FEE_BPS)
         .mul(500000)
         .mul(1000000000)
         .div(ethers.BigNumber.from(1000000).mul(10000));
@@ -553,7 +552,7 @@ describe("SettlementFacet", function () {
       const price = UNIT.div(10); // 0.1 = 100000
       // complement = 900000, effectivePrice = min(100000, 900000) = 100000
       const expected = computeExpectedFee(FEE_BPS, price, fillAmount, UNIT);
-      const manual = ethers.BigNumber.from(200)
+      const manual = ethers.BigNumber.from(FEE_BPS)
         .mul(100000)
         .mul(1000000000)
         .div(ethers.BigNumber.from(1000000).mul(10000));
@@ -840,7 +839,9 @@ describe("SettlementFacet", function () {
   // FEE RATE CAP TESTS (HIGH-1)
   // ========================================
 
-  describe("Fee rate cap (MAX_FEE_RATE_BPS)", function () {
+  // SEC-006: MAX_FEE_RATE_BPS was lowered from 500 (5%) to 100 (1%) in the mainnet
+  // audit. Assertions below are updated accordingly.
+  describe("Fee rate cap (MAX_FEE_RATE_BPS = 500 bps / 5%, SEC-006)", function () {
     const fillAmount = ethers.utils.parseUnits("100", 6);
     const price = UNIT.div(2);
 
@@ -1354,27 +1355,30 @@ describe("SettlementFacet", function () {
   });
 
   // ========================================
-  // DOMAIN SEPARATOR CACHE (LOW-1)
+  // DOMAIN SEPARATOR PARITY (SEC-004)
   // ========================================
+  //
+  // SEC-004 (mainnet audit) — the cached `domainSeparator` field and the
+  // `cacheDomainSeparator()` selector were removed. All three v2.1 facets now
+  // recompute the separator on every call. This block keeps a regression test
+  // for the parity property (Settlement <-> SignatureVerifier <-> NonceManager).
 
-  describe("cacheDomainSeparator", function () {
-    it("should cache domain separator and produce the same value as getDomainSeparator", async function () {
-      const domainSepBefore = await sigVerifier.getDomainSeparator();
-
-      // Cache it
-      await settlement.cacheDomainSeparator();
-
-      // Verify getDomainSeparator still returns the same value
-      const domainSepAfter = await sigVerifier.getDomainSeparator();
-      expect(domainSepAfter).to.equal(domainSepBefore);
+  describe("domain separator parity (SEC-004)", function () {
+    it("should produce the same domain separator across all three facets", async function () {
+      const fromSigVerifier = await sigVerifier.getDomainSeparator();
+      // Re-derived locally with the same name/version/chainId/diamond
+      const expected = ethers.utils._TypedDataEncoder.hashDomain({
+        name: "Doefin Exchange",
+        version: "2.1",
+        chainId: (await ethers.provider.getNetwork()).chainId,
+        verifyingContract: diamondAddress,
+      });
+      expect(fromSigVerifier).to.equal(expected);
     });
 
-    it("should still settle orders correctly after caching", async function () {
+    it("should still settle orders correctly with no separator cache", async function () {
       const fillAmount = ethers.utils.parseUnits("100", 6);
       const price = UNIT.div(2);
-
-      // Ensure cache is set
-      await settlement.cacheDomainSeparator();
 
       const takerOrder = makeOrder(buyer.address, positionIdA, 0, fillAmount, price, { salt: 33000 });
       const makerOrder = makeOrder(seller.address, positionIdA, 1, fillAmount, price, { salt: 33000 });
@@ -1390,12 +1394,6 @@ describe("SettlementFacet", function () {
 
       const takerHash = await sigVerifier.getOrderHash(takerOrder);
       expect(await settlement.getFilledAmount(takerHash)).to.equal(fillAmount);
-    });
-
-    it("should revert cacheDomainSeparator from non-owner", async function () {
-      await expect(
-        settlement.connect(operator).cacheDomainSeparator()
-      ).to.be.revertedWith("NotContractOwner()");
     });
   });
 
@@ -1905,6 +1903,336 @@ describe("SettlementFacet", function () {
             [makerOrder], [makerSig], [0],
             fill, [fill]
           )
+        ).to.be.revertedWith("InvalidMatch()");
+      });
+    });
+  });
+
+  // ========================================
+  // MAINNET AUDIT — SETTLEMENT-INPUT HARDENING
+  // ========================================
+  //
+  // Regression suite for the Phase 5 mainnet-audit fixes. Each test below
+  // fails against the pre-fix SettlementFacet and passes after:
+  //   SEC-001  — _settleComplementary collateral-token equality guard
+  //   SEC-002  — _validateOrder collateral allow-list + non-zero unit gate
+  //   SEC-003  — _executeOperatorFill zero/underflow guards
+  //   BIZ-004  — _validateOrder pricePerToken <= unit cap
+  //   BIZ-006  — _validateOrder side ∈ {0,1} constraint
+  describe("Mainnet audit — settlement-input hardening", function () {
+    // SEC-001: a second allow-listed collateral token. Both orders in the
+    // SEC-001 pair must pass _validateOrder (which since SEC-002 requires an
+    // allow-listed, non-zero-unit token), so the differing-token revert is
+    // isolated to the new _settleComplementary guard rather than the gate.
+    let altCollateral;
+
+    before(async function () {
+      const MockERC20 = await ethers.getContractFactory("MockERC20");
+      altCollateral = await MockERC20.deploy("Mock USDT", "USDT", 6);
+      await altCollateral.deployed();
+      await adminConfig.addCollateralToken(altCollateral.address, UNIT);
+
+      // Fund + approve so the SEC-001 pair would settle if the guard were absent.
+      const mintAmount = ethers.utils.parseUnits("100000", 6);
+      await altCollateral.mint(buyer.address, mintAmount);
+      await altCollateral.mint(seller.address, mintAmount);
+      await altCollateral.connect(buyer).approve(diamondAddress, ethers.constants.MaxUint256);
+      await altCollateral.connect(seller).approve(diamondAddress, ethers.constants.MaxUint256);
+    });
+
+    // --- SEC-001 -----------------------------------------------------------
+    describe("SEC-001: _settleComplementary collateral-token mismatch", function () {
+      const fillAmount = ethers.utils.parseUnits("100", 6);
+      const price = UNIT.div(2);
+
+      it("should revert a complementary match when taker and maker collateral tokens differ", async function () {
+        // Taker BUY in altCollateral, maker SELL in collateral — both tokens are
+        // allow-listed with a non-zero unit, so _validateOrder passes for each.
+        // The mismatch must be caught by _settleComplementary itself.
+        const takerOrder = makeOrder(buyer.address, positionIdA, 0, fillAmount, price, {
+          salt: 40000,
+          collateralToken: altCollateral.address,
+        });
+        const makerOrder = makeOrder(seller.address, positionIdA, 1, fillAmount, price, {
+          salt: 40000,
+          collateralToken: collateral.address,
+        });
+
+        const takerSig = await signOrder(buyer, takerOrder);
+        const makerSig = await signOrder(seller, makerOrder);
+
+        await expect(
+          settlement.connect(operator).matchOrders(
+            takerOrder, takerSig, 0,
+            [makerOrder], [makerSig], [0],
+            fillAmount, [fillAmount]
+          )
+        ).to.be.revertedWith("InvalidMatch()");
+      });
+
+      it("should still settle a complementary match when both collateral tokens match", async function () {
+        // Control: identical tokens (the alt token) settle normally — proves the
+        // guard rejects only genuine mismatches.
+        const takerOrder = makeOrder(buyer.address, positionIdA, 0, fillAmount, price, {
+          salt: 40001,
+          collateralToken: altCollateral.address,
+        });
+        const makerOrder = makeOrder(seller.address, positionIdA, 1, fillAmount, price, {
+          salt: 40001,
+          collateralToken: altCollateral.address,
+        });
+
+        const takerSig = await signOrder(buyer, takerOrder);
+        const makerSig = await signOrder(seller, makerOrder);
+
+        await settlement.connect(operator).matchOrders(
+          takerOrder, takerSig, 0,
+          [makerOrder], [makerSig], [0],
+          fillAmount, [fillAmount]
+        );
+
+        const takerHash = await sigVerifier.getOrderHash(takerOrder);
+        expect(await settlement.getFilledAmount(takerHash)).to.equal(fillAmount);
+      });
+    });
+
+    // --- SEC-002 -----------------------------------------------------------
+    describe("SEC-002: collateral allow-list gate in _validateOrder", function () {
+      const fillAmount = ethers.utils.parseUnits("100", 6);
+      const price = UNIT.div(2);
+
+      it("should revert settlement against a never-allow-listed collateral token", async function () {
+        // Deploy a token that is never passed to addCollateralToken — isAllowed
+        // is false and unitPerPair is 0.
+        const MockERC20 = await ethers.getContractFactory("MockERC20");
+        const rogue = await MockERC20.deploy("Rogue", "RGE", 6);
+        await rogue.deployed();
+        await rogue.mint(buyer.address, fillAmount.mul(10));
+        await rogue.mint(seller.address, fillAmount.mul(10));
+        await rogue.connect(buyer).approve(diamondAddress, ethers.constants.MaxUint256);
+        await rogue.connect(seller).approve(diamondAddress, ethers.constants.MaxUint256);
+
+        const takerOrder = makeOrder(buyer.address, positionIdA, 0, fillAmount, price, {
+          salt: 41000,
+          collateralToken: rogue.address,
+        });
+        const makerOrder = makeOrder(seller.address, positionIdA, 1, fillAmount, price, {
+          salt: 41000,
+          collateralToken: rogue.address,
+        });
+
+        const takerSig = await signOrder(buyer, takerOrder);
+        const makerSig = await signOrder(seller, makerOrder);
+
+        await expect(
+          settlement.connect(operator).matchOrders(
+            takerOrder, takerSig, 0,
+            [makerOrder], [makerSig], [0],
+            fillAmount, [fillAmount]
+          )
+        ).to.be.revertedWith("TokenNotAllowed()");
+      });
+
+      it("should revert settlement against a token after it is removed from the allow-list", async function () {
+        // removeCollateralToken sets isAllowed=false AND deletes unitPerPair, so a
+        // removed token can never again clear the _validateOrder gate.
+        const MockERC20 = await ethers.getContractFactory("MockERC20");
+        const removable = await MockERC20.deploy("Removable", "RMV", 6);
+        await removable.deployed();
+        await removable.mint(buyer.address, fillAmount.mul(10));
+        await removable.mint(seller.address, fillAmount.mul(10));
+        await removable.connect(buyer).approve(diamondAddress, ethers.constants.MaxUint256);
+        await removable.connect(seller).approve(diamondAddress, ethers.constants.MaxUint256);
+
+        await adminConfig.addCollateralToken(removable.address, UNIT);
+        await adminConfig.removeCollateralToken(removable.address);
+
+        const takerOrder = makeOrder(buyer.address, positionIdA, 0, fillAmount, price, {
+          salt: 41001,
+          collateralToken: removable.address,
+        });
+        const makerOrder = makeOrder(seller.address, positionIdA, 1, fillAmount, price, {
+          salt: 41001,
+          collateralToken: removable.address,
+        });
+
+        const takerSig = await signOrder(buyer, takerOrder);
+        const makerSig = await signOrder(seller, makerOrder);
+
+        await expect(
+          settlement.connect(operator).matchOrders(
+            takerOrder, takerSig, 0,
+            [makerOrder], [makerSig], [0],
+            fillAmount, [fillAmount]
+          )
+        ).to.be.revertedWith("TokenNotAllowed()");
+      });
+
+      it("should revert fillOrder against a non-allow-listed collateral token", async function () {
+        const MockERC20 = await ethers.getContractFactory("MockERC20");
+        const rogue = await MockERC20.deploy("Rogue2", "RG2", 6);
+        await rogue.deployed();
+        await rogue.mint(buyer.address, fillAmount.mul(10));
+        await rogue.connect(buyer).approve(diamondAddress, ethers.constants.MaxUint256);
+
+        const order = makeOrder(buyer.address, positionIdA, 0, fillAmount, price, {
+          salt: 41002,
+          collateralToken: rogue.address,
+        });
+        const sig = await signOrder(buyer, order);
+
+        await expect(
+          settlement.connect(operator).fillOrder(order, sig, 0, fillAmount)
+        ).to.be.revertedWith("TokenNotAllowed()");
+      });
+    });
+
+    // --- SEC-003 -----------------------------------------------------------
+    describe("SEC-003: _executeOperatorFill zero/underflow guards", function () {
+      const price = UNIT.div(2); // 500000
+
+      it("should revert a fillOrder whose collateral leg rounds down to zero", async function () {
+        // collateralAmount = price * fill / unit = 500000 * 1 / 1000000 = 0 (floored).
+        // Pre-fix: maker receives the position token for no payment.
+        const order = makeOrder(buyer.address, positionIdA, 0, 1, price, {
+          salt: 42000,
+          feeRateBps: 0,
+        });
+        const sig = await signOrder(buyer, order);
+
+        await expect(
+          settlement.connect(operator).fillOrder(order, sig, 0, 1)
+        ).to.be.revertedWith("ZeroAmount()");
+      });
+
+      it("should revert a sub-unit sell fillOrder that rounds the collateral leg to zero", async function () {
+        // Same truncation on the sell side: operator would receive position
+        // tokens while paying nothing.
+        const order = makeOrder(seller.address, positionIdA, 1, 1, price, {
+          salt: 42001,
+          feeRateBps: 0,
+        });
+        const sig = await signOrder(seller, order);
+
+        await expect(
+          settlement.connect(operator).fillOrder(order, sig, 0, 1)
+        ).to.be.revertedWith("ZeroAmount()");
+      });
+
+      it("should still fill an order whose collateral leg is non-zero", async function () {
+        // Control: a fill large enough that price*fill/unit > 0 settles normally.
+        const fillAmount = ethers.utils.parseUnits("10", 6);
+        const order = makeOrder(buyer.address, positionIdA, 0, fillAmount, price, {
+          salt: 42002,
+          feeRateBps: 0,
+        });
+        const sig = await signOrder(buyer, order);
+
+        const buyerPosBefore = await erc1155Facet.balanceOf(buyer.address, positionIdA);
+        await settlement.connect(operator).fillOrder(order, sig, 0, fillAmount);
+        const buyerPosAfter = await erc1155Facet.balanceOf(buyer.address, positionIdA);
+        expect(buyerPosAfter.sub(buyerPosBefore)).to.equal(fillAmount);
+      });
+    });
+
+    // --- BIZ-004 -----------------------------------------------------------
+    describe("BIZ-004: pricePerToken <= unit cap in _validateOrder", function () {
+      const fillAmount = ethers.utils.parseUnits("100", 6);
+
+      it("should revert a zero-fee order whose pricePerToken exceeds unit", async function () {
+        // feeRateBps=0 makes _computeFee early-return before its own price>unit
+        // guard — the revert must therefore come from the _validateOrder cap.
+        const badPrice = UNIT.add(1); // 1000001 > unit
+
+        const takerOrder = makeOrder(buyer.address, positionIdA, 0, fillAmount, badPrice, {
+          salt: 43000,
+          feeRateBps: 0,
+        });
+        const makerOrder = makeOrder(seller.address, positionIdA, 1, fillAmount, badPrice, {
+          salt: 43000,
+          feeRateBps: 0,
+        });
+
+        const takerSig = await signOrder(buyer, takerOrder);
+        const makerSig = await signOrder(seller, makerOrder);
+
+        await expect(
+          settlement.connect(operator).matchOrders(
+            takerOrder, takerSig, 0,
+            [makerOrder], [makerSig], [0],
+            fillAmount, [fillAmount]
+          )
+        ).to.be.revertedWith("InvalidPrice()");
+      });
+
+      it("should accept an order whose pricePerToken equals unit exactly", async function () {
+        const takerOrder = makeOrder(buyer.address, positionIdA, 0, fillAmount, UNIT, {
+          salt: 43001,
+          feeRateBps: 0,
+        });
+        const makerOrder = makeOrder(seller.address, positionIdA, 1, fillAmount, UNIT, {
+          salt: 43001,
+          feeRateBps: 0,
+        });
+
+        const takerSig = await signOrder(buyer, takerOrder);
+        const makerSig = await signOrder(seller, makerOrder);
+
+        await settlement.connect(operator).matchOrders(
+          takerOrder, takerSig, 0,
+          [makerOrder], [makerSig], [0],
+          fillAmount, [fillAmount]
+        );
+
+        const takerHash = await sigVerifier.getOrderHash(takerOrder);
+        expect(await settlement.getFilledAmount(takerHash)).to.equal(fillAmount);
+      });
+    });
+
+    // --- BIZ-006 -----------------------------------------------------------
+    describe("BIZ-006: side constrained to {0,1} in _validateOrder", function () {
+      const fillAmount = ethers.utils.parseUnits("100", 6);
+      const price = UNIT.div(2);
+
+      it("should revert a matchOrders pair whose taker order has side = 2", async function () {
+        // Pre-fix: side=2 != maker.side=1 reaches the complementary path.
+        const takerOrder = makeOrder(buyer.address, positionIdA, 2, fillAmount, price, { salt: 44000 });
+        const makerOrder = makeOrder(seller.address, positionIdA, 1, fillAmount, price, { salt: 44000 });
+
+        const takerSig = await signOrder(buyer, takerOrder);
+        const makerSig = await signOrder(seller, makerOrder);
+
+        await expect(
+          settlement.connect(operator).matchOrders(
+            takerOrder, takerSig, 0,
+            [makerOrder], [makerSig], [0],
+            fillAmount, [fillAmount]
+          )
+        ).to.be.revertedWith("InvalidMatch()");
+      });
+
+      it("should revert when a maker order has side = 2", async function () {
+        const takerOrder = makeOrder(buyer.address, positionIdA, 0, fillAmount, price, { salt: 44001 });
+        const makerOrder = makeOrder(seller.address, positionIdA, 2, fillAmount, price, { salt: 44001 });
+
+        const takerSig = await signOrder(buyer, takerOrder);
+        const makerSig = await signOrder(seller, makerOrder);
+
+        await expect(
+          settlement.connect(operator).matchOrders(
+            takerOrder, takerSig, 0,
+            [makerOrder], [makerSig], [0],
+            fillAmount, [fillAmount]
+          )
+        ).to.be.revertedWith("InvalidMatch()");
+      });
+
+      it("should revert a fillOrder whose order has side = 255", async function () {
+        const order = makeOrder(buyer.address, positionIdA, 255, fillAmount, price, { salt: 44002 });
+        const sig = await signOrder(buyer, order);
+
+        await expect(
+          settlement.connect(operator).fillOrder(order, sig, 0, fillAmount)
         ).to.be.revertedWith("InvalidMatch()");
       });
     });
