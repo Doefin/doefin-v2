@@ -2351,4 +2351,127 @@ describe("SettlementFacet", function () {
       });
     });
   });
+
+  // ========================================
+  // MIXED MATCH-TYPE SETTLEMENT TESTS
+  // ========================================
+
+  // `matchOrders` calls `_determineMatchType(takerOrder, makerOrder)` once per
+  // maker inside `_settleAgainstMaker`, and `_executeSettlement` routes each leg
+  // independently. A single `matchOrders` call can therefore settle one taker
+  // against makers of *different* match types. These tests exercise that
+  // per-maker routing explicitly. Match-type codes (see SettlementFacet.sol):
+  // MATCH_COMPLEMENTARY = 1, MATCH_MINT = 2, MATCH_MERGE = 3.
+  describe("Mixed match-type settlement (single matchOrders call)", function () {
+    const MATCH_COMPLEMENTARY = 1;
+    const MATCH_MINT = 2;
+    const MATCH_MERGE = 3;
+
+    const totalFill = ethers.utils.parseUnits("100", 6);
+    const fill1 = ethers.utils.parseUnits("60", 6); // complementary leg
+    const fill2 = ethers.utils.parseUnits("40", 6); // mint/merge leg
+    const priceA = UNIT.mul(6).div(10); // 0.6
+    const priceB = UNIT.mul(4).div(10); // 0.4 — complement so priceA + priceB == unit
+
+    it("should settle complementary + mint makers in one call", async function () {
+      // Taker BUYs position A (total 100).
+      // Maker 1 SELLs position A (60) -> complementary (same position, opposite side).
+      // Maker 2 BUYs position B (40)  -> mint (B is A's complement, both BUY).
+      const takerOrder = makeOrder(buyer.address, positionIdA, 0, totalFill, priceA, { salt: 45000 });
+      const maker1Order = makeOrder(seller.address, positionIdA, 1, fill1, priceA, { salt: 45001 });
+      const maker2Order = makeOrder(buyerB.address, positionIdB, 0, fill2, priceB, { salt: 45002 });
+
+      const takerSig = await signOrder(buyer, takerOrder);
+      const maker1Sig = await signOrder(seller, maker1Order);
+      const maker2Sig = await signOrder(buyerB, maker2Order);
+
+      const takerHash = await sigVerifier.getOrderHash(takerOrder);
+      const maker1Hash = await sigVerifier.getOrderHash(maker1Order);
+      const maker2Hash = await sigVerifier.getOrderHash(maker2Order);
+
+      const buyerPosABefore = await erc1155Facet.balanceOf(buyer.address, positionIdA);
+      const sellerPosABefore = await erc1155Facet.balanceOf(seller.address, positionIdA);
+      const buyerBPosBBefore = await erc1155Facet.balanceOf(buyerB.address, positionIdB);
+
+      const tx = await settlement.connect(operator).matchOrders(
+        takerOrder, takerSig, 0,
+        [maker1Order, maker2Order], [maker1Sig, maker2Sig], [0, 0],
+        totalFill, [fill1, fill2], [0, 0], [0, 0]
+      );
+
+      // The two legs carry different match-type codes, proving per-maker routing.
+      await expect(tx)
+        .to.emit(settlement, "OrdersMatched")
+        .withArgs(takerHash, maker1Hash, MATCH_COMPLEMENTARY, fill1);
+      await expect(tx)
+        .to.emit(settlement, "OrdersMatched")
+        .withArgs(takerHash, maker2Hash, MATCH_MINT, fill2);
+
+      // Taker order fully filled.
+      expect(await settlement.getFilledAmount(takerHash)).to.equal(totalFill);
+      expect(await settlement.getFilledAmount(maker1Hash)).to.equal(fill1);
+      expect(await settlement.getFilledAmount(maker2Hash)).to.equal(fill2);
+
+      // Taker ends holding 100 of position A (60 from the complementary leg
+      // delivered by maker 1, 40 minted by the mint leg).
+      expect((await erc1155Facet.balanceOf(buyer.address, positionIdA)).sub(buyerPosABefore))
+        .to.equal(totalFill);
+      // Maker 1's 60 position-A tokens were delivered to the taker.
+      expect(sellerPosABefore.sub(await erc1155Facet.balanceOf(seller.address, positionIdA)))
+        .to.equal(fill1);
+      // Maker 2 (the mint counterparty) ends holding 40 of position B.
+      expect((await erc1155Facet.balanceOf(buyerB.address, positionIdB)).sub(buyerBPosBBefore))
+        .to.equal(fill2);
+    });
+
+    it("should settle complementary + merge makers in one call", async function () {
+      // Taker SELLs position A (total 100).
+      // Maker 1 BUYs position A (60)  -> complementary.
+      // Maker 2 SELLs position B (40) -> merge (both SELL, B is A's complement).
+      const takerOrder = makeOrder(seller.address, positionIdA, 1, totalFill, priceA, { salt: 46000 });
+      const maker1Order = makeOrder(buyer.address, positionIdA, 0, fill1, priceA, { salt: 46001 });
+      const maker2Order = makeOrder(buyerB.address, positionIdB, 1, fill2, priceB, { salt: 46002 });
+
+      const takerSig = await signOrder(seller, takerOrder);
+      const maker1Sig = await signOrder(buyer, maker1Order);
+      const maker2Sig = await signOrder(buyerB, maker2Order);
+
+      const takerHash = await sigVerifier.getOrderHash(takerOrder);
+      const maker1Hash = await sigVerifier.getOrderHash(maker1Order);
+      const maker2Hash = await sigVerifier.getOrderHash(maker2Order);
+
+      const sellerPosABefore = await erc1155Facet.balanceOf(seller.address, positionIdA);
+      const buyerPosABefore = await erc1155Facet.balanceOf(buyer.address, positionIdA);
+      const buyerBPosBBefore = await erc1155Facet.balanceOf(buyerB.address, positionIdB);
+
+      const tx = await settlement.connect(operator).matchOrders(
+        takerOrder, takerSig, 0,
+        [maker1Order, maker2Order], [maker1Sig, maker2Sig], [0, 0],
+        totalFill, [fill1, fill2], [0, 0], [0, 0]
+      );
+
+      // The two legs carry different match-type codes, proving per-maker routing.
+      await expect(tx)
+        .to.emit(settlement, "OrdersMatched")
+        .withArgs(takerHash, maker1Hash, MATCH_COMPLEMENTARY, fill1);
+      await expect(tx)
+        .to.emit(settlement, "OrdersMatched")
+        .withArgs(takerHash, maker2Hash, MATCH_MERGE, fill2);
+
+      // Taker order fully filled.
+      expect(await settlement.getFilledAmount(takerHash)).to.equal(totalFill);
+      expect(await settlement.getFilledAmount(maker1Hash)).to.equal(fill1);
+      expect(await settlement.getFilledAmount(maker2Hash)).to.equal(fill2);
+
+      // Taker (the seller) gave up 100 of position A across both legs.
+      expect(sellerPosABefore.sub(await erc1155Facet.balanceOf(seller.address, positionIdA)))
+        .to.equal(totalFill);
+      // Maker 1 (the complementary buyer) received 60 of position A.
+      expect((await erc1155Facet.balanceOf(buyer.address, positionIdA)).sub(buyerPosABefore))
+        .to.equal(fill1);
+      // Maker 2 (the merge counterparty) gave up 40 of position B.
+      expect(buyerBPosBBefore.sub(await erc1155Facet.balanceOf(buyerB.address, positionIdB)))
+        .to.equal(fill2);
+    });
+  });
 });
