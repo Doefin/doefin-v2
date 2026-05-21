@@ -40,13 +40,6 @@ library Events {
     /// @param newFeeBps New fee in basis points
     event ResolutionFeeUpdated(uint16 oldFeeBps, uint16 newFeeBps);
 
-    /// @notice Emitted when trading fees are updated
-    /// @param oldMakerBps Previous maker fee in basis points
-    /// @param oldTakerBps Previous taker fee in basis points
-    /// @param newMakerBps New maker fee in basis points
-    /// @param newTakerBps New taker fee in basis points
-    event TradingFeesUpdated(uint16 oldMakerBps, uint16 oldTakerBps, uint16 newMakerBps, uint16 newTakerBps);
-
     /// @notice Emitted when the admin updates the maximum settlement fee rate (SCRUM-224)
     /// @param oldRate Previous maximum fee rate in basis points
     /// @param newRate New maximum fee rate in basis points

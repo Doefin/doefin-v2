@@ -13,8 +13,6 @@ interface IAdminConfig {
 
     function setResolutionFeeBps(uint16 bps) external;
 
-    function setTradingFeesBps(uint16 makerBps, uint16 takerBps) external;
-
     function setMaxFeeRate(uint16 maxFeeRateBps) external;
 
     function getMaxFeeRate() external view returns (uint16);
@@ -23,7 +21,7 @@ interface IAdminConfig {
 
     function getCollateralUnit(address token) external view returns (uint256);
 
-    function getFees() external view returns (address feeReceiver, uint16 resolutionFeeBps, uint16 makerTradingFeeBps, uint16 takerTradingFeeBps);
+    function getFees() external view returns (address feeReceiver, uint16 resolutionFeeBps);
 
     // ----------------------------------------
     // Token Symbol Management

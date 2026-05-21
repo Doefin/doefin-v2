@@ -1120,16 +1120,6 @@
         "internalType": "uint16",
         "name": "resolutionFeeBps",
         "type": "uint16"
-      },
-      {
-        "internalType": "uint16",
-        "name": "makerTradingFeeBps",
-        "type": "uint16"
-      },
-      {
-        "internalType": "uint16",
-        "name": "takerTradingFeeBps",
-        "type": "uint16"
       }
     ],
     "stateMutability": "view",
@@ -2640,24 +2630,6 @@
   {
     "inputs": [
       {
-        "internalType": "uint16",
-        "name": "makerBps",
-        "type": "uint16"
-      },
-      {
-        "internalType": "uint16",
-        "name": "takerBps",
-        "type": "uint16"
-      }
-    ],
-    "name": "setTradingFeesBps",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
         "internalType": "address",
         "name": "collateralToken",
         "type": "address"
@@ -3971,37 +3943,6 @@
       }
     ],
     "name": "TokenSymbolUpdated",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": false,
-        "internalType": "uint16",
-        "name": "oldMakerBps",
-        "type": "uint16"
-      },
-      {
-        "indexed": false,
-        "internalType": "uint16",
-        "name": "oldTakerBps",
-        "type": "uint16"
-      },
-      {
-        "indexed": false,
-        "internalType": "uint16",
-        "name": "newMakerBps",
-        "type": "uint16"
-      },
-      {
-        "indexed": false,
-        "internalType": "uint16",
-        "name": "newTakerBps",
-        "type": "uint16"
-      }
-    ],
-    "name": "TradingFeesUpdated",
     "type": "event"
   },
   {

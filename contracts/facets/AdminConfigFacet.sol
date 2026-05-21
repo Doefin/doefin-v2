@@ -131,30 +131,6 @@ contract AdminConfigFacet is IAdminConfig {
     }
 
     /**
-     * @notice Sets trading fees for makers and takers
-     * @dev Maker fee applies to passive orders providing liquidity
-     * @dev Taker fee applies to aggressive orders consuming liquidity
-     * @dev Fees are charged as percentage of trade value in basis points
-     * @param makerBps Maker fee in basis points (100 bps = 1%, max 10000 bps = 100%)
-     * @param takerBps Taker fee in basis points (100 bps = 1%, max 10000 bps = 100%)
-     * @custom:emits TradingFeesUpdated with old and new maker/taker fees
-     * @custom:reverts FeeTooHigh if either fee exceeds 10,000 basis points
-     * @custom:security Only callable by contract owner
-     * @custom:note Fee changes affect new orders immediately; existing orders retain original fees
-     */
-    function setTradingFeesBps(uint16 makerBps, uint16 takerBps) external override {
-        LibDiamond.enforceIsContractOwner();
-        if (makerBps > 10_000 || takerBps > 10_000) revert Errors.FeeTooHigh();
-
-        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
-        uint16 oldMakerBps = ds.adminConfigStorage.makerTradingFeeBps;
-        uint16 oldTakerBps = ds.adminConfigStorage.takerTradingFeeBps;
-        ds.adminConfigStorage.makerTradingFeeBps = makerBps;
-        ds.adminConfigStorage.takerTradingFeeBps = takerBps;
-        emit Events.TradingFeesUpdated(oldMakerBps, oldTakerBps, makerBps, takerBps);
-    }
-
-    /**
      * @notice Sets the maximum settlement fee rate the operator may charge
      * @dev SCRUM-224 — the operator supplies the fee amount per settlement leg; the
      *      contract enforces `fee <= (cashValue * maxFeeRateBps) / 10000`. This
@@ -193,14 +169,14 @@ contract AdminConfigFacet is IAdminConfig {
         return ds.adminConfigStorage.unitPerPair[token];
     }
 
-    function getFees()
-        external
-        view
-        override
-        returns (address feeReceiver, uint16 resolutionFeeBps, uint16 makerTradingFeeBps, uint16 takerTradingFeeBps)
-    {
+    /**
+     * @notice Returns the protocol fee configuration
+     * @return feeReceiver Address that receives protocol fees
+     * @return resolutionFeeBps Resolution fee charged on redemption, in basis points
+     */
+    function getFees() external view override returns (address feeReceiver, uint16 resolutionFeeBps) {
         LibDoefinStorage.AdminConfigStorage storage cfg = LibDoefinStorage.appStorage().adminConfigStorage;
-        return (cfg.feeReceiver, cfg.resolutionFeeBps, cfg.makerTradingFeeBps, cfg.takerTradingFeeBps);
+        return (cfg.feeReceiver, cfg.resolutionFeeBps);
     }
 
     // ----------------------------------------

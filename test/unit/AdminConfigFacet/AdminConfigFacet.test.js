@@ -5,7 +5,6 @@ const { ethers } = require("hardhat");
 const {
   addCollateralToken,
   removeCollateralToken,
-  setTradingFeesBps,
   setResolutionFeeBps,
   setFeeReceiver,
   isAllowedCollateral,
@@ -81,27 +80,13 @@ describe("AdminConfigFacet", function () {
       .to.be.revertedWith("FeeTooHigh()");
   });
 
-  it("should set trading fees", async function () {
-    await expect(setTradingFeesBps({ adminConfig, makerBps: 300, takerBps: 400, caller: owner }))
-      .to.emit(adminConfig, "TradingFeesUpdated")
-      .withArgs(0, 0, 300, 400);
-  });
-
-  it("should revert on too high trading fees", async function () {
-    await expect(setTradingFeesBps({ adminConfig, makerBps: 20000, takerBps: 100, caller: owner }))
-      .to.be.revertedWith("FeeTooHigh()");
-  });
-
   it("should get fees config", async function () {
     await setFeeReceiver({ adminConfig, feeReceiver, caller: owner });
     await setResolutionFeeBps({ adminConfig, bps: 123, caller: owner });
-    await setTradingFeesBps({ adminConfig, makerBps: 10, takerBps: 20, caller: owner });
 
     const fees = await getFees(adminConfig);
     expect(fees.receiver).to.equal(feeReceiver.address);
     expect(fees.resolutionFeeBps).to.equal(123);
-    expect(fees.makerBps).to.equal(10);
-    expect(fees.takerBps).to.equal(20);
   });
 
   it("should revert getCollateralUnit if token not allowed", async function () {

@@ -50,7 +50,7 @@ contract DiamondInit {
      * @dev Called via delegatecall from DiamondCutFacet during deployment
      * @param _owner Address to be set as the contract owner with administrative privileges
      * @custom:delegation Executed via delegatecall to maintain diamond storage context
-     * @custom:fees Initializes protocol fees: 5% resolution. maker/taker trading fees are v2.0 params (set to 0).
+     * @custom:fees Initializes protocol fees: 5% resolution. Settlement fees are operator-supplied (SCRUM-224).
      * @custom:interfaces Registers all supported ERC-165 interfaces for protocol compliance
      * @custom:deployment One-time setup function for diamond initialization
      * @custom:owner Sets contract owner for administrative operations
@@ -60,17 +60,14 @@ contract DiamondInit {
     function init(address _owner) external {
         LibDiamond.setContractOwner(_owner);
 
-        // Initialize Doefin storage
-        // Note: makerTradingFeeBps and takerTradingFeeBps are v2.0 parameters (unused).
+        // Initialize Doefin storage.
         // SCRUM-224 — v3 settlement uses an operator-supplied fee bounded by the
         // admin-set `maxFeeRateBps` (default 0, fail-closed; configure via
         // AdminConfigFacet.setMaxFeeRate). resolutionFeeBps is still used by
         // ConditionalTokensFacet.redeemPositions().
         LibDoefinStorage.initialize(
             _owner, // feeReceiver (used by CTF redemption and fee withdrawal)
-            500, // resolutionFeeBps (5%) — used by ConditionalTokensFacet
-            0, // makerTradingFeeBps — DEPRECATED (v2.0), not used in v2.1
-            0 // takerTradingFeeBps — DEPRECATED (v2.0), not used in v2.1
+            500 // resolutionFeeBps (5%) — used by ConditionalTokensFacet
         );
 
         // adding ERC165 data

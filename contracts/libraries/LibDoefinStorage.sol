@@ -126,14 +126,12 @@ library LibDoefinStorage {
         mapping(address => string) tokenSymbols; // token => symbol (e.g., "BTC", "USDC", "USDT")
         address feeReceiver;
         uint16 resolutionFeeBps;
-        uint16 makerTradingFeeBps; // DEPRECATED (v2.0): unused, retained for layout
-        uint16 takerTradingFeeBps; // DEPRECATED (v2.0): unused, retained for layout
         // SCRUM-224: admin-settable ceiling on the operator-supplied settlement fee.
         // The operator supplies the fee amount per settlement leg; SettlementFacet
         // enforces `fee <= (cashValue * maxFeeRateBps) / 10000`. Fail-closed: a value
         // of 0 means no non-zero fee is permitted (NOT "unlimited").
         uint16 maxFeeRateBps;
-        uint256[11] __gap;
+        uint256[12] __gap;
     }
 
     // DEPRECATED (v2.0): preserved for storage layout safety, do not use
@@ -382,7 +380,7 @@ library LibDoefinStorage {
     }
 
     /// @notice Initialize critical storage values (call once during deployment)
-    function initialize(address feeReceiver, uint16 resolutionFeeBps, uint16 makerFeeBps, uint16 takerFeeBps) internal {
+    function initialize(address feeReceiver, uint16 resolutionFeeBps) internal {
         if (isInitialized()) revert Errors.AlreadyInitialized();
 
         AppStorage storage ds = appStorage();
@@ -393,8 +391,6 @@ library LibDoefinStorage {
         // Set admin config during initialization
         ds.adminConfigStorage.feeReceiver = feeReceiver;
         ds.adminConfigStorage.resolutionFeeBps = resolutionFeeBps;
-        ds.adminConfigStorage.makerTradingFeeBps = makerFeeBps;
-        ds.adminConfigStorage.takerTradingFeeBps = takerFeeBps;
 
         setInitialized();
     }

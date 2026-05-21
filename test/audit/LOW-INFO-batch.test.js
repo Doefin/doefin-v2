@@ -13,13 +13,13 @@
 // Runnable in this file:
 //   SEC-011 — setOperator accepts address(0) and emits no event.
 //   SEC-014 — ERC1155Facet.setApprovalForAll emits `ApprovalForAll` twice.
-//   SEC-013 — setTradingFeesBps writes are non-functional (v2.0 dead path).
 //
 // Documentation-only (`it.skip` blocks summarise the finding):
 //   SEC-008/009/010 (accept-risk)
 //   BIZ-002, BIZ-005, BIZ-008 (cleanup / documentation)
 //   CPX-003, CPX-005, CPX-006, CPX-007 (maintainability)
 //   SEC-012 (orphaned event)
+//   SEC-013 (RESOLVED SCRUM-224 — dead v2.0 trading-fee config removed)
 //   CPX-A2, CPX-A4567 (residual types + nits)
 //   GAS-001..GAS-007 (gas optimisations — see audit/gas/report.md)
 
@@ -84,45 +84,6 @@ describe("PENTEST BATCH · LOW + INFO", function () {
     });
   });
 
-  describe("SEC-013 (INFO) — setTradingFeesBps writes are non-functional (v2.0 dead path)", function () {
-    it("DEMONSTRATES BUG — admin can call setTradingFeesBps and getFees echoes it, but settlement never reads those fields", async function () {
-      const { adminConfig, settlement } = ctx.contracts;
-      const { owner, buyer, seller, operator } = ctx.signers;
-      const { positionIdA } = ctx.market;
-      const { UNIT } = ctx.constants;
-      const { makeOrder, signOrder } = ctx.helpers;
-
-      // Admin sets bogus v2.0 trading fees to 9999 bps (99.99%). Settlement
-      // does NOT charge those — SCRUM-224 settlement uses the operator-supplied
-      // fee bounded by maxFeeRateBps, never the v2.0 trading-fee fields.
-      await adminConfig.connect(owner).setTradingFeesBps(9999, 9999);
-      const fees = await adminConfig.getFees();
-      expect(fees.makerTradingFeeBps).to.equal(9999);
-      expect(fees.takerTradingFeeBps).to.equal(9999);
-
-      // Settle a normal complementary match with zero operator fees — the
-      // settlement is unaffected by the absurd v2.0 trading fee setting.
-      const fillAmount = ethers.utils.parseUnits("100", 6);
-      const price = UNIT.div(2);
-      const takerOrder = makeOrder(buyer.address,  positionIdA, 0, fillAmount, price, { salt: 95011 });
-      const makerOrder = makeOrder(seller.address, positionIdA, 1, fillAmount, price, { salt: 95011 });
-      const takerSig = await signOrder(buyer,  takerOrder);
-      const makerSig = await signOrder(seller, makerOrder);
-
-      await settlement.connect(operator).matchOrders(
-        takerOrder, takerSig, 0,
-        [makerOrder], [makerSig], [0],
-        fillAmount, [fillAmount], [0], [0],
-      );
-      // No revert, no excess fee — confirming the v2.0 fields are dead
-      // weight. Recommendation: delete the selector + fields (mainnet is a
-      // fresh deploy → no migration cost).
-
-      // Reset
-      await adminConfig.connect(owner).setTradingFeesBps(0, 0);
-    });
-  });
-
   // ==========================================================================
   // DOCUMENTATION-ONLY (skipped — each names the finding + recommendation)
   // ==========================================================================
@@ -142,6 +103,7 @@ describe("PENTEST BATCH · LOW + INFO", function () {
     it.skip("CPX-006 — `matchOrders` is a long multi-responsibility function (cyclomatic ~9-10). Extract a `_settleAgainstMaker` loop-body helper + a `_sumFills` helper.", function () {});
     it.skip("CPX-007 — `_getIndexSet` is O(n) but its comment claims O(1); _settleMint/_settleMerge duplicate the same partition+conditionId block. Extract `_conditionAndPartition`.", function () {});
     it.skip("SEC-012 — Orphaned `ProtocolFeesWithdrawn` event in Events.sol — delete the declaration.", function () {});
+    it.skip("SEC-013 — RESOLVED (SCRUM-224): the non-functional v2.0 maker/taker trading-fee config (makerTradingFeeBps/takerTradingFeeBps fields, setTradingFeesBps, TradingFeesUpdated) has been deleted; settlement uses only the operator-supplied fee bounded by maxFeeRateBps.", function () {});
     it.skip("CPX-A2 — Residual v2.0 type zoo in LibDoefinStorage (~12 deprecated types + 2 AppStorage-embedded structs). Delete the enums/standalone structs post-launch; keep the embedded structs (slot/__gap hazard).", function () {});
     it.skip("CPX-A4567 — Bundled cosmetic nits: name 0x1626ba7e + 10000 constants, reword 'Fix N' comments, fix stale AdminConfig header, pin pragmas to 0.8.20, unify loop-index style.", function () {});
   });

@@ -1,7 +1,7 @@
 {
   "contractName": "Diamond",
   "description": "Merged ABI for the Doefin v3 Diamond proxy (all active facets).",
-  "generatedAt": "2026-05-21T18:32:55.296Z",
+  "generatedAt": "2026-05-21T18:52:03.200Z",
   "contracts": [
     "Diamond",
     "DiamondCutFacet",
@@ -20,13 +20,13 @@
     "OracleAdapterFacet",
     "MarketDataFacet"
   ],
-  "totalEntries": 220,
+  "totalEntries": 218,
   "entriesByType": {
     "constructor": 1,
     "fallback": 1,
     "receive": 1,
-    "function": 95,
-    "event": 40,
+    "function": 94,
+    "event": 39,
     "error": 82
   },
   "perContract": [
@@ -57,7 +57,7 @@
     },
     {
       "contract": "AdminConfigFacet",
-      "added": 27,
+      "added": 25,
       "duplicates": 1
     },
     {
@@ -1232,16 +1232,6 @@
         {
           "internalType": "uint16",
           "name": "resolutionFeeBps",
-          "type": "uint16"
-        },
-        {
-          "internalType": "uint16",
-          "name": "makerTradingFeeBps",
-          "type": "uint16"
-        },
-        {
-          "internalType": "uint16",
-          "name": "takerTradingFeeBps",
           "type": "uint16"
         }
       ],
@@ -2753,24 +2743,6 @@
     {
       "inputs": [
         {
-          "internalType": "uint16",
-          "name": "makerBps",
-          "type": "uint16"
-        },
-        {
-          "internalType": "uint16",
-          "name": "takerBps",
-          "type": "uint16"
-        }
-      ],
-      "name": "setTradingFeesBps",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
           "internalType": "address",
           "name": "collateralToken",
           "type": "address"
@@ -4084,37 +4056,6 @@
         }
       ],
       "name": "TokenSymbolUpdated",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": false,
-          "internalType": "uint16",
-          "name": "oldMakerBps",
-          "type": "uint16"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint16",
-          "name": "oldTakerBps",
-          "type": "uint16"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint16",
-          "name": "newMakerBps",
-          "type": "uint16"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint16",
-          "name": "newTakerBps",
-          "type": "uint16"
-        }
-      ],
-      "name": "TradingFeesUpdated",
       "type": "event"
     },
     {
