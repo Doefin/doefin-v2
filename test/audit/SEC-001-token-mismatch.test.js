@@ -99,7 +99,7 @@ describe("PENTEST · SEC-001 (HIGH) — settlement-path token mismatch", functio
       settlement.connect(operator).matchOrders(
         takerOrder, takerSig, 0,
         [makerOrder], [makerSig], [0],
-        fillAmount, [fillAmount],
+        fillAmount, [fillAmount], [0], [0],
       ),
     ).to.be.revertedWith("InvalidMatch()");
   });
@@ -134,7 +134,7 @@ describe("PENTEST · SEC-001 (HIGH) — settlement-path token mismatch", functio
     await settlement.connect(operator).matchOrders(
       takerOrder, takerSig, 0,
       [makerOrder], [makerSig], [0],
-      fillAmount, [fillAmount],
+      fillAmount, [fillAmount], [0], [0],
     );
 
     const buyerPosAfter = await erc1155Facet.balanceOf(buyer.address, positionIdA);
@@ -173,7 +173,7 @@ describe("PENTEST · SEC-001 (HIGH) — settlement-path token mismatch", functio
       settlement.connect(operator).matchOrders(
         buyAOrder, sigA, 0,
         [buyBOrder], [sigB], [0],
-        fillAmount, [fillAmount],
+        fillAmount, [fillAmount], [0], [0],
       ),
     ).to.be.revertedWith("InvalidMatch()");
   });

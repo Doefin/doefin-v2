@@ -108,4 +108,36 @@ describe("AdminConfigFacet", function () {
     await expect(getCollateralUnit(adminConfig, mockToken))
       .to.be.revertedWith("TokenNotAllowed()");
   });
+
+  // ========================================
+  // MAX FEE RATE (SCRUM-224)
+  // ========================================
+
+  describe("setMaxFeeRate / getMaxFeeRate (SCRUM-224)", function () {
+    it("should default maxFeeRateBps to 0 on a fresh deploy", async function () {
+      expect(await adminConfig.getMaxFeeRate()).to.equal(0);
+    });
+
+    it("should set the max fee rate and emit MaxFeeRateUpdated", async function () {
+      await expect(adminConfig.connect(owner).setMaxFeeRate(250))
+        .to.emit(adminConfig, "MaxFeeRateUpdated")
+        .withArgs(0, 250);
+      expect(await adminConfig.getMaxFeeRate()).to.equal(250);
+    });
+
+    it("should allow setting the rate exactly at the 1000-bps ceiling", async function () {
+      await adminConfig.connect(owner).setMaxFeeRate(1000);
+      expect(await adminConfig.getMaxFeeRate()).to.equal(1000);
+    });
+
+    it("should revert when the rate exceeds the 1000-bps ceiling", async function () {
+      await expect(adminConfig.connect(owner).setMaxFeeRate(1001))
+        .to.be.revertedWith("MaxFeeRateExceedsCeiling()");
+    });
+
+    it("should revert setMaxFeeRate for a non-owner", async function () {
+      await expect(adminConfig.connect(addr1).setMaxFeeRate(100))
+        .to.be.revertedWith("NotContractOwner()");
+    });
+  });
 });

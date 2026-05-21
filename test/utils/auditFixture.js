@@ -10,10 +10,12 @@ const { deployDiamond } = require("../../scripts/deploy.js");
 const { getConditionId, getCollectionId, getPositionId } = require("./ctfUtils.js");
 
 const UNIT = ethers.utils.parseUnits("1", 6); // 1e6 (USDC-like)
-const FEE_BPS = 200; // 2 %
+const FEE_BPS = 200; // 2 % — operator fee rate used to size per-leg fees
+const MAX_FEE_RATE_BPS = 500; // admin-set ceiling configured by the fixture
 const DOMAIN_NAME = "Doefin Exchange";
 const DOMAIN_VERSION = "3";
 
+// SCRUM-224: 11-field struct — `feeRateBps` removed (operator-supplied fee model).
 const ORDER_TYPE = {
   DoefinOrder: [
     { name: "salt", type: "uint256" },
@@ -25,11 +27,20 @@ const ORDER_TYPE = {
     { name: "amount", type: "uint128" },
     { name: "pricePerToken", type: "uint128" },
     { name: "minFillAmount", type: "uint128" },
-    { name: "feeRateBps", type: "uint16" },
     { name: "expiration", type: "uint64" },
     { name: "nonce", type: "uint256" },
   ],
 };
+
+/**
+ * Size an operator-supplied per-leg fee at `feeRateBps` of a contract-derived
+ * collateral leg (`price * fill / UNIT`). Guaranteed within the configured
+ * max-rate ceiling, so `_validateFee` accepts it.
+ */
+function legFee(price, fill, feeRateBps = FEE_BPS, unit = UNIT) {
+  const cashValue = ethers.BigNumber.from(price).mul(fill).div(unit);
+  return cashValue.mul(feeRateBps).div(10000);
+}
 
 /**
  * Stand up a fresh Diamond with the v3 settlement core wired in, one
@@ -57,6 +68,7 @@ async function setupAuditFixture() {
 
   await adminConfig.addCollateralToken(collateral.address, UNIT);
   await adminConfig.setFeeReceiver(feeReceiver.address);
+  await adminConfig.setMaxFeeRate(MAX_FEE_RATE_BPS);
   await settlement.setOperator(operator.address);
   await accessControl.addMarketMaker(owner.address);
 
@@ -101,6 +113,9 @@ async function setupAuditFixture() {
   }
 
   function makeOrder(maker, positionId, side, amount, price, overrides = {}) {
+    // SCRUM-224: `feeRateBps` is no longer part of the signed order. Any
+    // `feeRateBps` key in `overrides` is silently dropped for back-compat.
+    const { feeRateBps, ...rest } = overrides;
     return {
       salt: 1,
       maker,
@@ -111,10 +126,9 @@ async function setupAuditFixture() {
       amount,
       pricePerToken: price,
       minFillAmount: 0,
-      feeRateBps: FEE_BPS,
       expiration: 0,
       nonce: 0,
-      ...overrides,
+      ...rest,
     };
   }
 
@@ -146,9 +160,9 @@ async function setupAuditFixture() {
     },
     signers: { owner, operator, buyer, seller, buyerB, feeReceiver, attacker },
     market: { conditionId, positionIdA, positionIdB },
-    constants: { UNIT, FEE_BPS, DOMAIN_NAME, DOMAIN_VERSION },
-    helpers: { makeOrder, signOrder, makeDomain, addCollateralToken },
+    constants: { UNIT, FEE_BPS, MAX_FEE_RATE_BPS, DOMAIN_NAME, DOMAIN_VERSION },
+    helpers: { makeOrder, signOrder, makeDomain, addCollateralToken, legFee },
   };
 }
 
-module.exports = { setupAuditFixture, ORDER_TYPE, UNIT, FEE_BPS };
+module.exports = { setupAuditFixture, ORDER_TYPE, UNIT, FEE_BPS, MAX_FEE_RATE_BPS, legFee };

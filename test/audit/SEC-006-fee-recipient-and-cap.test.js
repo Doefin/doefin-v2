@@ -1,45 +1,39 @@
 // PENTEST · SEC-006 (MED) — fee recipient & cap mechanics
 // ----------------------------------------------------------------------------
-// STATUS: NOT YET FIXED (documentation + policy fix recommended).
+// STATUS: ADDRESSED by SCRUM-224 (operator-supplied fee model).
 //
-// The audit found two issues bundled here:
-//   (a) `.claude/CLAUDE.md` states "Operator is the fee recipient" — STALE.
-//       Every fee transfer in `SettlementFacet` targets
-//       `ds.adminConfigStorage.feeReceiver`. The operator is paid nothing.
-//   (b) `MAX_FEE_RATE_BPS = 500` (5%). A maker UI-manipulated into signing
-//       `feeRateBps = 500` is bound by it — recommended reduction to ~1%.
+// The original audit found two issues bundled here:
+//   (a) Stale doc claiming "Operator is the fee recipient" — every fee transfer
+//       in `SettlementFacet` targets `ds.adminConfigStorage.feeReceiver`. The
+//       operator is paid nothing.
+//   (b) A maker UI-manipulated into signing a high `feeRateBps` was bound only
+//       by a contract constant.
 //
-// This pentest asserts the on-chain truth that contradicts (a) and quantifies
-// the maximum extractable fee under (b). No code change is needed for the
-// test to pass — the fix is doc-and-policy. After the doc fix lands and (if
-// adopted) the cap is lowered to 100, the second test's expected value
-// should change to ~1%.
+// SCRUM-224 removed the maker-signed `feeRateBps` entirely. The operator now
+// supplies the fee amount at settlement, and the contract enforces an
+// admin-settable maximum rate (`maxFeeRateBps`) plus a `fee <= proceeds` bound.
+// This pentest now asserts the post-fix on-chain truth:
+//   - fees still flow to `feeReceiver`, never the operator;
+//   - an operator fee within the admin cap settles;
+//   - an operator fee above the admin cap reverts FeeExceedsMaxRate.
 
 const { expect } = require("chai");
 const { ethers } = require("hardhat");
 const { setupAuditFixture } = require("../utils/auditFixture.js");
 
-const MAX_FEE_RATE_BPS = 500; // 5 % — the current cap in SettlementFacet
-
-function computeExpectedFee(feeRateBps, price, amount, unit) {
-  const complementPrice = unit.sub(price);
-  const effectivePrice = price.lt(complementPrice) ? price : complementPrice;
-  return effectivePrice.mul(amount).mul(feeRateBps).div(unit.mul(10000));
-}
-
-describe("PENTEST · SEC-006 (MED) — fee recipient and cap", function () {
+describe("PENTEST · SEC-006 (MED) — fee recipient and operator fee cap", function () {
   let ctx;
 
   before(async function () {
     ctx = await setupAuditFixture();
   });
 
-  it("DEMONSTRATES (a) — fees go to feeReceiver, NOT the operator (contradicts CLAUDE.md)", async function () {
+  it("DEMONSTRATES (a) — fees go to feeReceiver, NOT the operator", async function () {
     const { settlement, collateral } = ctx.contracts;
     const { buyer, seller, operator, feeReceiver } = ctx.signers;
     const { positionIdA } = ctx.market;
-    const { UNIT, FEE_BPS } = ctx.constants;
-    const { makeOrder, signOrder } = ctx.helpers;
+    const { UNIT } = ctx.constants;
+    const { makeOrder, signOrder, legFee } = ctx.helpers;
 
     const fillAmount = ethers.utils.parseUnits("100", 6);
     const price = UNIT.div(2);
@@ -49,47 +43,41 @@ describe("PENTEST · SEC-006 (MED) — fee recipient and cap", function () {
     const takerSig = await signOrder(buyer,  takerOrder);
     const makerSig = await signOrder(seller, makerOrder);
 
+    // Operator-supplied per-leg fee, sized within the admin cap.
+    const fee = legFee(price, fillAmount);
+
     const feeRcvBefore = await collateral.balanceOf(feeReceiver.address);
     const operatorColBefore = await collateral.balanceOf(operator.address);
 
     await settlement.connect(operator).matchOrders(
       takerOrder, takerSig, 0,
       [makerOrder], [makerSig], [0],
-      fillAmount, [fillAmount],
+      fillAmount, [fillAmount], [fee], [fee],
     );
 
-    const feeRcvAfter = await collateral.balanceOf(feeReceiver.address);
-    const operatorColAfter = await collateral.balanceOf(operator.address);
-
-    const expectedFeePerLeg = computeExpectedFee(FEE_BPS, price, fillAmount, UNIT);
-
     // Complementary settlement charges BOTH the buyer's and the seller's fee
-    // — `feeReceiver` receives `2 * expectedFeePerLeg`.
-    const feeReceiverDelta = feeRcvAfter.sub(feeRcvBefore);
-    expect(feeReceiverDelta).to.equal(expectedFeePerLeg.mul(2));
+    // — `feeReceiver` receives `2 * fee`.
+    expect((await collateral.balanceOf(feeReceiver.address)).sub(feeRcvBefore))
+      .to.equal(fee.mul(2));
 
-    // The operator's collateral balance must NOT have grown by any fee. (It
-    // is unchanged in a complementary match — the operator is just the
-    // submitter, never a counterparty.)
-    expect(operatorColAfter).to.equal(operatorColBefore);
+    // The operator's collateral balance must NOT have grown by any fee.
+    expect(await collateral.balanceOf(operator.address)).to.equal(operatorColBefore);
   });
 
-  it("DEMONSTRATES (b) — `feeRateBps = 500` (the cap) is honoured: a maker signing 5% pays 5% of effective notional", async function () {
+  it("CAP — an operator fee within `maxFeeRateBps` settles", async function () {
     const { settlement, collateral } = ctx.contracts;
     const { buyer, seller, operator, feeReceiver } = ctx.signers;
     const { positionIdA } = ctx.market;
-    const { UNIT } = ctx.constants;
+    const { UNIT, MAX_FEE_RATE_BPS } = ctx.constants;
     const { makeOrder, signOrder } = ctx.helpers;
 
     const fillAmount = ethers.utils.parseUnits("100", 6);
     const price = UNIT.div(2);
+    const cashValue = price.mul(fillAmount).div(UNIT);
+    const feeAtCap = cashValue.mul(MAX_FEE_RATE_BPS).div(10000);
 
-    const takerOrder = makeOrder(buyer.address,  positionIdA, 0, fillAmount, price, {
-      salt: 93002, feeRateBps: MAX_FEE_RATE_BPS,
-    });
-    const makerOrder = makeOrder(seller.address, positionIdA, 1, fillAmount, price, {
-      salt: 93002, feeRateBps: MAX_FEE_RATE_BPS,
-    });
+    const takerOrder = makeOrder(buyer.address,  positionIdA, 0, fillAmount, price, { salt: 93002 });
+    const makerOrder = makeOrder(seller.address, positionIdA, 1, fillAmount, price, { salt: 93002 });
     const takerSig = await signOrder(buyer,  takerOrder);
     const makerSig = await signOrder(seller, makerOrder);
 
@@ -98,34 +86,27 @@ describe("PENTEST · SEC-006 (MED) — fee recipient and cap", function () {
     await settlement.connect(operator).matchOrders(
       takerOrder, takerSig, 0,
       [makerOrder], [makerSig], [0],
-      fillAmount, [fillAmount],
+      fillAmount, [fillAmount], [feeAtCap], [feeAtCap],
     );
 
-    const feeRcvAfter = await collateral.balanceOf(feeReceiver.address);
-    const expectedFeePerLeg = computeExpectedFee(MAX_FEE_RATE_BPS, price, fillAmount, UNIT);
-
-    // 5% * min(0.5, 0.5) * 100 = 5% * 50 = 2.5 per leg × 2 legs = 5 USDC.
-    const feeReceiverDelta = feeRcvAfter.sub(feeRcvBefore);
-    expect(feeReceiverDelta).to.equal(expectedFeePerLeg.mul(2));
-    expect(feeReceiverDelta).to.equal(ethers.utils.parseUnits("5", 6)); // sanity
+    expect((await collateral.balanceOf(feeReceiver.address)).sub(feeRcvBefore))
+      .to.equal(feeAtCap.mul(2));
   });
 
-  it("CAP — feeRateBps > MAX_FEE_RATE_BPS reverts FeeTooHigh", async function () {
+  it("CAP — an operator fee above `maxFeeRateBps` reverts FeeExceedsMaxRate", async function () {
     const { settlement } = ctx.contracts;
     const { buyer, seller, operator } = ctx.signers;
     const { positionIdA } = ctx.market;
-    const { UNIT } = ctx.constants;
+    const { UNIT, MAX_FEE_RATE_BPS } = ctx.constants;
     const { makeOrder, signOrder } = ctx.helpers;
 
     const fillAmount = ethers.utils.parseUnits("100", 6);
     const price = UNIT.div(2);
+    const cashValue = price.mul(fillAmount).div(UNIT);
+    const overCap = cashValue.mul(MAX_FEE_RATE_BPS).div(10000).add(1);
 
-    const takerOrder = makeOrder(buyer.address,  positionIdA, 0, fillAmount, price, {
-      salt: 93003, feeRateBps: MAX_FEE_RATE_BPS + 1,
-    });
-    const makerOrder = makeOrder(seller.address, positionIdA, 1, fillAmount, price, {
-      salt: 93003, feeRateBps: 0,
-    });
+    const takerOrder = makeOrder(buyer.address,  positionIdA, 0, fillAmount, price, { salt: 93003 });
+    const makerOrder = makeOrder(seller.address, positionIdA, 1, fillAmount, price, { salt: 93003 });
     const takerSig = await signOrder(buyer,  takerOrder);
     const makerSig = await signOrder(seller, makerOrder);
 
@@ -133,8 +114,8 @@ describe("PENTEST · SEC-006 (MED) — fee recipient and cap", function () {
       settlement.connect(operator).matchOrders(
         takerOrder, takerSig, 0,
         [makerOrder], [makerSig], [0],
-        fillAmount, [fillAmount],
+        fillAmount, [fillAmount], [overCap], [0],
       ),
-    ).to.be.reverted; // FeeTooHigh
+    ).to.be.revertedWith("FeeExceedsMaxRate()");
   });
 });

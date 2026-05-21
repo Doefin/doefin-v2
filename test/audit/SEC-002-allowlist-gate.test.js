@@ -94,7 +94,7 @@ describe("PENTEST · SEC-002 (HIGH) — collateral allow-list gate on settlement
       settlement.connect(operator).matchOrders(
         takerOrder, takerSig, 0,
         [makerOrder], [makerSig], [0],
-        fillAmount, [fillAmount],
+        fillAmount, [fillAmount], [0], [0],
       ),
     ).to.be.revertedWith("TokenNotAllowed()");
   });
@@ -119,7 +119,7 @@ describe("PENTEST · SEC-002 (HIGH) — collateral allow-list gate on settlement
     const sig = await signOrder(buyer, order);
 
     await expect(
-      settlement.connect(operator).fillOrder(order, sig, 0, fillAmount),
+      settlement.connect(operator).fillOrder(order, sig, 0, fillAmount, 0),
     ).to.be.revertedWith("TokenNotAllowed()");
   });
 
@@ -165,7 +165,7 @@ describe("PENTEST · SEC-002 (HIGH) — collateral allow-list gate on settlement
       settlement.connect(operator).matchOrders(
         takerOrder, takerSig, 0,
         [makerOrder], [makerSig], [0],
-        fillAmount, [fillAmount],
+        fillAmount, [fillAmount], [0], [0],
       ),
     ).to.be.revertedWith("TokenNotAllowed()");
   });
@@ -193,7 +193,7 @@ describe("PENTEST · SEC-002 (HIGH) — collateral allow-list gate on settlement
     await settlement.connect(operator).matchOrders(
       takerOrder, takerSig, 0,
       [makerOrder], [makerSig], [0],
-      fillAmount, [fillAmount],
+      fillAmount, [fillAmount], [0], [0],
     );
     const buyerPosAfter = await erc1155Facet.balanceOf(buyer.address, positionIdA);
     expect(buyerPosAfter.sub(buyerPosBefore)).to.equal(fillAmount);

@@ -5,8 +5,9 @@
 //
 //   `_executeOperatorFill` computes `collateralAmount = price * fill / unit`
 //   using floored integer division. For any `price * fill < unit` the result
-//   is 0. With `feeRateBps == 0` the `_computeFee` early-return skips its
-//   own `price > unit` guard, so the path proceeds with `collateralAmount=0`:
+//   is 0. Pre-fix, the path proceeded with `collateralAmount = 0`
+//   (SCRUM-224 — the fee is now operator-supplied; the `collateralAmount == 0`
+//   guard below is the relevant protection):
 //
 //     - BUY order: `safeTransferFrom(maker, operator, 0)`. The maker pays
 //       nothing. The operator then transfers `fill` position tokens to the
@@ -76,7 +77,7 @@ describe("PENTEST · SEC-003 (MED) — _executeOperatorFill zero-collateral extr
     const sig = await signOrder(buyer, order);
 
     await expect(
-      settlement.connect(operator).fillOrder(order, sig, 0, 999_999),
+      settlement.connect(operator).fillOrder(order, sig, 0, 999_999, 0),
     ).to.be.revertedWith("ZeroAmount()");
 
     // sanity context — the price is well within unit, so BIZ-004 does NOT
@@ -101,7 +102,7 @@ describe("PENTEST · SEC-003 (MED) — _executeOperatorFill zero-collateral extr
     const sig = await signOrder(seller, order);
 
     await expect(
-      settlement.connect(operator).fillOrder(order, sig, 0, 999_999),
+      settlement.connect(operator).fillOrder(order, sig, 0, 999_999, 0),
     ).to.be.revertedWith("ZeroAmount()");
   });
 
@@ -127,7 +128,7 @@ describe("PENTEST · SEC-003 (MED) — _executeOperatorFill zero-collateral extr
     const sig = await signOrder(buyer, order);
 
     await expect(
-      settlement.connect(operator).fillOrder(order, sig, 0, 999_999),
+      settlement.connect(operator).fillOrder(order, sig, 0, 999_999, 0),
     ).to.be.revertedWith("ZeroAmount()");
   });
 
@@ -151,7 +152,7 @@ describe("PENTEST · SEC-003 (MED) — _executeOperatorFill zero-collateral extr
     const sig = await signOrder(seller, order);
 
     const sellerColBefore = await collateral.balanceOf(seller.address);
-    await settlement.connect(operator).fillOrder(order, sig, 0, fillAmount);
+    await settlement.connect(operator).fillOrder(order, sig, 0, fillAmount, 0);
     const sellerColAfter = await collateral.balanceOf(seller.address);
 
     // Seller receives `price * fill / unit` USDC (5e6 with these inputs).

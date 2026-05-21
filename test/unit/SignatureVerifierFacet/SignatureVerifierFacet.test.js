@@ -20,7 +20,6 @@ describe("SignatureVerifierFacet", function () {
       { name: "amount", type: "uint128" },
       { name: "pricePerToken", type: "uint128" },
       { name: "minFillAmount", type: "uint128" },
-      { name: "feeRateBps", type: "uint16" },
       { name: "expiration", type: "uint64" },
       { name: "nonce", type: "uint256" },
     ],
@@ -46,7 +45,6 @@ describe("SignatureVerifierFacet", function () {
       amount: 1000,
       pricePerToken: 500,
       minFillAmount: 100,
-      feeRateBps: 200,
       expiration: 0,
       nonce: 1,
     };

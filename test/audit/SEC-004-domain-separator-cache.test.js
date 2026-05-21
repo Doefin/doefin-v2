@@ -99,7 +99,7 @@ describe("PENTEST · SEC-004 (MED, FIXED) — domain-separator cache removed", f
       settlement.connect(operator).matchOrders(
         takerOrder, takerSig, 0,
         [makerOrder], [makerSig], [0],
-        fillAmount, [fillAmount],
+        fillAmount, [fillAmount], [0], [0],
       ),
     ).to.be.reverted; // OrderCancelled
   });
@@ -122,7 +122,7 @@ describe("PENTEST · SEC-004 (MED, FIXED) — domain-separator cache removed", f
     await settlement.connect(operator).matchOrders(
       takerOrder, takerSig, 0,
       [makerOrder], [makerSig], [0],
-      fillAmount, [fillAmount],
+      fillAmount, [fillAmount], [0], [0],
     );
     const after = await erc1155Facet.balanceOf(buyer.address, positionIdA);
     expect(after.sub(before)).to.equal(fillAmount);

@@ -92,7 +92,7 @@ describe("PENTEST · SEC-005 (MED) — ECDSA malleability against the shared ver
       settlement.connect(operator).matchOrders(
         takerOrder, takerSigHigh, 0,
         [makerOrder], [makerSigLow], [0],
-        fillAmount, [fillAmount],
+        fillAmount, [fillAmount], [0], [0],
       ),
     ).to.be.reverted; // InvalidOrderSignature(hash)
   });
@@ -117,7 +117,7 @@ describe("PENTEST · SEC-005 (MED) — ECDSA malleability against the shared ver
       settlement.connect(operator).matchOrders(
         takerOrder, takerSigLow, 0,
         [makerOrder], [makerSigHigh], [0],
-        fillAmount, [fillAmount],
+        fillAmount, [fillAmount], [0], [0],
       ),
     ).to.be.reverted; // InvalidOrderSignature(hash)
   });
@@ -142,7 +142,7 @@ describe("PENTEST · SEC-005 (MED) — ECDSA malleability against the shared ver
     await settlement.connect(operator).matchOrders(
       takerOrder, takerSig, 0,
       [makerOrder], [makerSig], [0],
-      fillAmount, [fillAmount],
+      fillAmount, [fillAmount], [0], [0],
     );
     const after = await erc1155Facet.balanceOf(buyer.address, positionIdA);
     expect(after.sub(before)).to.equal(fillAmount);

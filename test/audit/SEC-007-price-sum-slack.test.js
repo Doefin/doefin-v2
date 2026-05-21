@@ -37,14 +37,6 @@ const { expect } = require("chai");
 const { ethers } = require("hardhat");
 const { setupAuditFixture } = require("../utils/auditFixture.js");
 
-// Mirrors `SettlementFacet._computeFee`:
-//   fee = feeRateBps * min(price, unit - price) * amount / (unit * 10000)
-function computeFee(feeRateBps, price, amount, unit) {
-  const complement = unit.sub(price);
-  const effective = price.lt(complement) ? price : complement;
-  return effective.mul(amount).mul(feeRateBps).div(unit.mul(10000));
-}
-
 describe("PENTEST · SEC-007 (MED, defer) — off-`unit` price-sum slack", function () {
   let ctx;
   const fillAmount = ethers.utils.parseUnits("100", 6);
@@ -78,7 +70,7 @@ describe("PENTEST · SEC-007 (MED, defer) — off-`unit` price-sum slack", funct
     await settlement.connect(operator).matchOrders(
       takerOrder, takerSig, 0,
       [makerOrder], [makerSig], [0],
-      fillAmount, [fillAmount],
+      fillAmount, [fillAmount], [0], [0],
     );
 
     // Each buyer GAINED `fill` of their respective positions — assert deltas
@@ -135,16 +127,15 @@ describe("PENTEST · SEC-007 (MED, defer) — off-`unit` price-sum slack", funct
     await settlement.connect(operator).matchOrders(
       takerOrder, takerSig, 0,
       [makerOrder], [makerSig], [0],
-      fillAmount, [fillAmount],
+      fillAmount, [fillAmount], [0], [0],
     );
 
     const takerColAfter = await collateral.balanceOf(seller.address);
     const takerPayout = takerColAfter.sub(takerColBefore);
 
-    // Taker fee is computed against the SIGNED P_t (not the actual price
-    // received), per `_computeFee`. Effective price = min(P_t, unit - P_t).
-    const FEE_BPS = ctx.constants.FEE_BPS;
-    const takerFee = computeFee(FEE_BPS, P_t, fillAmount, UNIT);
+    // SCRUM-224: the operator supplied a zero fee for this leg, so the taker's
+    // net payout equals their gross payout.
+    const takerFee = ethers.BigNumber.from(0);
 
     // Signed/net (what the taker thought they'd receive after fees):
     //   signed_gross  = P_t * fill / unit                       = 50e6
@@ -187,7 +178,7 @@ describe("PENTEST · SEC-007 (MED, defer) — off-`unit` price-sum slack", funct
     await settlement.connect(operator).matchOrders(
       takerOrder, takerSig, 0,
       [makerOrder], [makerSig], [0],
-      fillAmount, [fillAmount],
+      fillAmount, [fillAmount], [0], [0],
     );
 
     // (Deltas asserted in test 1; here we only need the matchOrders to settle
@@ -216,7 +207,7 @@ describe("PENTEST · SEC-007 (MED, defer) — off-`unit` price-sum slack", funct
       settlement.connect(operator).matchOrders(
         takerOrder, takerSig, 0,
         [makerOrder], [makerSig], [0],
-        fillAmount, [fillAmount],
+        fillAmount, [fillAmount], [0], [0],
       ),
     ).to.be.reverted; // InvalidMatch — preserves solvency
   });

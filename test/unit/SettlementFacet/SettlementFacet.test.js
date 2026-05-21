@@ -15,9 +15,10 @@ describe("SettlementFacet", function () {
   // Test state
   let conditionId, positionIdA, positionIdB;
   const UNIT = ethers.utils.parseUnits("1", 6); // 1e6 (USDC-like)
-  const FEE_BPS = 200; // 2%
+  const FEE_BPS = 200; // 2% — operator fee rate used to size per-leg fees off-chain
+  const MAX_FEE_RATE_BPS = 500; // 5% — admin-set on-chain ceiling
 
-  // EIP-712 helpers
+  // EIP-712 helpers — SCRUM-224: 11-field struct, `feeRateBps` removed.
   const DOMAIN_NAME = "Doefin Exchange";
   const DOMAIN_VERSION = "3";
   const ORDER_TYPE = {
@@ -31,7 +32,6 @@ describe("SettlementFacet", function () {
       { name: "amount", type: "uint128" },
       { name: "pricePerToken", type: "uint128" },
       { name: "minFillAmount", type: "uint128" },
-      { name: "feeRateBps", type: "uint16" },
       { name: "expiration", type: "uint64" },
       { name: "nonce", type: "uint256" },
     ],
@@ -47,6 +47,9 @@ describe("SettlementFacet", function () {
   }
 
   function makeOrder(maker, positionId, side, amount, price, overrides = {}) {
+    // SCRUM-224: `feeRateBps` is no longer part of the signed order. A legacy
+    // `feeRateBps` key in `overrides` is dropped (back-compat with older specs).
+    const { feeRateBps, ...rest } = overrides;
     return {
       salt: 1,
       maker,
@@ -57,10 +60,9 @@ describe("SettlementFacet", function () {
       amount,
       pricePerToken: price,
       minFillAmount: 0,
-      feeRateBps: FEE_BPS,
       expiration: 0,
       nonce: 0,
-      ...overrides,
+      ...rest,
     };
   }
 
@@ -69,12 +71,13 @@ describe("SettlementFacet", function () {
   }
 
   /**
-   * Compute the symmetric fee: fee = rate * min(price, 1-price) * amount / (unit * 10000)
+   * SCRUM-224: the fee is operator-supplied. This is the off-chain sizing the
+   * operator uses — `feeRateBps` of the contract-derived collateral leg
+   * (`price * amount / unit`). It is always within the on-chain max-rate cap.
    */
-  function computeExpectedFee(feeRateBps, price, amount, unit) {
-    const complementPrice = unit.sub(price);
-    const effectivePrice = price.lt(complementPrice) ? price : complementPrice;
-    return effectivePrice.mul(amount).mul(feeRateBps).div(unit.mul(10000));
+  function legFee(price, amount, feeRateBps = FEE_BPS, unit = UNIT) {
+    const cashValue = ethers.BigNumber.from(price).mul(amount).div(unit);
+    return cashValue.mul(feeRateBps).div(10000);
   }
 
   // ========================================
@@ -104,6 +107,7 @@ describe("SettlementFacet", function () {
     // Admin setup
     await adminConfig.addCollateralToken(collateral.address, UNIT);
     await adminConfig.setFeeReceiver(feeReceiver.address);
+    await adminConfig.setMaxFeeRate(MAX_FEE_RATE_BPS);
 
     // Set operator
     await settlement.setOperator(operator.address);
@@ -226,7 +230,7 @@ describe("SettlementFacet", function () {
 
       await expect(
         settlement.connect(buyer).matchOrders(
-          order, sig, 0, [], [], [], 100, []
+          order, sig, 0, [], [], [], 100, [], [], []
         )
       ).to.be.reverted;
     });
@@ -239,7 +243,7 @@ describe("SettlementFacet", function () {
 
       await expect(
         settlement.connect(operator).matchOrders(
-          order, sig, 0, [], [], [], 100, []
+          order, sig, 0, [], [], [], 100, [], [], []
         )
       ).to.be.reverted;
 
@@ -264,7 +268,7 @@ describe("SettlementFacet", function () {
         settlement.connect(operator).matchOrders(
           takerOrder, takerSig, 0,
           [makerOrder], [makerSig], [0],
-          100, [] // mismatch: 1 maker order, 0 fill amounts
+          100, [], [0], [0] // mismatch: 1 maker order, 0 fill amounts
         )
       ).to.be.revertedWith("MismatchedInputLengths()");
     });
@@ -275,7 +279,7 @@ describe("SettlementFacet", function () {
 
       await expect(
         settlement.connect(operator).matchOrders(
-          takerOrder, takerSig, 0, [], [], [], 0, []
+          takerOrder, takerSig, 0, [], [], [], 0, [], [], []
         )
       ).to.be.revertedWith("ZeroAmount()");
     });
@@ -289,7 +293,7 @@ describe("SettlementFacet", function () {
     const fillAmount = ethers.utils.parseUnits("100", 6);
     const price = UNIT.div(2); // 0.5 (500000)
 
-    it("should settle a valid Buy vs Sell match", async function () {
+    it("should settle a valid Buy vs Sell match with operator-supplied fees", async function () {
       const takerOrder = makeOrder(buyer.address, positionIdA, 0, fillAmount, price, { salt: 5000 });
       const makerOrder = makeOrder(seller.address, positionIdA, 1, fillAmount, price, { salt: 5000 });
 
@@ -303,16 +307,19 @@ describe("SettlementFacet", function () {
       const buyerPosBefore = await erc1155Facet.balanceOf(buyer.address, positionIdA);
       const feeReceiverBefore = await collateral.balanceOf(feeReceiver.address);
 
+      // SCRUM-224: operator supplies the per-leg fee. Execution is at the maker's
+      // price, so cashValue = price * fill / UNIT. The taker is the buyer.
+      const buyerFee = legFee(price, fillAmount);
+      const sellerFee = legFee(price, fillAmount);
+
       await settlement.connect(operator).matchOrders(
         takerOrder, takerSig, 0,
         [makerOrder], [makerSig], [0],
-        fillAmount, [fillAmount]
+        fillAmount, [fillAmount], [buyerFee], [sellerFee]
       );
 
-      // Fix 2: Each party pays their own fee. Execution at maker's price.
+      // Each party pays their own fee. Execution at maker's price.
       const collateralAmount = price.mul(fillAmount).div(UNIT);
-      const buyerFee = computeExpectedFee(FEE_BPS, price, fillAmount, UNIT);
-      const sellerFee = computeExpectedFee(FEE_BPS, price, fillAmount, UNIT);
       const totalFees = buyerFee.add(sellerFee);
 
       const buyerCollAfter = await collateral.balanceOf(buyer.address);
@@ -344,7 +351,7 @@ describe("SettlementFacet", function () {
       await settlement.connect(operator).matchOrders(
         takerOrder, takerSig, 0,
         [makerOrder], [makerSig], [0],
-        fillAmount, [fillAmount]
+        fillAmount, [fillAmount], [0], [0]
       );
 
       // Get order hashes and check filled amounts
@@ -368,7 +375,7 @@ describe("SettlementFacet", function () {
         settlement.connect(operator).matchOrders(
           takerOrder, takerSig, 0,
           [makerOrder], [makerSig], [0],
-          fillAmount, [fillAmount]
+          fillAmount, [fillAmount], [0], [0]
         )
       ).to.emit(settlement, "OrdersMatched");
     });
@@ -387,7 +394,7 @@ describe("SettlementFacet", function () {
       await settlement.connect(operator).matchOrders(
         takerOrder, takerSig, 0,
         [makerOrder1], [makerSig1], [0],
-        halfAmount, [halfAmount]
+        halfAmount, [halfAmount], [0], [0]
       );
 
       const takerHash = await sigVerifier.getOrderHash(takerOrder);
@@ -397,7 +404,7 @@ describe("SettlementFacet", function () {
       await settlement.connect(operator).matchOrders(
         takerOrder, takerSig, 0,
         [makerOrder1], [makerSig1], [0],
-        halfAmount, [halfAmount]
+        halfAmount, [halfAmount], [0], [0]
       );
 
       expect(await settlement.getFilledAmount(takerHash)).to.equal(totalAmount);
@@ -414,7 +421,7 @@ describe("SettlementFacet", function () {
       await settlement.connect(operator).matchOrders(
         takerOrder, takerSig, 0,
         [makerOrder], [makerSig], [0],
-        fillAmount, [fillAmount]
+        fillAmount, [fillAmount], [0], [0]
       );
 
       // Try to fill again — should revert
@@ -422,7 +429,7 @@ describe("SettlementFacet", function () {
         settlement.connect(operator).matchOrders(
           takerOrder, takerSig, 0,
           [makerOrder], [makerSig], [0],
-          1, [1]
+          1, [1], [0], [0]
         )
       ).to.be.reverted;
     });
@@ -439,7 +446,7 @@ describe("SettlementFacet", function () {
         settlement.connect(operator).matchOrders(
           takerOrder, wrongSig, 0,
           [makerOrder], [makerSig], [0],
-          fillAmount, [fillAmount]
+          fillAmount, [fillAmount], [0], [0]
         )
       ).to.be.reverted;
     });
@@ -456,7 +463,7 @@ describe("SettlementFacet", function () {
         settlement.connect(operator).matchOrders(
           takerOrder, takerSig, 0,
           [makerOrder], [makerSig], [0],
-          fillAmount, [fillAmount]
+          fillAmount, [fillAmount], [0], [0]
         )
       ).to.be.revertedWith("SelfTrade()");
     });
@@ -486,7 +493,7 @@ describe("SettlementFacet", function () {
       const buyerCollBefore = await collateral.balanceOf(buyer.address);
       const buyerPosBefore = await erc1155Facet.balanceOf(buyer.address, positionIdA);
 
-      await settlement.connect(operator).fillOrder(order, sig, 0, fillAmount);
+      await settlement.connect(operator).fillOrder(order, sig, 0, fillAmount, 0);
 
       const buyerCollAfter = await collateral.balanceOf(buyer.address);
       const buyerPosAfter = await erc1155Facet.balanceOf(buyer.address, positionIdA);
@@ -502,7 +509,7 @@ describe("SettlementFacet", function () {
       const sig = await signOrder(buyer, order);
 
       await expect(
-        settlement.connect(operator).fillOrder(order, sig, 0, 0)
+        settlement.connect(operator).fillOrder(order, sig, 0, 0, 0)
       ).to.be.revertedWith("ZeroAmount()");
     });
 
@@ -511,56 +518,16 @@ describe("SettlementFacet", function () {
       const sig = await signOrder(buyer, order);
 
       await expect(
-        settlement.connect(buyer).fillOrder(order, sig, 0, fillAmount)
+        settlement.connect(buyer).fillOrder(order, sig, 0, fillAmount, 0)
       ).to.be.reverted;
     });
   });
 
   // ========================================
-  // FEE CALCULATION TESTS
-  // ========================================
-
-  describe("Fee calculation (symmetric formula)", function () {
-    it("should compute symmetric fee correctly at price=0.5", async function () {
-      const fillAmount = ethers.utils.parseUnits("1000", 6);
-      const price = UNIT.div(2); // 0.5
-      // min(0.5, 0.5) = 0.5
-      // fee = 200 * 500000 * 1000000000 / (1000000 * 10000) = 10000000000000 / 10000000000 = 1000 (in 6 dec = 0.001)
-      // Actually: fee = 200 * 500000 * 1000000000 / (1000000 * 10000)
-      // = 200 * 500000 * 1000000000 / 10000000000
-      // Wait, let me compute properly:
-      // effectivePrice = min(500000, 500000) = 500000
-      // fee = FEE_BPS * 500000 * 1000000000 / (1000000 * 10000)
-      const expected = computeExpectedFee(FEE_BPS, price, fillAmount, UNIT);
-
-      // Manual check using the live FEE_BPS (SEC-006 lowered MAX_FEE_RATE_BPS to 100).
-      const manual = ethers.BigNumber.from(FEE_BPS)
-        .mul(500000)
-        .mul(1000000000)
-        .div(ethers.BigNumber.from(1000000).mul(10000));
-      expect(expected).to.equal(manual);
-    });
-
-    it("should compute symmetric fee correctly at price=0.1 (lower effective price)", async function () {
-      const fillAmount = ethers.utils.parseUnits("1000", 6);
-      const price = UNIT.div(10); // 0.1 = 100000
-      // complement = 900000, effectivePrice = min(100000, 900000) = 100000
-      const expected = computeExpectedFee(FEE_BPS, price, fillAmount, UNIT);
-      const manual = ethers.BigNumber.from(FEE_BPS)
-        .mul(100000)
-        .mul(1000000000)
-        .div(ethers.BigNumber.from(1000000).mul(10000));
-      expect(expected).to.equal(manual);
-    });
-
-    it("fee should be 0 when feeRateBps is 0", async function () {
-      const fillAmount = ethers.utils.parseUnits("1000", 6);
-      const price = UNIT.div(2);
-      const expected = computeExpectedFee(0, price, fillAmount, UNIT);
-      expect(expected).to.equal(0);
-    });
-  });
-
+  // (SCRUM-224) The off-chain symmetric-fee-formula tests were removed: the
+  // fee formula is no longer on-chain logic. The operator supplies the fee
+  // amount and the contract only validates it — see the "Operator-supplied
+  // fee model" describe block below.
   // ========================================
   // FILL AMOUNT CONSISTENCY (Fix 4)
   // ========================================
@@ -581,7 +548,7 @@ describe("SettlementFacet", function () {
         settlement.connect(operator).matchOrders(
           takerOrder, takerSig, 0,
           [makerOrder], [makerSig], [0],
-          fillAmount, [fillAmount.div(2)]
+          fillAmount, [fillAmount.div(2)], [0], [0]
         )
       ).to.be.reverted;
     });
@@ -612,7 +579,7 @@ describe("SettlementFacet", function () {
       await settlement.connect(operator).matchOrders(
         takerOrder, takerSig, 0,
         [makerOrder], [makerSig], [0],
-        fillAmount, [fillAmount]
+        fillAmount, [fillAmount], [0], [0]
       );
 
       // Both buyers received their position tokens
@@ -626,6 +593,40 @@ describe("SettlementFacet", function () {
       const buyerBCollAfter = await collateral.balanceOf(buyerB.address);
       expect(buyerCollBefore.sub(buyerCollAfter).gt(0)).to.equal(true);
       expect(buyerBCollBefore.sub(buyerBCollAfter).gt(0)).to.equal(true);
+    });
+
+    it("should route operator-supplied fees to feeReceiver (SCRUM-224)", async function () {
+      const takerOrder = makeOrder(buyer.address, positionIdA, 0, fillAmount, priceA, { salt: 8001 });
+      const makerOrder = makeOrder(buyerB.address, positionIdB, 0, fillAmount, priceB, { salt: 8001 });
+
+      const takerSig = await signOrder(buyer, takerOrder);
+      const makerSig = await signOrder(buyerB, makerOrder);
+
+      // Mint: taker pays effective price (unit - P_m), maker pays P_m. Size the
+      // operator fee from each buyer's own collateral leg.
+      const makerCollateral = priceB.mul(fillAmount).div(UNIT);
+      const takerCollateral = fillAmount.sub(makerCollateral);
+      const takerFee = takerCollateral.mul(FEE_BPS).div(10000);
+      const makerFee = makerCollateral.mul(FEE_BPS).div(10000);
+
+      const buyerCollBefore = await collateral.balanceOf(buyer.address);
+      const buyerBCollBefore = await collateral.balanceOf(buyerB.address);
+      const feeReceiverBefore = await collateral.balanceOf(feeReceiver.address);
+
+      await settlement.connect(operator).matchOrders(
+        takerOrder, takerSig, 0,
+        [makerOrder], [makerSig], [0],
+        fillAmount, [fillAmount], [takerFee], [makerFee]
+      );
+
+      // Each buyer paid their collateral leg + their fee.
+      expect(buyerCollBefore.sub(await collateral.balanceOf(buyer.address)))
+        .to.equal(takerCollateral.add(takerFee));
+      expect(buyerBCollBefore.sub(await collateral.balanceOf(buyerB.address)))
+        .to.equal(makerCollateral.add(makerFee));
+      // feeReceiver got both fees.
+      expect((await collateral.balanceOf(feeReceiver.address)).sub(feeReceiverBefore))
+        .to.equal(takerFee.add(makerFee));
     });
   });
 
@@ -654,7 +655,7 @@ describe("SettlementFacet", function () {
       await settlement.connect(operator).matchOrders(
         takerOrder, takerSig, 0,
         [makerOrder], [makerSig], [0],
-        fillAmount, [fillAmount]
+        fillAmount, [fillAmount], [0], [0]
       );
 
       // Both sellers gave up their position tokens
@@ -668,6 +669,40 @@ describe("SettlementFacet", function () {
       const buyerBCollAfter = await collateral.balanceOf(buyerB.address);
       expect(sellerCollAfter.sub(sellerCollBefore).gt(0)).to.equal(true);
       expect(buyerBCollAfter.sub(buyerBCollBefore).gt(0)).to.equal(true);
+    });
+
+    it("should route operator-supplied fees to feeReceiver and deduct them from payouts (SCRUM-224)", async function () {
+      const takerOrder = makeOrder(seller.address, positionIdA, 1, fillAmount, priceA, { salt: 9001 });
+      const makerOrder = makeOrder(buyerB.address, positionIdB, 1, fillAmount, priceB, { salt: 9001 });
+
+      const takerSig = await signOrder(seller, takerOrder);
+      const makerSig = await signOrder(buyerB, makerOrder);
+
+      // Merge: maker receives P_m, taker receives the complement (unit - P_m).
+      // The operator fee is deducted from each seller's payout.
+      const makerPayout = priceB.mul(fillAmount).div(UNIT);
+      const takerPayout = fillAmount.sub(makerPayout);
+      const takerFee = takerPayout.mul(FEE_BPS).div(10000);
+      const makerFee = makerPayout.mul(FEE_BPS).div(10000);
+
+      const sellerCollBefore = await collateral.balanceOf(seller.address);
+      const buyerBCollBefore = await collateral.balanceOf(buyerB.address);
+      const feeReceiverBefore = await collateral.balanceOf(feeReceiver.address);
+
+      await settlement.connect(operator).matchOrders(
+        takerOrder, takerSig, 0,
+        [makerOrder], [makerSig], [0],
+        fillAmount, [fillAmount], [takerFee], [makerFee]
+      );
+
+      // Each seller received payout - fee.
+      expect((await collateral.balanceOf(seller.address)).sub(sellerCollBefore))
+        .to.equal(takerPayout.sub(takerFee));
+      expect((await collateral.balanceOf(buyerB.address)).sub(buyerBCollBefore))
+        .to.equal(makerPayout.sub(makerFee));
+      // feeReceiver got both fees.
+      expect((await collateral.balanceOf(feeReceiver.address)).sub(feeReceiverBefore))
+        .to.equal(takerFee.add(makerFee));
     });
   });
 
@@ -703,7 +738,7 @@ describe("SettlementFacet", function () {
       await settlement.connect(operator).matchOrders(
         takerOrder, takerSig, 0,
         [makerOrder1, makerOrder2], [makerSig1, makerSig2], [0, 0],
-        totalFill, [halfFill, halfFill]
+        totalFill, [halfFill, halfFill], [0, 0], [0, 0]
       );
 
       const takerHash = await sigVerifier.getOrderHash(takerOrder);
@@ -732,7 +767,7 @@ describe("SettlementFacet", function () {
       await settlement.connect(operator).matchOrders(
         takerOrder, takerSig, 0,
         [makerOrder], [makerSig], [0],
-        fillAmount, [fillAmount]
+        fillAmount, [fillAmount], [0], [0]
       );
 
       const takerHash = await sigVerifier.getOrderHash(takerOrder);
@@ -752,7 +787,7 @@ describe("SettlementFacet", function () {
       await settlement.connect(operator).matchOrders(
         takerOrder, takerSig, 0,
         [makerOrder], [makerSig], [0],
-        fillAmount, [fillAmount]
+        fillAmount, [fillAmount], [0], [0]
       );
 
       const takerHash = await sigVerifier.getOrderHash(takerOrder);
@@ -772,7 +807,7 @@ describe("SettlementFacet", function () {
       await settlement.connect(operator).matchOrders(
         takerOrder, takerSig, 0,
         [makerOrder], [makerSig], [0],
-        fillAmount, [fillAmount]
+        fillAmount, [fillAmount], [0], [0]
       );
 
       const takerHash = await sigVerifier.getOrderHash(takerOrder);
@@ -795,14 +830,14 @@ describe("SettlementFacet", function () {
       await settlement.connect(operator).matchOrders(
         takerOrder, takerSig, 0,
         [makerOrder], [makerSig], [0],
-        firstFill, [firstFill]
+        firstFill, [firstFill], [0], [0]
       );
 
       // Fill exact remaining (50 < minFill 100, but it's the last fill)
       await settlement.connect(operator).matchOrders(
         takerOrder, takerSig, 0,
         [makerOrder], [makerSig], [0],
-        remaining, [remaining]
+        remaining, [remaining], [0], [0]
       );
 
       const takerHash = await sigVerifier.getOrderHash(takerOrder);
@@ -821,7 +856,7 @@ describe("SettlementFacet", function () {
       await settlement.connect(operator).matchOrders(
         takerOrder, takerSig, 0,
         [makerOrder], [makerSig], [0],
-        fillAmount, [fillAmount]
+        fillAmount, [fillAmount], [0], [0]
       );
 
       const takerHash = await sigVerifier.getOrderHash(takerOrder);
@@ -830,71 +865,220 @@ describe("SettlementFacet", function () {
   });
 
   // ========================================
-  // FEE RATE CAP TESTS (HIGH-1)
+  // OPERATOR-SUPPLIED FEE MODEL TESTS (SCRUM-224)
   // ========================================
 
-  // SEC-006: MAX_FEE_RATE_BPS was lowered from 500 (5%) to 100 (1%) in the mainnet
-  // audit. Assertions below are updated accordingly.
-  describe("Fee rate cap (MAX_FEE_RATE_BPS = 500 bps / 5%, SEC-006)", function () {
+  // SCRUM-224 — the maker no longer signs `feeRateBps`. The operator supplies
+  // the per-leg fee amount; the contract enforces `fee <= cashValue *
+  // maxFeeRateBps / 10000` (FeeExceedsMaxRate) and, where a fee is taken out of
+  // a payout, `fee <= proceeds` (FeeExceedsProceeds). `maxFeeRateBps` is
+  // configured to MAX_FEE_RATE_BPS (500) in the fixture's `before`.
+  describe("Operator-supplied fee model (SCRUM-224)", function () {
     const fillAmount = ethers.utils.parseUnits("100", 6);
-    const price = UNIT.div(2);
+    const price = UNIT.div(2); // 0.5 — complementary executes at maker's price
+    // cashValue for a complementary leg at this price/fill = price * fill / unit
+    const cashValue = price.mul(fillAmount).div(UNIT);
+    // Fee exactly at the 500-bps cap.
+    const feeAtCap = cashValue.mul(MAX_FEE_RATE_BPS).div(10000);
 
-    it("should revert when feeRateBps exceeds 500 (5%)", async function () {
-      const takerOrder = makeOrder(buyer.address, positionIdA, 0, fillAmount, price, { salt: 21000, feeRateBps: 501 });
-      const makerOrder = makeOrder(seller.address, positionIdA, 1, fillAmount, price, { salt: 21000, feeRateBps: FEE_BPS });
-
-      const takerSig = await signOrder(buyer, takerOrder);
-      const makerSig = await signOrder(seller, makerOrder);
-
-      await expect(
-        settlement.connect(operator).matchOrders(
-          takerOrder, takerSig, 0,
-          [makerOrder], [makerSig], [0],
-          fillAmount, [fillAmount]
-        )
-      ).to.be.revertedWith("FeeTooHigh()");
-    });
-
-    it("should revert when maker feeRateBps exceeds 500", async function () {
-      const takerOrder = makeOrder(buyer.address, positionIdA, 0, fillAmount, price, { salt: 21001, feeRateBps: FEE_BPS });
-      const makerOrder = makeOrder(seller.address, positionIdA, 1, fillAmount, price, { salt: 21001, feeRateBps: 501 });
+    it("should settle when the operator fee is exactly at the max-rate cap", async function () {
+      const takerOrder = makeOrder(buyer.address, positionIdA, 0, fillAmount, price, { salt: 21000 });
+      const makerOrder = makeOrder(seller.address, positionIdA, 1, fillAmount, price, { salt: 21000 });
 
       const takerSig = await signOrder(buyer, takerOrder);
       const makerSig = await signOrder(seller, makerOrder);
 
-      await expect(
-        settlement.connect(operator).matchOrders(
-          takerOrder, takerSig, 0,
-          [makerOrder], [makerSig], [0],
-          fillAmount, [fillAmount]
-        )
-      ).to.be.revertedWith("FeeTooHigh()");
-    });
-
-    it("should succeed at exactly 500 bps (5%)", async function () {
-      const takerOrder = makeOrder(buyer.address, positionIdA, 0, fillAmount, price, { salt: 21002, feeRateBps: 500 });
-      const makerOrder = makeOrder(seller.address, positionIdA, 1, fillAmount, price, { salt: 21002, feeRateBps: 500 });
-
-      const takerSig = await signOrder(buyer, takerOrder);
-      const makerSig = await signOrder(seller, makerOrder);
+      const feeReceiverBefore = await collateral.balanceOf(feeReceiver.address);
 
       await settlement.connect(operator).matchOrders(
         takerOrder, takerSig, 0,
         [makerOrder], [makerSig], [0],
-        fillAmount, [fillAmount]
+        fillAmount, [fillAmount], [feeAtCap], [feeAtCap]
       );
 
       const takerHash = await sigVerifier.getOrderHash(takerOrder);
       expect(await settlement.getFilledAmount(takerHash)).to.equal(fillAmount);
+      // Both legs' fees routed to feeReceiver.
+      const feeReceiverAfter = await collateral.balanceOf(feeReceiver.address);
+      expect(feeReceiverAfter.sub(feeReceiverBefore)).to.equal(feeAtCap.mul(2));
     });
 
-    it("should revert fillOrder when feeRateBps exceeds 500", async function () {
-      const order = makeOrder(buyer.address, positionIdA, 0, fillAmount, price, { salt: 21003, feeRateBps: 10000 });
-      const sig = await signOrder(buyer, order);
+    it("should revert when the taker fee is one wei over the max-rate cap", async function () {
+      const takerOrder = makeOrder(buyer.address, positionIdA, 0, fillAmount, price, { salt: 21001 });
+      const makerOrder = makeOrder(seller.address, positionIdA, 1, fillAmount, price, { salt: 21001 });
+
+      const takerSig = await signOrder(buyer, takerOrder);
+      const makerSig = await signOrder(seller, makerOrder);
 
       await expect(
-        settlement.connect(operator).fillOrder(order, sig, 0, fillAmount)
-      ).to.be.revertedWith("FeeTooHigh()");
+        settlement.connect(operator).matchOrders(
+          takerOrder, takerSig, 0,
+          [makerOrder], [makerSig], [0],
+          fillAmount, [fillAmount], [feeAtCap.add(1)], [0]
+        )
+      ).to.be.revertedWith("FeeExceedsMaxRate()");
+    });
+
+    it("should revert when the maker fee is one wei over the max-rate cap", async function () {
+      const takerOrder = makeOrder(buyer.address, positionIdA, 0, fillAmount, price, { salt: 21002 });
+      const makerOrder = makeOrder(seller.address, positionIdA, 1, fillAmount, price, { salt: 21002 });
+
+      const takerSig = await signOrder(buyer, takerOrder);
+      const makerSig = await signOrder(seller, makerOrder);
+
+      await expect(
+        settlement.connect(operator).matchOrders(
+          takerOrder, takerSig, 0,
+          [makerOrder], [makerSig], [0],
+          fillAmount, [fillAmount], [0], [feeAtCap.add(1)]
+        )
+      ).to.be.revertedWith("FeeExceedsMaxRate()");
+    });
+
+    it("should settle with a zero fee on every leg", async function () {
+      const takerOrder = makeOrder(buyer.address, positionIdA, 0, fillAmount, price, { salt: 21003 });
+      const makerOrder = makeOrder(seller.address, positionIdA, 1, fillAmount, price, { salt: 21003 });
+
+      const takerSig = await signOrder(buyer, takerOrder);
+      const makerSig = await signOrder(seller, makerOrder);
+
+      const feeReceiverBefore = await collateral.balanceOf(feeReceiver.address);
+
+      await settlement.connect(operator).matchOrders(
+        takerOrder, takerSig, 0,
+        [makerOrder], [makerSig], [0],
+        fillAmount, [fillAmount], [0], [0]
+      );
+
+      const takerHash = await sigVerifier.getOrderHash(takerOrder);
+      expect(await settlement.getFilledAmount(takerHash)).to.equal(fillAmount);
+      expect(await collateral.balanceOf(feeReceiver.address)).to.equal(feeReceiverBefore);
+    });
+
+    it("should revert merge when the operator fee exceeds a seller's proceeds", async function () {
+      // Merge at P_t = P_m = 0.5: each seller's payout = 0.5 * fill. Set the
+      // taker fee above that payout — caught by FeeExceedsProceeds. The fee is
+      // also above the max-rate cap, but the proceeds guard is the relevant one.
+      const sellPrice = UNIT.div(2);
+      const takerOrder = makeOrder(seller.address, positionIdA, 1, fillAmount, sellPrice, { salt: 21004 });
+      const makerOrder = makeOrder(buyerB.address, positionIdB, 1, fillAmount, sellPrice, { salt: 21004 });
+
+      const takerSig = await signOrder(seller, takerOrder);
+      const makerSig = await signOrder(buyerB, makerOrder);
+
+      const takerPayout = sellPrice.mul(fillAmount).div(UNIT);
+
+      await expect(
+        settlement.connect(operator).matchOrders(
+          takerOrder, takerSig, 0,
+          [makerOrder], [makerSig], [0],
+          fillAmount, [fillAmount], [takerPayout.add(1)], [0]
+        )
+      ).to.be.reverted; // FeeExceedsMaxRate or FeeExceedsProceeds
+    });
+
+    it("should revert fillOrder when the operator fee exceeds the collateral leg", async function () {
+      // fillOrder collateral leg = price * fill / unit. A fee above that leg is
+      // caught by the FeeExceedsProceeds / FeeExceedsMaxRate guards.
+      const order = makeOrder(buyer.address, positionIdA, 0, fillAmount, price, { salt: 21005 });
+      const sig = await signOrder(buyer, order);
+      const collLeg = price.mul(fillAmount).div(UNIT);
+
+      await expect(
+        settlement.connect(operator).fillOrder(order, sig, 0, fillAmount, collLeg.add(1))
+      ).to.be.reverted; // FeeExceedsMaxRate (fee above cap) or FeeExceedsProceeds
+    });
+
+    it("should settle fillOrder with an operator fee at the cap and route it to feeReceiver", async function () {
+      const order = makeOrder(buyer.address, positionIdA, 0, fillAmount, price, { salt: 21006 });
+      const sig = await signOrder(buyer, order);
+      const collLeg = price.mul(fillAmount).div(UNIT);
+      const fee = collLeg.mul(MAX_FEE_RATE_BPS).div(10000);
+
+      const feeReceiverBefore = await collateral.balanceOf(feeReceiver.address);
+      await settlement.connect(operator).fillOrder(order, sig, 0, fillAmount, fee);
+      const feeReceiverAfter = await collateral.balanceOf(feeReceiver.address);
+      expect(feeReceiverAfter.sub(feeReceiverBefore)).to.equal(fee);
+    });
+
+    it("should revert with FeeExceedsMaxRate when maxFeeRateBps is unset (fail-closed)", async function () {
+      // Stand up a fresh Diamond where setMaxFeeRate is never called — maxFeeRateBps
+      // defaults to 0. Fail-closed: any non-zero fee must revert FeeExceedsMaxRate.
+      const freshDiamond = await deployDiamond();
+      const freshSettlement = await ethers.getContractAt("SettlementFacet", freshDiamond);
+      const freshAdmin = await ethers.getContractAt("AdminConfigFacet", freshDiamond);
+      const freshAccess = await ethers.getContractAt("AccessControlFacet", freshDiamond);
+      const freshCondMgr = await ethers.getContractAt("ConditionManagerFacet", freshDiamond);
+      const freshCtf = await ethers.getContractAt("ConditionalTokensFacet", freshDiamond);
+      const freshErc1155 = await ethers.getContractAt("ERC1155Facet", freshDiamond);
+      const freshSigVerifier = await ethers.getContractAt("SignatureVerifierFacet", freshDiamond);
+
+      const MockERC20 = await ethers.getContractFactory("MockERC20");
+      const freshColl = await MockERC20.deploy("Mock USDC", "USDC", 6);
+      await freshColl.deployed();
+
+      await freshAdmin.addCollateralToken(freshColl.address, UNIT);
+      await freshAdmin.setFeeReceiver(feeReceiver.address);
+      // NB: setMaxFeeRate intentionally NOT called — maxFeeRateBps stays 0.
+      await freshSettlement.setOperator(operator.address);
+      await freshAccess.addMarketMaker(owner.address);
+
+      const qId = ethers.utils.formatBytes32String("scrum-224-failclosed");
+      const condId = getConditionId(owner.address, qId, 2);
+      await freshCondMgr.createCondition(owner.address, qId, 2, "ipfs://failclosed");
+      const collA = await getCollectionId(ethers.constants.HashZero, condId, 1, ethers.provider);
+      const posA = getPositionId(freshColl.address, collA);
+
+      const mintAmount = ethers.utils.parseUnits("100000", 6);
+      for (const a of [owner, buyer, seller]) {
+        await freshColl.mint(a.address, mintAmount);
+        await freshColl.connect(a).approve(freshDiamond, ethers.constants.MaxUint256);
+        await freshErc1155.connect(a).setApprovalForAll(freshDiamond, true);
+      }
+
+      const splitAmt = ethers.utils.parseUnits("10000", 6);
+      await freshCtf.connect(owner).splitPosition(
+        freshColl.address, ethers.constants.HashZero, condId, [1, 2], splitAmt
+      );
+      await freshErc1155.connect(owner).safeTransferFrom(owner.address, seller.address, posA, splitAmt, "0x");
+
+      const freshDomain = {
+        name: DOMAIN_NAME,
+        version: DOMAIN_VERSION,
+        chainId: 31337,
+        verifyingContract: freshDiamond,
+      };
+      const posAHex = ethers.utils.hexZeroPad(ethers.BigNumber.from(posA).toHexString(), 32);
+      const freshTaker = {
+        salt: 50000, maker: buyer.address, signer: buyer.address, positionId: posAHex,
+        collateralToken: freshColl.address, side: 0, amount: fillAmount,
+        pricePerToken: price, minFillAmount: 0, expiration: 0, nonce: 0,
+      };
+      const freshMaker = {
+        salt: 50000, maker: seller.address, signer: seller.address, positionId: posAHex,
+        collateralToken: freshColl.address, side: 1, amount: fillAmount,
+        pricePerToken: price, minFillAmount: 0, expiration: 0, nonce: 0,
+      };
+      const freshTakerSig = await buyer._signTypedData(freshDomain, ORDER_TYPE, freshTaker);
+      const freshMakerSig = await seller._signTypedData(freshDomain, ORDER_TYPE, freshMaker);
+
+      // Any non-zero fee must revert — maxFeeRateBps == 0 => maxAllowed == 0.
+      await expect(
+        freshSettlement.connect(operator).matchOrders(
+          freshTaker, freshTakerSig, 0,
+          [freshMaker], [freshMakerSig], [0],
+          fillAmount, [fillAmount], [1], [0]
+        )
+      ).to.be.revertedWith("FeeExceedsMaxRate()");
+
+      // A zero fee still settles even with maxFeeRateBps unset.
+      await freshSettlement.connect(operator).matchOrders(
+        freshTaker, freshTakerSig, 0,
+        [freshMaker], [freshMakerSig], [0],
+        fillAmount, [fillAmount], [0], [0]
+      );
+      const freshTakerHash = await freshSigVerifier.getOrderHash(freshTaker);
+      expect(await freshSettlement.getFilledAmount(freshTakerHash)).to.equal(fillAmount);
     });
   });
 
@@ -920,7 +1104,7 @@ describe("SettlementFacet", function () {
         settlement.connect(operator).matchOrders(
           takerOrder, takerSig, 0,
           [makerOrder], [makerSig], [0],
-          fillAmount, [fillAmount]
+          fillAmount, [fillAmount], [0], [0]
         )
       ).to.be.revertedWith("InvalidMatch()");
     });
@@ -956,7 +1140,7 @@ describe("SettlementFacet", function () {
         settlement.connect(operator).matchOrders(
           takerOrder, takerSig, 0,
           [makerOrder], [makerSig], [0],
-          fillAmount, [fillAmount]
+          fillAmount, [fillAmount], [0], [0]
         )
       ).to.be.revertedWith("InvalidMatch()");
     });
@@ -974,7 +1158,7 @@ describe("SettlementFacet", function () {
       await settlement.connect(operator).matchOrders(
         takerOrder, takerSig, 0,
         [makerOrder], [makerSig], [0],
-        fillAmount, [fillAmount]
+        fillAmount, [fillAmount], [0], [0]
       );
 
       const buyerPos = await erc1155Facet.balanceOf(buyer.address, positionIdA);
@@ -1000,7 +1184,7 @@ describe("SettlementFacet", function () {
       await settlement.connect(operator).matchOrders(
         takerOrder, takerSig, 0,
         [makerOrder], [makerSig], [0],
-        smallFill, [smallFill]
+        smallFill, [smallFill], [0], [0]
       );
 
       const takerHash = await sigVerifier.getOrderHash(takerOrder);
@@ -1024,7 +1208,7 @@ describe("SettlementFacet", function () {
         settlement.connect(operator).matchOrders(
           takerOrder, takerSig, 0,
           [makerOrder], [makerSig], [0],
-          fillAmount, [fillAmount]
+          fillAmount, [fillAmount], [0], [0]
         )
       ).to.be.revertedWith("InvalidMatch()");
     });
@@ -1045,7 +1229,7 @@ describe("SettlementFacet", function () {
         settlement.connect(operator).matchOrders(
           takerOrder, takerSig, 0,
           [makerOrder], [makerSig], [0],
-          fillAmount, [fillAmount]
+          fillAmount, [fillAmount], [0], [0]
         )
       ).to.be.revertedWith("InvalidMatch()");
     });
@@ -1065,7 +1249,7 @@ describe("SettlementFacet", function () {
       await settlement.connect(operator).matchOrders(
         takerOrder, takerSig, 0,
         [makerOrder], [makerSig], [0],
-        fillAmount, [fillAmount]
+        fillAmount, [fillAmount], [0], [0]
       );
 
       const sellerCollAfter = await collateral.balanceOf(seller.address);
@@ -1096,7 +1280,7 @@ describe("SettlementFacet", function () {
       await settlement.connect(operator).matchOrders(
         takerOrder, takerSig, 0,
         [makerOrder], [makerSig], [0],
-        smallFill, [smallFill]
+        smallFill, [smallFill], [0], [0]
       );
 
       const takerHash = await sigVerifier.getOrderHash(takerOrder);
@@ -1125,14 +1309,14 @@ describe("SettlementFacet", function () {
       await settlement.connect(operator).matchOrders(
         takerOrder, takerSig, 0,
         [makerOrder], [makerSig], [0],
-        firstFill, [firstFill]
+        firstFill, [firstFill], [0], [0]
       );
 
       // Fill exactly the remaining
       await settlement.connect(operator).matchOrders(
         takerOrder, takerSig, 0,
         [makerOrder], [makerSig], [0],
-        remaining, [remaining]
+        remaining, [remaining], [0], [0]
       );
 
       const takerHash = await sigVerifier.getOrderHash(takerOrder);
@@ -1143,7 +1327,7 @@ describe("SettlementFacet", function () {
         settlement.connect(operator).matchOrders(
           takerOrder, takerSig, 0,
           [makerOrder], [makerSig], [0],
-          1, [1]
+          1, [1], [0], [0]
         )
       ).to.be.reverted;
     });
@@ -1190,7 +1374,7 @@ describe("SettlementFacet", function () {
         settlement.connect(operator).matchOrders(
           takerOrder, malleableSig, 0,
           [makerOrder], [makerSig], [0],
-          fillAmount, [fillAmount]
+          fillAmount, [fillAmount], [0], [0]
         )
       ).to.be.reverted;
     });
@@ -1206,7 +1390,7 @@ describe("SettlementFacet", function () {
       await settlement.connect(operator).matchOrders(
         takerOrder, takerSig, 0,
         [makerOrder], [makerSig], [0],
-        fillAmount, [fillAmount]
+        fillAmount, [fillAmount], [0], [0]
       );
 
       const takerHash = await sigVerifier.getOrderHash(takerOrder);
@@ -1236,7 +1420,7 @@ describe("SettlementFacet", function () {
         settlement.connect(operator).matchOrders(
           takerOrder, takerSig, 0,
           [makerOrder], [makerSig], [0],
-          fillAmount, [fillAmount]
+          fillAmount, [fillAmount], [0], [0]
         )
       ).to.be.revertedWith("InvalidMatch()");
     });
@@ -1255,7 +1439,7 @@ describe("SettlementFacet", function () {
       await settlement.connect(operator).matchOrders(
         takerOrder, takerSig, 0,
         [makerOrder], [makerSig], [0],
-        fillAmount, [fillAmount]
+        fillAmount, [fillAmount], [0], [0]
       );
 
       const takerHash = await sigVerifier.getOrderHash(takerOrder);
@@ -1274,7 +1458,7 @@ describe("SettlementFacet", function () {
       await settlement.connect(operator).matchOrders(
         takerOrder, takerSig, 0,
         [makerOrder], [makerSig], [0],
-        fillAmount, [fillAmount]
+        fillAmount, [fillAmount], [0], [0]
       );
 
       const takerHash = await sigVerifier.getOrderHash(takerOrder);
@@ -1296,17 +1480,17 @@ describe("SettlementFacet", function () {
         settlement.connect(operator).matchOrders(
           takerOrder, takerSig, 0,
           [makerOrder], [makerSig], [0],
-          fillAmount, [fillAmount]
+          fillAmount, [fillAmount], [0], [0]
         )
       ).to.be.revertedWith("InvalidMatch()");
     });
   });
 
   // ========================================
-  // FEE UNDERFLOW ON PRICE > UNIT (MEDIUM-4)
+  // PRICE > UNIT REJECTION (MEDIUM-4 / BIZ-004)
   // ========================================
 
-  describe("_computeFee underflow protection (price > unit)", function () {
+  describe("price > unit rejection in _validateOrder (BIZ-004)", function () {
     const fillAmount = ethers.utils.parseUnits("100", 6);
 
     it("should revert when pricePerToken exceeds UNIT", async function () {
@@ -1323,7 +1507,7 @@ describe("SettlementFacet", function () {
         settlement.connect(operator).matchOrders(
           takerOrder, takerSig, 0,
           [makerOrder], [makerSig], [0],
-          fillAmount, [fillAmount]
+          fillAmount, [fillAmount], [0], [0]
         )
       ).to.be.revertedWith("InvalidPrice()");
     });
@@ -1340,7 +1524,7 @@ describe("SettlementFacet", function () {
       await settlement.connect(operator).matchOrders(
         takerOrder, takerSig, 0,
         [makerOrder], [makerSig], [0],
-        fillAmount, [fillAmount]
+        fillAmount, [fillAmount], [0], [0]
       );
 
       const takerHash = await sigVerifier.getOrderHash(takerOrder);
@@ -1383,7 +1567,7 @@ describe("SettlementFacet", function () {
       await settlement.connect(operator).matchOrders(
         takerOrder, takerSig, 0,
         [makerOrder], [makerSig], [0],
-        fillAmount, [fillAmount]
+        fillAmount, [fillAmount], [0], [0]
       );
 
       const takerHash = await sigVerifier.getOrderHash(takerOrder);
@@ -1491,7 +1675,7 @@ describe("SettlementFacet", function () {
       await settlement.connect(operator).matchOrders(
         takerOrder, takerSig, 0,
         [makerOrder], [makerSig], [0],
-        fillAmount, [fillAmount]
+        fillAmount, [fillAmount], [0], [0]
       );
 
       expect((await erc1155Facet.balanceOf(carol.address, freshPositionIdA)).sub(carolPosBefore)).to.equal(fillAmount);
@@ -1520,7 +1704,7 @@ describe("SettlementFacet", function () {
       await settlement.connect(operator).matchOrders(
         takerOrder, takerSig, 0,
         [makerOrder], [makerSig], [0],
-        fillAmount, [fillAmount]
+        fillAmount, [fillAmount], [0], [0]
       );
 
       expect((await erc1155Facet.balanceOf(carol.address, freshPositionIdB)).sub(carolPosBefore)).to.equal(fillAmount);
@@ -1544,7 +1728,7 @@ describe("SettlementFacet", function () {
       await settlement.connect(operator).matchOrders(
         takerOrder, takerSig, 0,
         [makerOrder], [makerSig], [0],
-        fillAmount, [fillAmount]
+        fillAmount, [fillAmount], [0], [0]
       );
 
       expect((await collateral.balanceOf(alice.address)).gt(aliceCollBefore)).to.equal(true);
@@ -1568,7 +1752,7 @@ describe("SettlementFacet", function () {
       await settlement.connect(operator).matchOrders(
         takerOrder, takerSig, 0,
         [makerOrder], [makerSig], [0],
-        fillAmount, [fillAmount]
+        fillAmount, [fillAmount], [0], [0]
       );
 
       const takerHash = await sigVerifier.getOrderHash(takerOrder);
@@ -1603,7 +1787,7 @@ describe("SettlementFacet", function () {
         settlement.connect(operator).matchOrders(
           takerOrder, takerSig, 0,
           [makerOrder], [makerSig], [0],
-          fillAmount, [fillAmount]
+          fillAmount, [fillAmount], [0], [0]
         )
       ).to.be.revertedWith("InvalidMatch()");
     });
@@ -1623,7 +1807,7 @@ describe("SettlementFacet", function () {
         settlement.connect(operator).matchOrders(
           takerOrder, takerSig, 0,
           [makerOrder], [makerSig], [0],
-          fillAmount, [fillAmount]
+          fillAmount, [fillAmount], [0], [0]
         )
       ).to.be.revertedWith("InvalidMatch()");
     });
@@ -1644,7 +1828,7 @@ describe("SettlementFacet", function () {
         settlement.connect(operator).matchOrders(
           takerOrder, takerSig, 0,
           [makerOrder], [makerSig], [0],
-          fillAmount, [fillAmount]
+          fillAmount, [fillAmount], [0], [0]
         )
       ).to.be.revertedWith("InvalidMatch()");
     });
@@ -1686,7 +1870,7 @@ describe("SettlementFacet", function () {
         await settlement.connect(operator).matchOrders(
           takerOrder, takerSig, 0,
           [makerOrder], [makerSig], [0],
-          fill, [fill]
+          fill, [fill], [0], [0]
         );
 
         const takerPaid = buyerCollBefore.sub(await collateral.balanceOf(buyer.address));
@@ -1717,7 +1901,7 @@ describe("SettlementFacet", function () {
         await settlement.connect(operator).matchOrders(
           takerOrder, takerSig, 0,
           [makerOrder], [makerSig], [0],
-          fill, [fill]
+          fill, [fill], [0], [0]
         );
 
         const takerPaid = buyerCollBefore.sub(await collateral.balanceOf(buyer.address));
@@ -1744,7 +1928,7 @@ describe("SettlementFacet", function () {
           settlement.connect(operator).matchOrders(
             takerOrder, takerSig, 0,
             [makerOrder], [makerSig], [0],
-            fill, [fill]
+            fill, [fill], [0], [0]
           )
         ).to.be.revertedWith("InvalidMatch()");
       });
@@ -1776,7 +1960,7 @@ describe("SettlementFacet", function () {
         await settlement.connect(operator).matchOrders(
           takerOrder, takerSig, 0,
           [makerOrderA, makerOrderB], [makerSigA, makerSigB], [0, 0],
-          totalFill, [fillA, fillB]
+          totalFill, [fillA, fillB], [0, 0], [0, 0]
         );
 
         const takerPaid   = buyerCollBefore.sub(await collateral.balanceOf(buyer.address));
@@ -1823,7 +2007,7 @@ describe("SettlementFacet", function () {
         await settlement.connect(operator).matchOrders(
           takerOrder, takerSig, 0,
           [makerOrder], [makerSig], [0],
-          fill, [fill]
+          fill, [fill], [0], [0]
         );
 
         const takerReceived = (await collateral.balanceOf(seller.address)).sub(sellerCollBefore);
@@ -1863,7 +2047,7 @@ describe("SettlementFacet", function () {
         await settlement.connect(operator).matchOrders(
           takerOrder, takerSig, 0,
           [makerOrder], [makerSig], [0],
-          fill, [fill]
+          fill, [fill], [0], [0]
         );
 
         const takerReceived = (await collateral.balanceOf(seller.address)).sub(sellerCollBefore);
@@ -1892,7 +2076,7 @@ describe("SettlementFacet", function () {
           settlement.connect(operator).matchOrders(
             takerOrder, takerSig, 0,
             [makerOrder], [makerSig], [0],
-            fill, [fill]
+            fill, [fill], [0], [0]
           )
         ).to.be.revertedWith("InvalidMatch()");
       });
@@ -1956,7 +2140,7 @@ describe("SettlementFacet", function () {
           settlement.connect(operator).matchOrders(
             takerOrder, takerSig, 0,
             [makerOrder], [makerSig], [0],
-            fillAmount, [fillAmount]
+            fillAmount, [fillAmount], [0], [0]
           )
         ).to.be.revertedWith("InvalidMatch()");
       });
@@ -1979,7 +2163,7 @@ describe("SettlementFacet", function () {
         await settlement.connect(operator).matchOrders(
           takerOrder, takerSig, 0,
           [makerOrder], [makerSig], [0],
-          fillAmount, [fillAmount]
+          fillAmount, [fillAmount], [0], [0]
         );
 
         const takerHash = await sigVerifier.getOrderHash(takerOrder);
@@ -2019,7 +2203,7 @@ describe("SettlementFacet", function () {
           settlement.connect(operator).matchOrders(
             takerOrder, takerSig, 0,
             [makerOrder], [makerSig], [0],
-            fillAmount, [fillAmount]
+            fillAmount, [fillAmount], [0], [0]
           )
         ).to.be.revertedWith("TokenNotAllowed()");
       });
@@ -2054,7 +2238,7 @@ describe("SettlementFacet", function () {
           settlement.connect(operator).matchOrders(
             takerOrder, takerSig, 0,
             [makerOrder], [makerSig], [0],
-            fillAmount, [fillAmount]
+            fillAmount, [fillAmount], [0], [0]
           )
         ).to.be.revertedWith("TokenNotAllowed()");
       });
@@ -2073,7 +2257,7 @@ describe("SettlementFacet", function () {
         const sig = await signOrder(buyer, order);
 
         await expect(
-          settlement.connect(operator).fillOrder(order, sig, 0, fillAmount)
+          settlement.connect(operator).fillOrder(order, sig, 0, fillAmount, 0)
         ).to.be.revertedWith("TokenNotAllowed()");
       });
     });
@@ -2092,7 +2276,7 @@ describe("SettlementFacet", function () {
         const sig = await signOrder(buyer, order);
 
         await expect(
-          settlement.connect(operator).fillOrder(order, sig, 0, 1)
+          settlement.connect(operator).fillOrder(order, sig, 0, 1, 0)
         ).to.be.revertedWith("ZeroAmount()");
       });
 
@@ -2106,7 +2290,7 @@ describe("SettlementFacet", function () {
         const sig = await signOrder(seller, order);
 
         await expect(
-          settlement.connect(operator).fillOrder(order, sig, 0, 1)
+          settlement.connect(operator).fillOrder(order, sig, 0, 1, 0)
         ).to.be.revertedWith("ZeroAmount()");
       });
 
@@ -2120,7 +2304,7 @@ describe("SettlementFacet", function () {
         const sig = await signOrder(buyer, order);
 
         const buyerPosBefore = await erc1155Facet.balanceOf(buyer.address, positionIdA);
-        await settlement.connect(operator).fillOrder(order, sig, 0, fillAmount);
+        await settlement.connect(operator).fillOrder(order, sig, 0, fillAmount, 0);
         const buyerPosAfter = await erc1155Facet.balanceOf(buyer.address, positionIdA);
         expect(buyerPosAfter.sub(buyerPosBefore)).to.equal(fillAmount);
       });
@@ -2130,9 +2314,9 @@ describe("SettlementFacet", function () {
     describe("BIZ-004: pricePerToken <= unit cap in _validateOrder", function () {
       const fillAmount = ethers.utils.parseUnits("100", 6);
 
-      it("should revert a zero-fee order whose pricePerToken exceeds unit", async function () {
-        // feeRateBps=0 makes _computeFee early-return before its own price>unit
-        // guard — the revert must therefore come from the _validateOrder cap.
+      it("should revert an order whose pricePerToken exceeds unit", async function () {
+        // SCRUM-224 — with zero operator fees, the revert must come purely from
+        // the _validateOrder BIZ-004 cap (no fee math runs on this path).
         const badPrice = UNIT.add(1); // 1000001 > unit
 
         const takerOrder = makeOrder(buyer.address, positionIdA, 0, fillAmount, badPrice, {
@@ -2151,7 +2335,7 @@ describe("SettlementFacet", function () {
           settlement.connect(operator).matchOrders(
             takerOrder, takerSig, 0,
             [makerOrder], [makerSig], [0],
-            fillAmount, [fillAmount]
+            fillAmount, [fillAmount], [0], [0]
           )
         ).to.be.revertedWith("InvalidPrice()");
       });
@@ -2172,7 +2356,7 @@ describe("SettlementFacet", function () {
         await settlement.connect(operator).matchOrders(
           takerOrder, takerSig, 0,
           [makerOrder], [makerSig], [0],
-          fillAmount, [fillAmount]
+          fillAmount, [fillAmount], [0], [0]
         );
 
         const takerHash = await sigVerifier.getOrderHash(takerOrder);
@@ -2197,7 +2381,7 @@ describe("SettlementFacet", function () {
           settlement.connect(operator).matchOrders(
             takerOrder, takerSig, 0,
             [makerOrder], [makerSig], [0],
-            fillAmount, [fillAmount]
+            fillAmount, [fillAmount], [0], [0]
           )
         ).to.be.revertedWith("InvalidMatch()");
       });
@@ -2213,7 +2397,7 @@ describe("SettlementFacet", function () {
           settlement.connect(operator).matchOrders(
             takerOrder, takerSig, 0,
             [makerOrder], [makerSig], [0],
-            fillAmount, [fillAmount]
+            fillAmount, [fillAmount], [0], [0]
           )
         ).to.be.revertedWith("InvalidMatch()");
       });
@@ -2223,7 +2407,7 @@ describe("SettlementFacet", function () {
         const sig = await signOrder(buyer, order);
 
         await expect(
-          settlement.connect(operator).fillOrder(order, sig, 0, fillAmount)
+          settlement.connect(operator).fillOrder(order, sig, 0, fillAmount, 0)
         ).to.be.revertedWith("InvalidMatch()");
       });
     });

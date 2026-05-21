@@ -93,25 +93,26 @@ describe("PENTEST BATCH · LOW + INFO", function () {
       const { makeOrder, signOrder } = ctx.helpers;
 
       // Admin sets bogus v2.0 trading fees to 9999 bps (99.99%). Settlement
-      // does NOT charge those — it uses per-order feeRateBps only.
+      // does NOT charge those — SCRUM-224 settlement uses the operator-supplied
+      // fee bounded by maxFeeRateBps, never the v2.0 trading-fee fields.
       await adminConfig.connect(owner).setTradingFeesBps(9999, 9999);
       const fees = await adminConfig.getFees();
       expect(fees.makerTradingFeeBps).to.equal(9999);
       expect(fees.takerTradingFeeBps).to.equal(9999);
 
-      // Settle a normal complementary match with feeRateBps=0 — the
+      // Settle a normal complementary match with zero operator fees — the
       // settlement is unaffected by the absurd v2.0 trading fee setting.
       const fillAmount = ethers.utils.parseUnits("100", 6);
       const price = UNIT.div(2);
-      const takerOrder = makeOrder(buyer.address,  positionIdA, 0, fillAmount, price, { salt: 95011, feeRateBps: 0 });
-      const makerOrder = makeOrder(seller.address, positionIdA, 1, fillAmount, price, { salt: 95011, feeRateBps: 0 });
+      const takerOrder = makeOrder(buyer.address,  positionIdA, 0, fillAmount, price, { salt: 95011 });
+      const makerOrder = makeOrder(seller.address, positionIdA, 1, fillAmount, price, { salt: 95011 });
       const takerSig = await signOrder(buyer,  takerOrder);
       const makerSig = await signOrder(seller, makerOrder);
 
       await settlement.connect(operator).matchOrders(
         takerOrder, takerSig, 0,
         [makerOrder], [makerSig], [0],
-        fillAmount, [fillAmount],
+        fillAmount, [fillAmount], [0], [0],
       );
       // No revert, no excess fee — confirming the v2.0 fields are dead
       // weight. Recommendation: delete the selector + fields (mainnet is a
