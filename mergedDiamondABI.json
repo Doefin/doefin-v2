@@ -165,11 +165,6 @@
             "type": "uint128"
           },
           {
-            "internalType": "uint16",
-            "name": "feeRateBps",
-            "type": "uint16"
-          },
-          {
             "internalType": "uint64",
             "name": "expiration",
             "type": "uint64"
@@ -238,11 +233,6 @@
             "internalType": "uint128",
             "name": "minFillAmount",
             "type": "uint128"
-          },
-          {
-            "internalType": "uint16",
-            "name": "feeRateBps",
-            "type": "uint16"
           },
           {
             "internalType": "uint64",
@@ -527,11 +517,6 @@
             "type": "uint128"
           },
           {
-            "internalType": "uint16",
-            "name": "feeRateBps",
-            "type": "uint16"
-          },
-          {
             "internalType": "uint64",
             "name": "expiration",
             "type": "uint64"
@@ -559,6 +544,11 @@
       {
         "internalType": "uint128",
         "name": "fillAmount",
+        "type": "uint128"
+      },
+      {
+        "internalType": "uint128",
+        "name": "fee",
         "type": "uint128"
       }
     ],
@@ -1354,6 +1344,19 @@
   },
   {
     "inputs": [],
+    "name": "getMaxFeeRate",
+    "outputs": [
+      {
+        "internalType": "uint16",
+        "name": "",
+        "type": "uint16"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
     "name": "getMedianBufferSize",
     "outputs": [
       {
@@ -1458,11 +1461,6 @@
             "internalType": "uint128",
             "name": "minFillAmount",
             "type": "uint128"
-          },
-          {
-            "internalType": "uint16",
-            "name": "feeRateBps",
-            "type": "uint16"
           },
           {
             "internalType": "uint64",
@@ -1993,11 +1991,6 @@
             "type": "uint128"
           },
           {
-            "internalType": "uint16",
-            "name": "feeRateBps",
-            "type": "uint16"
-          },
-          {
             "internalType": "uint64",
             "name": "expiration",
             "type": "uint64"
@@ -2111,11 +2104,6 @@
             "type": "uint128"
           },
           {
-            "internalType": "uint16",
-            "name": "feeRateBps",
-            "type": "uint16"
-          },
-          {
             "internalType": "uint64",
             "name": "expiration",
             "type": "uint64"
@@ -2188,11 +2176,6 @@
             "type": "uint128"
           },
           {
-            "internalType": "uint16",
-            "name": "feeRateBps",
-            "type": "uint16"
-          },
-          {
             "internalType": "uint64",
             "name": "expiration",
             "type": "uint64"
@@ -2225,6 +2208,16 @@
       {
         "internalType": "uint128[]",
         "name": "makerFillAmounts",
+        "type": "uint128[]"
+      },
+      {
+        "internalType": "uint128[]",
+        "name": "takerFees",
+        "type": "uint128[]"
+      },
+      {
+        "internalType": "uint128[]",
+        "name": "makerFees",
         "type": "uint128[]"
       }
     ],
@@ -2590,6 +2583,19 @@
   {
     "inputs": [
       {
+        "internalType": "uint16",
+        "name": "_maxFeeRateBps",
+        "type": "uint16"
+      }
+    ],
+    "name": "setMaxFeeRate",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
         "internalType": "address",
         "name": "_operator",
         "type": "address"
@@ -2879,11 +2885,6 @@
             "internalType": "uint128",
             "name": "minFillAmount",
             "type": "uint128"
-          },
-          {
-            "internalType": "uint16",
-            "name": "feeRateBps",
-            "type": "uint16"
           },
           {
             "internalType": "uint64",
@@ -3324,6 +3325,25 @@
       {
         "indexed": true,
         "internalType": "address",
+        "name": "receiver",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "amount",
+        "type": "uint256"
+      }
+    ],
+    "name": "FeeCharged",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
         "name": "oldReceiver",
         "type": "address"
       },
@@ -3354,6 +3374,25 @@
       }
     ],
     "name": "MarketMakerStatusUpdated",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": false,
+        "internalType": "uint16",
+        "name": "oldRate",
+        "type": "uint16"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint16",
+        "name": "newRate",
+        "type": "uint16"
+      }
+    ],
+    "name": "MaxFeeRateUpdated",
     "type": "event"
   },
   {
@@ -4166,6 +4205,16 @@
   },
   {
     "inputs": [],
+    "name": "FeeExceedsMaxRate",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "FeeExceedsProceeds",
+    "type": "error"
+  },
+  {
+    "inputs": [],
     "name": "FeeTooHigh",
     "type": "error"
   },
@@ -4274,6 +4323,11 @@
   {
     "inputs": [],
     "name": "InvalidUnitPerPair",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "MaxFeeRateExceedsCeiling",
     "type": "error"
   },
   {
