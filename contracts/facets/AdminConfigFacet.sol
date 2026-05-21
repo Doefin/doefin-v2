@@ -17,6 +17,13 @@ import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IER
  * @dev Enhanced version with comprehensive fee management and token symbol support
  */
 contract AdminConfigFacet is IAdminConfig {
+    /// @notice Hard ceiling on the admin-configurable maximum settlement fee rate (10%).
+    /// @dev SCRUM-224 — `setMaxFeeRate` reverts if the requested rate exceeds this. The
+    ///      admin may configure any value in [0, MAX_FEE_RATE_BPS_CAP]; the operator
+    ///      then supplies the per-leg fee amount at settlement, bounded by the
+    ///      configured `maxFeeRateBps` (see SettlementFacet._validateFee).
+    uint16 internal constant MAX_FEE_RATE_BPS_CAP = 1000;
+
     /**
      * @notice Adds a new collateral token to the protocol with specified unit configuration
      * @dev Automatically fetches and stores token symbol from ERC20Metadata interface
@@ -145,6 +152,35 @@ contract AdminConfigFacet is IAdminConfig {
         ds.adminConfigStorage.makerTradingFeeBps = makerBps;
         ds.adminConfigStorage.takerTradingFeeBps = takerBps;
         emit Events.TradingFeesUpdated(oldMakerBps, oldTakerBps, makerBps, takerBps);
+    }
+
+    /**
+     * @notice Sets the maximum settlement fee rate the operator may charge
+     * @dev SCRUM-224 — the operator supplies the fee amount per settlement leg; the
+     *      contract enforces `fee <= (cashValue * maxFeeRateBps) / 10000`. This
+     *      function configures that ceiling. Fail-closed: a value of 0 means the
+     *      operator may not charge any non-zero fee.
+     * @param _maxFeeRateBps New maximum fee rate in basis points (0..MAX_FEE_RATE_BPS_CAP)
+     * @custom:emits MaxFeeRateUpdated with old and new rates
+     * @custom:reverts MaxFeeRateExceedsCeiling if `_maxFeeRateBps` exceeds the 1000-bps cap
+     * @custom:security Only callable by contract owner
+     */
+    function setMaxFeeRate(uint16 _maxFeeRateBps) external override {
+        LibDiamond.enforceIsContractOwner();
+        if (_maxFeeRateBps > MAX_FEE_RATE_BPS_CAP) revert Errors.MaxFeeRateExceedsCeiling();
+
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
+        uint16 oldRate = ds.adminConfigStorage.maxFeeRateBps;
+        ds.adminConfigStorage.maxFeeRateBps = _maxFeeRateBps;
+        emit Events.MaxFeeRateUpdated(oldRate, _maxFeeRateBps);
+    }
+
+    /**
+     * @notice Returns the configured maximum settlement fee rate
+     * @return The maximum fee rate in basis points
+     */
+    function getMaxFeeRate() external view override returns (uint16) {
+        return LibDoefinStorage.appStorage().adminConfigStorage.maxFeeRateBps;
     }
 
     function isAllowedCollateral(address token) external view override returns (bool) {

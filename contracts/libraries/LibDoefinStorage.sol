@@ -126,8 +126,13 @@ library LibDoefinStorage {
         mapping(address => string) tokenSymbols; // token => symbol (e.g., "BTC", "USDC", "USDT")
         address feeReceiver;
         uint16 resolutionFeeBps;
-        uint16 makerTradingFeeBps;
-        uint16 takerTradingFeeBps;
+        uint16 makerTradingFeeBps; // DEPRECATED (v2.0): unused, retained for layout
+        uint16 takerTradingFeeBps; // DEPRECATED (v2.0): unused, retained for layout
+        // SCRUM-224: admin-settable ceiling on the operator-supplied settlement fee.
+        // The operator supplies the fee amount per settlement leg; SettlementFacet
+        // enforces `fee <= (cashValue * maxFeeRateBps) / 10000`. Fail-closed: a value
+        // of 0 means no non-zero fee is permitted (NOT "unlimited").
+        uint16 maxFeeRateBps;
         uint256[11] __gap;
     }
 

@@ -15,6 +15,10 @@ interface IAdminConfig {
 
     function setTradingFeesBps(uint16 makerBps, uint16 takerBps) external;
 
+    function setMaxFeeRate(uint16 maxFeeRateBps) external;
+
+    function getMaxFeeRate() external view returns (uint16);
+
     function isAllowedCollateral(address token) external view returns (bool);
 
     function getCollateralUnit(address token) external view returns (uint256);
