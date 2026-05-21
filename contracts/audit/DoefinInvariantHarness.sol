@@ -341,8 +341,8 @@ contract DoefinInvariantHarness {
     }
 
     function _adminConfigCut() internal returns (IDiamondCut.FacetCut memory) {
-        // SEC-013: setTradingFeesBps() was removed — v2.0 dead path.
-        bytes4[] memory s = new bytes4[](12);
+        // SCRUM-223: cross-currency conversion-path selectors removed with the CC stack.
+        bytes4[] memory s = new bytes4[](9);
         s[0] = AdminConfigFacet.addCollateralToken.selector;
         s[1] = AdminConfigFacet.removeCollateralToken.selector;
         s[2] = AdminConfigFacet.setFeeReceiver.selector;
@@ -352,11 +352,6 @@ contract DoefinInvariantHarness {
         s[6] = AdminConfigFacet.getFees.selector;
         s[7] = AdminConfigFacet.getTokenSymbol.selector;
         s[8] = AdminConfigFacet.setTokenSymbol.selector;
-        s[9] = AdminConfigFacet.getCrossCurrencyConversionPath.selector;
-        s[10] = AdminConfigFacet.setConversionPath.selector;
-        s[11] = AdminConfigFacet.removeConversionPath.selector;
-        // getConfiguredConversionPath is omitted to keep the selector array tight;
-        // it is not exercised by the harness.
         return _cut(address(new AdminConfigFacet()), s);
     }
 

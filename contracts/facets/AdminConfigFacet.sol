@@ -12,7 +12,7 @@ import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IER
  * @title AdminConfigFacet
  * @author Doefin
  * @notice Diamond facet for protocol administration and configuration management
- * @dev Handles collateral tokens, fee configuration, protocol fee withdrawal, and cross-currency conversion paths
+ * @dev Handles collateral tokens, fee configuration, and token symbol management
  * @dev Only contract owner can modify configuration settings
  * @dev Enhanced version with comprehensive fee management and token symbol support
  */
@@ -195,104 +195,5 @@ contract AdminConfigFacet is IAdminConfig {
         LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
         ds.adminConfigStorage.tokenSymbols[token] = symbol;
         emit Events.TokenSymbolUpdated(token, symbol);
-    }
-
-    /**
-     * @notice Get oracle asset ID path for cross-currency conversion
-     * @param fromToken The source token address
-     * @param toToken The target token address
-     * @return assetIds Array of oracle asset IDs needed for conversion
-     */
-    function getCrossCurrencyConversionPath(address fromToken, address toToken) external view override returns (bytes32[] memory assetIds) {
-        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
-        if (!ds.adminConfigStorage.isAllowed[fromToken] || !ds.adminConfigStorage.isAllowed[toToken]) {
-            revert Errors.TokenNotAllowed();
-        }
-        if (fromToken == toToken) {
-            return new bytes32[](0);
-        }
-        bytes32 pathKey = keccak256(abi.encodePacked(fromToken, toToken));
-        bytes32[] storage configuredPath = ds.adminConfigStorage.conversionPaths[pathKey];
-        assetIds = new bytes32[](configuredPath.length);
-        for (uint256 i = 0; i < configuredPath.length; i++) {
-            assetIds[i] = configuredPath[i];
-        }
-    }
-
-    // ========================================
-    // CONVERSION PATH MANAGEMENT
-    // ========================================
-
-    /**
-     * @notice Sets a custom oracle asset conversion path between two tokens
-     * @dev Enables cross-currency trading by defining oracle price feed routes
-     * @dev Asset IDs correspond to oracle price feed identifiers for the conversion chain
-     * @dev Allows adding new currency pairs without contract redeployment
-     * @param fromToken The source token address for conversion
-     * @param toToken The target token address for conversion
-     * @param assetIds Array of oracle asset IDs representing the conversion path
-     * @custom:emits ConversionPathSet with token addresses and asset ID array
-     * @custom:reverts TokenNotAllowed if either token is not whitelisted as collateral
-     * @custom:reverts InvalidConversionPath if fromToken equals toToken
-     * @custom:security Only callable by contract owner
-     * @custom:note Path overwrites any existing configuration for the token pair
-     * @custom:example For USDC→BTC: assetIds could be ["ETH/USD", "BTC/ETH"] for routing
-     */
-    function setConversionPath(address fromToken, address toToken, bytes32[] calldata assetIds) external override {
-        LibDiamond.enforceIsContractOwner();
-
-        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
-
-        // Validate both tokens are allowed
-        if (!ds.adminConfigStorage.isAllowed[fromToken] || !ds.adminConfigStorage.isAllowed[toToken]) {
-            revert Errors.TokenNotAllowed();
-        }
-
-        // Validate tokens are different
-        if (fromToken == toToken) {
-            revert Errors.InvalidConversionPath();
-        }
-
-        // Store the conversion path
-        bytes32 pathKey = keccak256(abi.encodePacked(fromToken, toToken));
-        ds.adminConfigStorage.conversionPaths[pathKey] = assetIds;
-
-        emit Events.ConversionPathSet(fromToken, toToken, assetIds);
-    }
-
-    /**
-     * @notice Remove a custom conversion path between two tokens
-     * @param fromToken The source token address
-     * @param toToken The target token address
-     * @dev Reverts to hardcoded fallback logic if available
-     */
-    function removeConversionPath(address fromToken, address toToken) external override {
-        LibDiamond.enforceIsContractOwner();
-
-        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
-        bytes32 pathKey = keccak256(abi.encodePacked(fromToken, toToken));
-
-        // Delete the conversion path
-        delete ds.adminConfigStorage.conversionPaths[pathKey];
-
-        emit Events.ConversionPathRemoved(fromToken, toToken);
-    }
-
-    /**
-     * @notice Get the configured conversion path for a token pair
-     * @param fromToken The source token address
-     * @param toToken The target token address
-     * @return assetIds The configured asset IDs, or empty array if not configured
-     */
-    function getConfiguredConversionPath(address fromToken, address toToken) external view override returns (bytes32[] memory assetIds) {
-        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
-        bytes32 pathKey = keccak256(abi.encodePacked(fromToken, toToken));
-
-        bytes32[] storage configuredPath = ds.adminConfigStorage.conversionPaths[pathKey];
-        assetIds = new bytes32[](configuredPath.length);
-
-        for (uint256 i = 0; i < configuredPath.length; i++) {
-            assetIds[i] = configuredPath[i];
-        }
     }
 }

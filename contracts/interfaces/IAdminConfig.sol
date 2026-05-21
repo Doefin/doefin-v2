@@ -38,41 +38,4 @@ interface IAdminConfig {
      * @param symbol The new symbol
      */
     function setTokenSymbol(address token, string calldata symbol) external;
-
-    /**
-     * @notice Get oracle asset ID for cross-currency conversion
-     * @param fromToken The source token address
-     * @param toToken The target token address
-     * @return assetIds Array of oracle asset IDs needed for conversion
-     */
-    function getCrossCurrencyConversionPath(address fromToken, address toToken) external view returns (bytes32[] memory assetIds);
-
-    // ----------------------------------------
-    // Conversion Path Management
-    // ----------------------------------------
-
-    /**
-     * @notice Set a custom conversion path between two tokens
-     * @param fromToken The source token address
-     * @param toToken The target token address
-     * @param assetIds Array of oracle asset IDs representing the conversion path
-     * @dev Only callable by contract owner. Allows adding support for new currency pairs without code changes.
-     */
-    function setConversionPath(address fromToken, address toToken, bytes32[] calldata assetIds) external;
-
-    /**
-     * @notice Remove a custom conversion path between two tokens
-     * @param fromToken The source token address
-     * @param toToken The target token address
-     * @dev Reverts to hardcoded fallback logic if available
-     */
-    function removeConversionPath(address fromToken, address toToken) external;
-
-    /**
-     * @notice Get the configured conversion path for a token pair
-     * @param fromToken The source token address
-     * @param toToken The target token address
-     * @return assetIds The configured asset IDs, or empty array if not configured
-     */
-    function getConfiguredConversionPath(address fromToken, address toToken) external view returns (bytes32[] memory assetIds);
 }
