@@ -61,9 +61,11 @@ contract DiamondInit {
         LibDiamond.setContractOwner(_owner);
 
         // Initialize Doefin storage
-        // Note: makerTradingFeeBps and takerTradingFeeBps are v2.0 parameters,
-        // v2.1 settlement uses per-order feeRateBps. resolutionFeeBps is still
-        // used by ConditionalTokensFacet.redeemPositions().
+        // Note: makerTradingFeeBps and takerTradingFeeBps are v2.0 parameters (unused).
+        // SCRUM-224 — v3 settlement uses an operator-supplied fee bounded by the
+        // admin-set `maxFeeRateBps` (default 0, fail-closed; configure via
+        // AdminConfigFacet.setMaxFeeRate). resolutionFeeBps is still used by
+        // ConditionalTokensFacet.redeemPositions().
         LibDoefinStorage.initialize(
             _owner, // feeReceiver (used by CTF redemption and fee withdrawal)
             500, // resolutionFeeBps (5%) — used by ConditionalTokensFacet

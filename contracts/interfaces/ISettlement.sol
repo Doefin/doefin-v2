@@ -18,14 +18,17 @@ interface ISettlement {
         bytes[] calldata makerSignatures,
         uint8[] calldata makerSignatureTypes,
         uint128 takerFillAmount,
-        uint128[] calldata makerFillAmounts
+        uint128[] calldata makerFillAmounts,
+        uint128[] calldata takerFees,
+        uint128[] calldata makerFees
     ) external;
 
     function fillOrder(
         LibDoefinOrder.DoefinOrder calldata order,
         bytes calldata signature,
         uint8 signatureType,
-        uint128 fillAmount
+        uint128 fillAmount,
+        uint128 fee
     ) external;
 
     function setOperator(address _operator) external;

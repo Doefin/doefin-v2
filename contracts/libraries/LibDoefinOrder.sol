@@ -15,6 +15,9 @@ library LibDoefinOrder {
 
     /// @notice Off-chain signed order for the hybrid settlement model
     /// @dev Field order is canonical and must not be reordered
+    /// @dev SCRUM-224 — `feeRateBps` removed: the fee is no longer signed by the
+    ///      maker. The operator supplies the per-leg fee amount at settlement and
+    ///      the contract enforces an admin-set maximum rate (Polymarket V2 model).
     struct DoefinOrder {
         uint256 salt;
         address maker;           // SCW (Safe) address holding funds
@@ -25,7 +28,6 @@ library LibDoefinOrder {
         uint128 amount;
         uint128 pricePerToken;
         uint128 minFillAmount;
-        uint16 feeRateBps;
         uint64 expiration;       // 0 = no expiry
         uint256 nonce;
     }
@@ -46,7 +48,6 @@ library LibDoefinOrder {
         "uint128 amount,"
         "uint128 pricePerToken,"
         "uint128 minFillAmount,"
-        "uint16 feeRateBps,"
         "uint64 expiration,"
         "uint256 nonce"
         ")"
@@ -82,7 +83,6 @@ library LibDoefinOrder {
                 order.amount,
                 order.pricePerToken,
                 order.minFillAmount,
-                order.feeRateBps,
                 order.expiration,
                 order.nonce
             )
@@ -160,7 +160,6 @@ library LibDoefinOrder {
                 order.amount,
                 order.pricePerToken,
                 order.minFillAmount,
-                order.feeRateBps,
                 order.expiration,
                 order.nonce
             )

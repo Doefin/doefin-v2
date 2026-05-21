@@ -128,8 +128,14 @@ contract DoefinInvariantHarness {
     /// @notice Amount split during market seeding so the registry holds a pair.
     uint256 internal constant SEED_SPLIT_AMOUNT = 100_000 * UNIT;
 
-    /// @notice Per-order maker fee (basis points). Below MAX_FEE_RATE_BPS (500).
-    uint16 internal constant FEE_BPS = 100;
+    /// @notice Admin-configured maximum settlement fee rate (basis points). SCRUM-224.
+    ///         Below the AdminConfigFacet hard ceiling MAX_FEE_RATE_BPS_CAP (1000).
+    uint16 internal constant MAX_FEE_RATE_BPS = 100;
+
+    /// @notice Operator-supplied per-leg fee rate (basis points) used to size the fee
+    ///         the harness passes to `matchOrders` / `fillOrder`. Kept at or below
+    ///         `MAX_FEE_RATE_BPS` so a well-formed fee never trips `_validateFee`.
+    uint16 internal constant FEE_BPS = 50;
 
     /// @notice Wei tolerance for the collateral-conservation invariant — accounts
     ///         for integer-division rounding in fee / effective-price maths.
@@ -342,7 +348,8 @@ contract DoefinInvariantHarness {
 
     function _adminConfigCut() internal returns (IDiamondCut.FacetCut memory) {
         // SCRUM-223: cross-currency conversion-path selectors removed with the CC stack.
-        bytes4[] memory s = new bytes4[](9);
+        // SCRUM-224: setMaxFeeRate / getMaxFeeRate added for the operator fee model.
+        bytes4[] memory s = new bytes4[](11);
         s[0] = AdminConfigFacet.addCollateralToken.selector;
         s[1] = AdminConfigFacet.removeCollateralToken.selector;
         s[2] = AdminConfigFacet.setFeeReceiver.selector;
@@ -352,6 +359,8 @@ contract DoefinInvariantHarness {
         s[6] = AdminConfigFacet.getFees.selector;
         s[7] = AdminConfigFacet.getTokenSymbol.selector;
         s[8] = AdminConfigFacet.setTokenSymbol.selector;
+        s[9] = AdminConfigFacet.setMaxFeeRate.selector;
+        s[10] = AdminConfigFacet.getMaxFeeRate.selector;
         return _cut(address(new AdminConfigFacet()), s);
     }
 
@@ -420,6 +429,10 @@ contract DoefinInvariantHarness {
     function _configureProtocol() internal {
         IAdminConfig(diamond).addCollateralToken(address(collateral), UNIT);
         IAdminConfig(diamond).setFeeReceiver(FEE_RECEIVER);
+        // SCRUM-224: set the admin fee ceiling so operator-supplied fees can be
+        // validated. Without this, `maxFeeRateBps == 0` would fail-closed and any
+        // non-zero fee the harness passes would revert.
+        IAdminConfig(diamond).setMaxFeeRate(MAX_FEE_RATE_BPS);
         settlement.setOperator(address(this));
         IAccessControl(diamond).addMarketMaker(address(this));
     }
@@ -515,7 +528,6 @@ contract DoefinInvariantHarness {
             amount: amount,
             pricePerToken: price,
             minFillAmount: 0,
-            feeRateBps: FEE_BPS,
             expiration: 0,
             nonce: 0
         });
@@ -569,6 +581,14 @@ contract DoefinInvariantHarness {
         return uint128((raw % maxFill) + 1);
     }
 
+    /// @dev SCRUM-224: size an operator-supplied per-leg fee at `FEE_BPS` of a
+    ///      contract-derived collateral leg (`price * fill / UNIT`). Guaranteed
+    ///      `<= cashValue * MAX_FEE_RATE_BPS / 10000`, so `_validateFee` accepts it.
+    function _legFee(uint128 price, uint128 fill) internal pure returns (uint128) {
+        uint256 cashValue = (uint256(price) * uint256(fill)) / UNIT;
+        return uint128((cashValue * uint256(FEE_BPS)) / 10000);
+    }
+
     /// @dev Ratchet `lastFeeReceiverBalance` up to the running maximum of the
     ///      dedicated feeReceiver sink. Called at the end of every `fuzz_*`
     ///      wrapper so `echidna_fee_receiver_only_grows` is a real high-water
@@ -616,11 +636,15 @@ contract DoefinInvariantHarness {
         makerTypes[0] = 0;
         uint128[] memory makerFills = new uint128[](1);
         makerFills[0] = fill;
+        uint128[] memory takerFees = new uint128[](1);
+        takerFees[0] = _legFee(takerPrice, fill);
+        uint128[] memory makerFees = new uint128[](1);
+        makerFees[0] = _legFee(makerPrice, fill);
 
         _recordOrder(taker);
         _recordOrder(maker);
 
-        try settlement.matchOrders(taker, takerSig, 0, makers, makerSigs, makerTypes, fill, makerFills) {
+        try settlement.matchOrders(taker, takerSig, 0, makers, makerSigs, makerTypes, fill, makerFills, takerFees, makerFees) {
             outstandingPairs += fill;
         } catch {
             // A revert is an acceptable outcome — invariants check STATE only.
@@ -666,11 +690,18 @@ contract DoefinInvariantHarness {
         makerTypes[0] = 0;
         uint128[] memory makerFills = new uint128[](1);
         makerFills[0] = fill;
+        // Merge fees come out of each seller's payout. Sizing the fee from the
+        // signed price keeps it below `payout * MAX_FEE_RATE_BPS / 10000` because
+        // each seller's payout is at least `price * fill / UNIT` when prices cross.
+        uint128[] memory takerFees = new uint128[](1);
+        takerFees[0] = _legFee(takerPrice, fill);
+        uint128[] memory makerFees = new uint128[](1);
+        makerFees[0] = _legFee(makerPrice, fill);
 
         _recordOrder(taker);
         _recordOrder(maker);
 
-        try settlement.matchOrders(taker, takerSig, 0, makers, makerSigs, makerTypes, fill, makerFills) {
+        try settlement.matchOrders(taker, takerSig, 0, makers, makerSigs, makerTypes, fill, makerFills, takerFees, makerFees) {
             if (outstandingPairs >= fill) {
                 outstandingPairs -= fill;
             }
@@ -713,11 +744,16 @@ contract DoefinInvariantHarness {
         makerTypes[0] = 0;
         uint128[] memory makerFills = new uint128[](1);
         makerFills[0] = fill;
+        // Both legs execute at the maker's price; size each fee from it.
+        uint128[] memory takerFees = new uint128[](1);
+        takerFees[0] = _legFee(price, fill);
+        uint128[] memory makerFees = new uint128[](1);
+        makerFees[0] = _legFee(price, fill);
 
         _recordOrder(taker);
         _recordOrder(maker);
 
-        try settlement.matchOrders(taker, takerSig, 0, makers, makerSigs, makerTypes, fill, makerFills) {
+        try settlement.matchOrders(taker, takerSig, 0, makers, makerSigs, makerTypes, fill, makerFills, takerFees, makerFees) {
             // outstandingPairs unchanged — complementary is a swap.
         } catch {
             // Acceptable.
@@ -758,7 +794,11 @@ contract DoefinInvariantHarness {
 
         _recordOrder(order);
 
-        try settlement.fillOrder(order, sig, 0, fill) {
+        // Operator-supplied fee, sized at FEE_BPS of the contract-derived
+        // collateral leg so `_validateFee` accepts it.
+        uint128 fee = _legFee(price, fill);
+
+        try settlement.fillOrder(order, sig, 0, fill, fee) {
             // outstandingPairs unchanged — operator fill is a swap.
         } catch {
             // Acceptable.

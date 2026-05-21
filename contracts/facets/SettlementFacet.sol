@@ -30,10 +30,6 @@ contract SettlementFacet is ISettlement {
     uint8 internal constant MATCH_MINT = 2;
     uint8 internal constant MATCH_MERGE = 3;
 
-    // Fee safety cap (5%). Per-order `feeRateBps` is signed by the maker.
-    // All fees flow to `ds.adminConfigStorage.feeReceiver` (not the operator).
-    uint16 internal constant MAX_FEE_RATE_BPS = 500;
-
     // ========================================
     // MODIFIERS
     // ========================================
@@ -72,8 +68,15 @@ contract SettlementFacet is ISettlement {
      * @param makerSignatureTypes Array of maker signature types
      * @param takerFillAmount Total amount to fill for the taker across all makers
      * @param makerFillAmounts Amount to fill for each maker order
+     * @param takerFees Operator-supplied taker fee for each settlement leg (length == makerOrders.length)
+     * @param makerFees Operator-supplied maker fee for each settlement leg (length == makerOrders.length)
+     * @custom:audit SCRUM-224 — the fee is no longer signed by the maker. The operator
+     *      supplies a per-leg fee amount; `_validateFee` enforces the admin-set maximum
+     *      rate (fail-closed: a 0 rate forbids any non-zero fee) and that the fee never
+     *      exceeds the contract-derived per-party collateral.
      * @custom:reverts TradingIsPaused, UnauthorizedOperator, MismatchedInputLengths,
-     *                 InvalidOrderSignature, OrderCancelled, OrderOverfilled, InvalidMatch, ZeroAmount
+     *                 InvalidOrderSignature, OrderCancelled, OrderOverfilled, InvalidMatch, ZeroAmount,
+     *                 FeeExceedsMaxRate, FeeExceedsProceeds
      */
     function matchOrders(
         LibDoefinOrder.DoefinOrder calldata takerOrder,
@@ -83,10 +86,18 @@ contract SettlementFacet is ISettlement {
         bytes[] calldata makerSignatures,
         uint8[] calldata makerSignatureTypes,
         uint128 takerFillAmount,
-        uint128[] calldata makerFillAmounts
+        uint128[] calldata makerFillAmounts,
+        uint128[] calldata takerFees,
+        uint128[] calldata makerFees
     ) external onlyOperator notPaused nonReentrant {
-        // Input validation
-        if (makerOrders.length != makerFillAmounts.length || makerOrders.length != makerSignatures.length || makerOrders.length != makerSignatureTypes.length) {
+        // Input validation — every per-leg array must have one entry per maker order.
+        if (
+            makerOrders.length != makerFillAmounts.length ||
+            makerOrders.length != makerSignatures.length ||
+            makerOrders.length != makerSignatureTypes.length ||
+            makerOrders.length != takerFees.length ||
+            makerOrders.length != makerFees.length
+        ) {
             revert Errors.MismatchedInputLengths();
         }
         if (takerFillAmount == 0) revert Errors.ZeroAmount();
@@ -122,12 +133,14 @@ contract SettlementFacet is ISettlement {
         for (uint256 i; i < makerCount;) {
             uint128 fill = makerFillAmounts[i];
             totalMakerFill += fill;
-            totalTakerFee += _settleAgainstMaker(
+            _settleAgainstMaker(
                 takerOrder,
                 makerOrders[i],
                 makerSignatures[i],
                 makerSignatureTypes[i],
                 fill,
+                takerFees[i],
+                makerFees[i],
                 takerHash,
                 domainSep,
                 takerUnit,
@@ -135,6 +148,7 @@ contract SettlementFacet is ISettlement {
                 ss,
                 ds
             );
+            totalTakerFee += takerFees[i];
             unchecked { ++i; }
         }
         // Router-input invariant: total maker fill equals declared taker fill.
@@ -149,7 +163,11 @@ contract SettlementFacet is ISettlement {
      * @dev Single-maker loop body extracted from {matchOrders} (CPX-006). Handles signature
      *      verification, the shared order-validity rules, fill-amount cap, match-type
      *      routing, settlement execution, and maker-side fill bookkeeping + events.
-     * @return takerFeeForThisLeg The taker's per-leg fee, summed by the caller.
+     * @dev SCRUM-224 — `takerFee` / `makerFee` are operator-supplied (no longer derived
+     *      from a signed `feeRateBps`). Each is validated inside the settle helper against
+     *      the contract-derived per-party collateral via `_validateFee`.
+     * @param takerFee Operator-supplied taker fee for this leg.
+     * @param makerFee Operator-supplied maker fee for this leg.
      */
     function _settleAgainstMaker(
         LibDoefinOrder.DoefinOrder calldata takerOrder,
@@ -157,13 +175,15 @@ contract SettlementFacet is ISettlement {
         bytes calldata makerSignature,
         uint8 makerSignatureType,
         uint128 fillAmount,
+        uint128 takerFee,
+        uint128 makerFee,
         bytes32 takerHash,
         bytes32 domainSep,
         uint256 takerUnit,
         address feeReceiver,
         LibSettlementStorage.SettlementStorage storage ss,
         LibDoefinStorage.AppStorage storage ds
-    ) private returns (uint128 takerFeeForThisLeg) {
+    ) private {
         if (fillAmount == 0) revert Errors.ZeroAmount();
         if (makerOrder.maker == takerOrder.maker) revert Errors.SelfTrade();
 
@@ -172,18 +192,15 @@ contract SettlementFacet is ISettlement {
         _validateOrder(ss, makerOrder, makerHash);
         _checkFillAmount(ss, makerHash, makerOrder.amount, fillAmount);
 
-        // Determine and execute settlement path. Fees are computed per-leg (Fix 3) using
-        // the hoisted `takerUnit`; maker fee uses its own collateral unit because the
-        // settle helpers re-assert `taker.collateralToken == maker.collateralToken`.
+        // Determine and execute settlement path. Fees are operator-supplied (SCRUM-224)
+        // and validated inside each settle helper against the per-party collateral.
         uint8 matchType = _determineMatchType(takerOrder, makerOrder);
-        uint128 makerFee = _computeFee(makerOrder.feeRateBps, makerOrder.pricePerToken, fillAmount, takerUnit);
-        takerFeeForThisLeg = _computeFee(takerOrder.feeRateBps, takerOrder.pricePerToken, fillAmount, takerUnit);
 
         _executeSettlement(
             takerOrder,
             makerOrder,
             fillAmount,
-            takerFeeForThisLeg,
+            takerFee,
             makerFee,
             matchType,
             takerUnit,
@@ -201,16 +218,22 @@ contract SettlementFacet is ISettlement {
     /**
      * @notice Fill a single order (operator is the counterparty)
      * @dev The operator fills the order directly — no matching. Validates signature and fill amount.
+     * @dev SCRUM-224 — `fee` is operator-supplied (no longer derived from a signed
+     *      `feeRateBps`). `_executeOperatorFill` validates it against the contract-derived
+     *      collateral leg via `_validateFee`.
      * @param order The order to fill
      * @param signature The order's ECDSA signature
      * @param signatureType 0 = EOA, 1 = EIP-1271
      * @param fillAmount Amount to fill
+     * @param fee Operator-supplied fee for this fill
+     * @custom:reverts ZeroAmount, FeeExceedsMaxRate, FeeExceedsProceeds
      */
     function fillOrder(
         LibDoefinOrder.DoefinOrder calldata order,
         bytes calldata signature,
         uint8 signatureType,
-        uint128 fillAmount
+        uint128 fillAmount,
+        uint128 fee
     ) external onlyOperator notPaused nonReentrant {
         if (fillAmount == 0) revert Errors.ZeroAmount();
 
@@ -222,10 +245,9 @@ contract SettlementFacet is ISettlement {
         _validateOrder(ss, order, orderHash);
         _checkFillAmount(ss, orderHash, order.amount, fillAmount);
 
-        // GAS-004: read `unit` once; `_computeFee` is now pure.
+        // GAS-004: read `unit` once.
         // `_validateOrder` already enforces `unit != 0` and `price <= unit` (SEC-002/BIZ-004).
         uint256 unit = LibDoefinStorage.appStorage().adminConfigStorage.unitPerPair[order.collateralToken];
-        uint128 fee = _computeFee(order.feeRateBps, order.pricePerToken, fillAmount, unit);
 
         // Transfer collateral between maker and operator based on side
         _executeOperatorFill(order, fillAmount, fee, unit);
@@ -528,17 +550,27 @@ contract SettlementFacet is ISettlement {
         // Use maker's price as execution price (maker is passive, taker is aggressor)
         uint256 collateralAmount = (uint256(maker.pricePerToken) * uint256(fillAmount)) / unit;
 
+        // SCRUM-224: operator-supplied fees, validated against the per-party collateral
+        // (the contract-derived cash value of this leg) and the admin-set max rate.
+        // The seller's fee is paid out of their `collateralAmount` proceeds, so it is
+        // additionally bounded by `fee <= proceeds`.
+        _validateFee(buyerFee, collateralAmount);
+        _validateFee(sellerFee, collateralAmount);
+        if (sellerFee > collateralAmount) revert Errors.FeeExceedsProceeds();
+
         // Buyer pays collateral to seller
         IERC20(taker.collateralToken).safeTransferFrom(buyerAddr, sellerAddr, collateralAmount);
 
         // Buyer pays their own fee
         if (buyerFee > 0) {
             IERC20(taker.collateralToken).safeTransferFrom(buyerAddr, feeReceiver, buyerFee);
+            emit Events.FeeCharged(feeReceiver, buyerFee);
         }
 
         // Seller pays their own fee (from proceeds)
         if (sellerFee > 0) {
             IERC20(taker.collateralToken).safeTransferFrom(sellerAddr, feeReceiver, sellerFee);
+            emit Events.FeeCharged(feeReceiver, sellerFee);
         }
 
         // Seller transfers position tokens to buyer
@@ -575,6 +607,13 @@ contract SettlementFacet is ISettlement {
         // 1-wei rounding surplus (from integer division) flows to taker by construction.
         // Do not add a makerExpected + 1 tolerance — this is intentional.
 
+        // SCRUM-224: operator-supplied fees, validated against each buyer's per-party
+        // collateral (the contract-derived cash value of their leg) and the admin-set
+        // max rate. Both fees are paid on top of the collateral (not out of a payout),
+        // so only the max-rate / cash-value bound applies.
+        _validateFee(takerFee, takerCollateral);
+        _validateFee(makerFee, makerCollateral);
+
         // Collect collateral from both buyers to Diamond
         IERC20(taker.collateralToken).safeTransferFrom(taker.maker, address(this), takerCollateral);
         IERC20(maker.collateralToken).safeTransferFrom(maker.maker, address(this), makerCollateral);
@@ -582,9 +621,11 @@ contract SettlementFacet is ISettlement {
         // Collect fees
         if (takerFee > 0) {
             IERC20(taker.collateralToken).safeTransferFrom(taker.maker, feeReceiver, takerFee);
+            emit Events.FeeCharged(feeReceiver, takerFee);
         }
         if (makerFee > 0) {
             IERC20(maker.collateralToken).safeTransferFrom(maker.maker, feeReceiver, makerFee);
+            emit Events.FeeCharged(feeReceiver, makerFee);
         }
 
         // Split position: Diamond mints both outcome tokens to itself.
@@ -659,14 +700,22 @@ contract SettlementFacet is ISettlement {
         // 1-wei rounding surplus (from integer division) flows to taker by construction.
         // Do not add a makerExpected + 1 tolerance — this is intentional.
 
-        // BIZ-001: checked subtraction. Pre-fix, the payout transfers were guarded by
-        // `if (payout > fee)`, but `totalFees` was remitted unconditionally — if `fee >= payout`
-        // ever held, a party's payout was silently skipped while its fee was still paid out,
-        // producing total-out > fillAmount. At MAX_FEE_RATE_BPS=100 (1%) the case is unreachable,
-        // but a future cap raise would re-arm it with no test signal. A checked subtraction
-        // makes the latent solvency hazard a clean revert.
-        uint256 takerNet = takerPayout - takerFee;
-        uint256 makerNet = makerPayout - makerFee;
+        // SCRUM-224: operator-supplied fees, validated against each seller's per-party
+        // payout (the contract-derived cash value of their leg) and the admin-set max
+        // rate. Each fee is deducted from that payout, so it is additionally bounded by
+        // `fee <= proceeds` — this generalises and replaces the BIZ-001 checked-
+        // subtraction guard: if a fee ever exceeds the payout the call reverts cleanly
+        // instead of silently skipping a party's payout while still remitting the fee.
+        _validateFee(takerFee, takerPayout);
+        _validateFee(makerFee, makerPayout);
+        if (takerFee > takerPayout || makerFee > makerPayout) revert Errors.FeeExceedsProceeds();
+
+        uint256 takerNet;
+        uint256 makerNet;
+        unchecked {
+            takerNet = takerPayout - takerFee;
+            makerNet = makerPayout - makerFee;
+        }
         IERC20(taker.collateralToken).safeTransfer(taker.maker, takerNet);
         IERC20(maker.collateralToken).safeTransfer(maker.maker, makerNet);
 
@@ -674,15 +723,22 @@ contract SettlementFacet is ISettlement {
         uint256 totalFees = uint256(takerFee) + uint256(makerFee);
         if (totalFees > 0) {
             IERC20(taker.collateralToken).safeTransfer(feeReceiver, totalFees);
+            emit Events.FeeCharged(feeReceiver, totalFees);
         }
     }
 
     /**
      * @dev Operator direct fill — operator is the counterparty
+     * @dev SCRUM-224 — `fee` is operator-supplied. `_validateFee` enforces the admin-set
+     *      max rate against the contract-derived `collateralAmount`; the explicit
+     *      `fee > collateralAmount` check generalises and replaces the SEC-003
+     *      `collateralAmount < fee` guard (the fee is deducted from `collateralAmount`,
+     *      so it is bounded by those proceeds and the `collateralAmount - fee`
+     *      subtraction cannot underflow).
      * @custom:security SEC-003 — `collateralAmount` is floored by integer division; when
      *      `price * fillAmount < unit` it truncates to 0, which would hand the maker free
-     *      position tokens for no payment. The `collateralAmount < fee` check also prevents
-     *      the `collateralAmount - fee` subtraction below from underflow-panicking.
+     *      position tokens for no payment — still rejected by the `collateralAmount == 0`
+     *      guard.
      */
     function _executeOperatorFill(
         LibDoefinOrder.DoefinOrder calldata order,
@@ -693,12 +749,16 @@ contract SettlementFacet is ISettlement {
         address feeReceiver = LibDoefinStorage.appStorage().adminConfigStorage.feeReceiver;
         uint256 collateralAmount = (uint256(order.pricePerToken) * uint256(fillAmount)) / unit;
 
-        // SEC-003: reject dust fills that round the collateral leg down to nothing, and
-        // guard the `collateralAmount - fee` subtraction against underflow.
+        // SEC-003: reject dust fills that round the collateral leg down to nothing.
         if (collateralAmount == 0) revert Errors.ZeroAmount();
-        if (collateralAmount < fee) revert Errors.InvalidPrice();
 
-        // GAS-007: `collateralAmount - fee` is guarded by the `collateralAmount < fee`
+        // SCRUM-224: validate the operator-supplied fee against the contract-derived
+        // collateral leg and the admin-set max rate. The fee is paid out of
+        // `collateralAmount`, so it must not exceed those proceeds.
+        _validateFee(fee, collateralAmount);
+        if (fee > collateralAmount) revert Errors.FeeExceedsProceeds();
+
+        // GAS-007: `collateralAmount - fee` is guarded by the `fee > collateralAmount`
         // check above, so the subtraction cannot underflow.
         uint256 netCollateral;
         unchecked { netCollateral = collateralAmount - fee; }
@@ -708,6 +768,7 @@ contract SettlementFacet is ISettlement {
             IERC20(order.collateralToken).safeTransferFrom(order.maker, msg.sender, netCollateral);
             if (fee > 0) {
                 IERC20(order.collateralToken).safeTransferFrom(order.maker, feeReceiver, fee);
+                emit Events.FeeCharged(feeReceiver, fee);
             }
             // Operator transfers position tokens to maker
             LibERC1155.safeTransferFrom(address(this), msg.sender, order.maker, uint256(order.positionId), fillAmount, "");
@@ -717,38 +778,33 @@ contract SettlementFacet is ISettlement {
             IERC20(order.collateralToken).safeTransferFrom(msg.sender, order.maker, netCollateral);
             if (fee > 0) {
                 IERC20(order.collateralToken).safeTransferFrom(msg.sender, feeReceiver, fee);
+                emit Events.FeeCharged(feeReceiver, fee);
             }
         }
     }
 
     // ========================================
-    // INTERNAL: FEE CALCULATION
+    // INTERNAL: FEE VALIDATION
     // ========================================
 
     /**
-     * @dev Symmetric fee: fee = rate * min(price, 1-price) * amount / (unit * 10000).
-     * @param feeRateBps Fee rate in basis points
-     * @param price Price per token
-     * @param amount Fill amount
-     * @param unit Pre-resolved `unitPerPair[collateralToken]` (passed by the caller;
-     *             GAS-004 — was previously a per-call SLOAD).
-     * @return fee The computed fee
-     * @custom:audit GAS-004 — pure function: `unit` is now an input parameter, not a
-     *      per-call SLOAD. The `feeRateBps <= MAX_FEE_RATE_BPS` and `price <= unit` guards
-     *      are correctness guards (NOT redundant with `_validateOrder`), so they remain.
+     * @dev Validate an operator-supplied fee against the admin-set maximum rate.
+     * @dev SCRUM-224 — replaces the old `_computeFee`. The operator supplies the fee
+     *      amount; the contract decides whether it is legal. `cashValue` is always the
+     *      contract-derived per-party collateral for the leg (price × fill, never an
+     *      operator-asserted value).
+     * @param fee The operator-supplied fee for this leg.
+     * @param cashValue The contract-derived per-party collateral value of the leg.
+     * @custom:security Fail-closed — `maxFeeRateBps == 0` is NOT treated as "unlimited":
+     *      it makes `maxAllowed` zero, so any non-zero fee reverts. This is a deliberate
+     *      divergence from Polymarket CTF Exchange V2 (fail-closed is the safer posture).
+     * @custom:reverts FeeExceedsMaxRate when `fee` exceeds `cashValue * maxFeeRateBps / 10000`.
      */
-    function _computeFee(
-        uint16 feeRateBps,
-        uint128 price,
-        uint128 amount,
-        uint256 unit
-    ) internal pure returns (uint128) {
-        if (feeRateBps == 0) return 0;
-        if (feeRateBps > MAX_FEE_RATE_BPS) revert Errors.FeeTooHigh();
-        if (uint256(price) > unit) revert Errors.InvalidPrice();
-        uint256 complementPrice = unit - uint256(price);
-        uint256 effectivePrice = uint256(price) < complementPrice ? uint256(price) : complementPrice;
-        return uint128((uint256(feeRateBps) * effectivePrice * uint256(amount)) / (unit * 10000));
+    function _validateFee(uint128 fee, uint256 cashValue) internal view {
+        if (fee == 0) return;
+        uint16 maxFeeRateBps = LibDoefinStorage.appStorage().adminConfigStorage.maxFeeRateBps;
+        uint256 maxAllowed = (cashValue * uint256(maxFeeRateBps)) / 10000;
+        if (uint256(fee) > maxAllowed) revert Errors.FeeExceedsMaxRate();
     }
 
     // ========================================
