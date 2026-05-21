@@ -6,7 +6,7 @@ describe("NonceManagerFacet", function () {
   let owner, maker, otherUser;
 
   const DOMAIN_NAME = "Doefin Exchange";
-  const DOMAIN_VERSION = "2.1";
+  const DOMAIN_VERSION = "3";
 
   const ORDER_TYPE = {
     DoefinOrder: [
@@ -19,9 +19,6 @@ describe("NonceManagerFacet", function () {
       { name: "amount", type: "uint128" },
       { name: "pricePerToken", type: "uint128" },
       { name: "minFillAmount", type: "uint128" },
-      { name: "orderType", type: "uint8" },
-      { name: "quoteCurrency", type: "address" },
-      { name: "exchangeRate", type: "uint128" },
       { name: "feeRateBps", type: "uint16" },
       { name: "expiration", type: "uint64" },
       { name: "nonce", type: "uint256" },
@@ -39,9 +36,6 @@ describe("NonceManagerFacet", function () {
       amount: 1000,
       pricePerToken: 500,
       minFillAmount: 100,
-      orderType: 0,
-      quoteCurrency: ethers.constants.AddressZero,
-      exchangeRate: 0,
       feeRateBps: 200,
       expiration: 0,
       nonce: 0,

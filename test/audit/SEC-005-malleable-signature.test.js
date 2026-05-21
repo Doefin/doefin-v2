@@ -1,27 +1,17 @@
-// PENTEST · SEC-005 (MED) — triplicated ECDSA verifier; OracleManagerFacet's
-// copy lacks the malleability check and `v` normalisation
+// PENTEST · SEC-005 (MED) — ECDSA malleability across the shared verifier
 // ----------------------------------------------------------------------------
-// STATUS: NOT YET FIXED. This pentest validates the settlement-side
-// malleability check (which DOES exist and DOES block the attack on the
-// crown-jewel surfaces) and documents the divergent OracleManagerFacet copy
-// that lacks it.
+// STATUS: FIXED. ECDSA recovery is consolidated in a single `LibSignature`
+// library (assembly r/s/v, `v<27` normalization, low-`s` reject). This pentest
+// validates the settlement-side malleability check, which blocks the attack on
+// the crown-jewel surfaces.
 //
-// Three copies of ECDSA recovery exist at the audited commit:
-//   1. SettlementFacet._verifySignature       — assembly r/s/v, `v<27` normalization, low-`s` reject.
-//   2. SignatureVerifierFacet._recoverSigner  — same hardening, but typed IERC1271 dispatch.
-//   3. OracleManagerFacet._recoverSigner (~544-560) — raw ecrecover, NO `v` normalization, NO low-`s` reject.
-//
-// The maintenance risk: hardening already DID diverge once (copies 1+2 carry the
-// fix, copy 3 doesn't). A future ecrecover-adjacent change to copies 1/2 can
-// easily miss copy 3 again. Remedy: extract a single `LibSignature`.
+// The cross-currency OracleManagerFacet that previously carried a divergent,
+// unhardened copy of the verifier has been removed from the protocol entirely,
+// so no inconsistent ecrecover path remains.
 //
 // What this pentest covers
 //   - DEMONSTRATES: SettlementFacet's `_verifySignature` rejects a malleable
-//     (high-`s`) signature with `InvalidOrderSignature`. Same payload would
-//     succeed against the equivalent OracleManagerFacet pathway — see the
-//     `it.skip` block below for the structural pentest that would need the
-//     oracle's authorizedSigner + PRICE_TYPEHASH + EIP-712 domain
-//     reconstructed in JS to exploit it directly.
+//     (high-`s`) signature with `InvalidOrderSignature`.
 //
 // secp256k1 group flip
 //   For any valid `(r, s, v)`, the pair `(r, n - s, v ^ 1)` is an equivalent
@@ -65,7 +55,7 @@ function flipToHighS(sigHex) {
   );
 }
 
-describe("PENTEST · SEC-005 (MED) — ECDSA malleability across the three verifier copies", function () {
+describe("PENTEST · SEC-005 (MED) — ECDSA malleability against the shared verifier", function () {
   let ctx;
 
   before(async function () {
@@ -156,23 +146,5 @@ describe("PENTEST · SEC-005 (MED) — ECDSA malleability across the three verif
     );
     const after = await erc1155Facet.balanceOf(buyer.address, positionIdA);
     expect(after.sub(before)).to.equal(fillAmount);
-  });
-
-  // The full exploit pentest against OracleManagerFacet — requires
-  // configuring `oracleStorage.authorizedSigner`, building the
-  // `PRICE_TYPEHASH` EIP-712 envelope in JS, and submitting `manualUpdatePrice`
-  // twice with the low-`s` and the high-`s` signatures (the second submission
-  // would have to use a different `nonce` because the first marks its own
-  // nonce used — i.e. the attack is "re-use this signature across the curve
-  // flip", not classic double-spend). Out of scope for this MED-maintenance
-  // pentest; the LibSignature extraction recommended in the ledger removes
-  // the gap entirely.
-  it.skip("ATTACK SUCCEEDS pre-fix — OracleManagerFacet accepts a malleable signature on manualUpdatePrice (requires oracle setup)", async function () {
-    // To exploit: set oracleStorage.authorizedSigner, build PRICE_TYPEHASH,
-    // submit manualUpdatePrice(low-`s`) on nonce A, submit the flipped-to-high-`s`
-    // form on nonce B with the SAME signer-recovered identity. Demonstrates
-    // that copy #3 accepts what copies #1/#2 reject. Will be enabled when the
-    // LibSignature refactor is in place and we cross-verify all three paths
-    // against a single test fixture.
   });
 });

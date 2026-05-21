@@ -12,7 +12,7 @@ const { getConditionId, getCollectionId, getPositionId } = require("./ctfUtils.j
 const UNIT = ethers.utils.parseUnits("1", 6); // 1e6 (USDC-like)
 const FEE_BPS = 200; // 2 %
 const DOMAIN_NAME = "Doefin Exchange";
-const DOMAIN_VERSION = "2.1";
+const DOMAIN_VERSION = "3";
 
 const ORDER_TYPE = {
   DoefinOrder: [
@@ -25,9 +25,6 @@ const ORDER_TYPE = {
     { name: "amount", type: "uint128" },
     { name: "pricePerToken", type: "uint128" },
     { name: "minFillAmount", type: "uint128" },
-    { name: "orderType", type: "uint8" },
-    { name: "quoteCurrency", type: "address" },
-    { name: "exchangeRate", type: "uint128" },
     { name: "feeRateBps", type: "uint16" },
     { name: "expiration", type: "uint64" },
     { name: "nonce", type: "uint256" },
@@ -114,9 +111,6 @@ async function setupAuditFixture() {
       amount,
       pricePerToken: price,
       minFillAmount: 0,
-      orderType: 0,
-      quoteCurrency: ethers.constants.AddressZero,
-      exchangeRate: 0,
       feeRateBps: FEE_BPS,
       expiration: 0,
       nonce: 0,

@@ -6,7 +6,7 @@ describe("LibDoefinOrder", function () {
   let baseOrder;
 
   const DOMAIN_NAME = "Doefin Exchange";
-  const DOMAIN_VERSION = "2.1";
+  const DOMAIN_VERSION = "3";
   const CHAIN_ID = 31337;
 
   before(async function () {
@@ -25,9 +25,6 @@ describe("LibDoefinOrder", function () {
       amount: 1000,
       pricePerToken: 500,
       minFillAmount: 100,
-      orderType: 0, // Standard
-      quoteCurrency: ethers.constants.AddressZero,
-      exchangeRate: 0,
       feeRateBps: 200,
       expiration: 0,
       nonce: 1,
@@ -51,9 +48,6 @@ describe("LibDoefinOrder", function () {
         "uint128 amount," +
         "uint128 pricePerToken," +
         "uint128 minFillAmount," +
-        "uint8 orderType," +
-        "address quoteCurrency," +
-        "uint128 exchangeRate," +
         "uint16 feeRateBps," +
         "uint64 expiration," +
         "uint256 nonce" +
@@ -175,30 +169,6 @@ describe("LibDoefinOrder", function () {
       expect(original).to.not.equal(modified);
     });
 
-    it("should change when orderType changes", async function () {
-      const original = await harness.hash(baseOrder);
-      const modified = await harness.hash({ ...baseOrder, orderType: 1 });
-      expect(original).to.not.equal(modified);
-    });
-
-    it("should change when quoteCurrency changes", async function () {
-      const original = await harness.hash(baseOrder);
-      const modified = await harness.hash({
-        ...baseOrder,
-        quoteCurrency: "0xDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-      });
-      expect(original).to.not.equal(modified);
-    });
-
-    it("should change when exchangeRate changes", async function () {
-      const original = await harness.hash(baseOrder);
-      const modified = await harness.hash({
-        ...baseOrder,
-        exchangeRate: 1000,
-      });
-      expect(original).to.not.equal(modified);
-    });
-
     it("should change when feeRateBps changes", async function () {
       const original = await harness.hash(baseOrder);
       const modified = await harness.hash({ ...baseOrder, feeRateBps: 300 });
@@ -234,9 +204,6 @@ describe("LibDoefinOrder", function () {
           "uint128",
           "uint128",
           "uint128",
-          "uint8",
-          "address",
-          "uint128",
           "uint16",
           "uint64",
           "uint256",
@@ -252,9 +219,6 @@ describe("LibDoefinOrder", function () {
           baseOrder.amount,
           baseOrder.pricePerToken,
           baseOrder.minFillAmount,
-          baseOrder.orderType,
-          baseOrder.quoteCurrency,
-          baseOrder.exchangeRate,
           baseOrder.feeRateBps,
           baseOrder.expiration,
           baseOrder.nonce,
@@ -439,11 +403,11 @@ describe("LibDoefinOrder", function () {
 
   describe("Cross-hash verification", function () {
     const EXPECTED_ORDER_TYPEHASH =
-      "0xe45fe759b84ed2d2522a36b4fa15242cc6fef0f910981952c03e1c40b653f168";
+      "0x29d15e551c0207e7e0ddab58f8bbface6e164f5e8a2c6844d683c40064fb6bd1";
     const EXPECTED_DOMAIN_TYPEHASH =
       "0x8b73c3c69bb8fe3d512ecc4cf759cc79239f7b179b0ffacaa9a75d522b39400f";
     const EXPECTED_STRUCT_HASH =
-      "0xa80d4afdc2d3ea05fa89fa2d9fc60a7aa2ea71ce5bbd0b4effac1a42d40833e0";
+      "0xc880153dbdf61a87259565192c87c865744be7e5172b192f28ead1c57980c2be";
 
     it("DOEFIN_ORDER_TYPEHASH must match canonical value", async function () {
       const actual = await harness.DOEFIN_ORDER_TYPEHASH();

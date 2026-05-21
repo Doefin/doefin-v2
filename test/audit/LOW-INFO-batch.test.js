@@ -127,7 +127,7 @@ describe("PENTEST BATCH · LOW + INFO", function () {
   // ==========================================================================
 
   describe("Accept-risk LOWs (intentional patterns; no fix required)", function () {
-    it.skip("SEC-008 — OracleManagerFacet.updatePrice is permissionless (keeper pattern); pause-on-failure write is rolled back by the same fn's own revert. Optional: require N consecutive failures.", function () {});
+    it.skip("SEC-008 — RESOLVED (SCRUM-223): the OracleManagerFacet permissionless-keeper finding is moot — the cross-currency oracle stack has been removed entirely.", function () {});
     it.skip("SEC-009 — Cancellation keys off `msg.sender`; SCW maker cannot delegate. Optional: add cancelOrderFor / incrementNonceFor for registered signers.", function () {});
     it.skip("SEC-010 — `orderHashToFilledAmount` is uint256 but `_checkFillAmount` caps it at the uint128 `orderAmount`; the wider type is harmless. Optional narrow.", function () {});
   });
@@ -137,7 +137,7 @@ describe("PENTEST BATCH · LOW + INFO", function () {
     it.skip("BIZ-005 — On-chain _computeFee asserted in tests only at price=0.5; add coverage at 0.1·unit and 0.9·unit (asymmetric branch), plus a multi-maker matchOrders with feeRateBps>0.", function () {});
     it.skip("BIZ-008 — `minFillAmount` is signed (in EIP-712 typehash for hash stability) but not enforced (SCRUM-121/122). Add a NatSpec note; required if GAS-001 is deferred past launch.", function () {});
     it.skip("CPX-003 — _getOrderHash and the order-validity predicate are duplicated across NonceManagerFacet + SettlementFacet. Extract a single LibSettlementValidity.", function () {});
-    it.skip("CPX-005 — Cross-currency conversion-path machinery on AdminConfigFacet is dead in v3. Delete post-launch (4 functions + mapping + 2 events) or add a NatSpec note.", function () {});
+    it.skip("CPX-005 — RESOLVED (SCRUM-223): the cross-currency conversion-path machinery on AdminConfigFacet (4 functions + mapping + 2 events) has been deleted.", function () {});
     it.skip("CPX-006 — `matchOrders` is a long multi-responsibility function (cyclomatic ~9-10). Extract a `_settleAgainstMaker` loop-body helper + a `_sumFills` helper.", function () {});
     it.skip("CPX-007 — `_getIndexSet` is O(n) but its comment claims O(1); _settleMint/_settleMerge duplicate the same partition+conditionId block. Extract `_conditionAndPartition`.", function () {});
     it.skip("SEC-012 — Orphaned `ProtocolFeesWithdrawn` event in Events.sol — delete the declaration.", function () {});

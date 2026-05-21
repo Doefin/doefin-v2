@@ -19,7 +19,7 @@ describe("SettlementFacet", function () {
 
   // EIP-712 helpers
   const DOMAIN_NAME = "Doefin Exchange";
-  const DOMAIN_VERSION = "2.1";
+  const DOMAIN_VERSION = "3";
   const ORDER_TYPE = {
     DoefinOrder: [
       { name: "salt", type: "uint256" },
@@ -31,9 +31,6 @@ describe("SettlementFacet", function () {
       { name: "amount", type: "uint128" },
       { name: "pricePerToken", type: "uint128" },
       { name: "minFillAmount", type: "uint128" },
-      { name: "orderType", type: "uint8" },
-      { name: "quoteCurrency", type: "address" },
-      { name: "exchangeRate", type: "uint128" },
       { name: "feeRateBps", type: "uint16" },
       { name: "expiration", type: "uint64" },
       { name: "nonce", type: "uint256" },
@@ -60,9 +57,6 @@ describe("SettlementFacet", function () {
       amount,
       pricePerToken: price,
       minFillAmount: 0,
-      orderType: 0,
-      quoteCurrency: ethers.constants.AddressZero,
-      exchangeRate: 0,
       feeRateBps: FEE_BPS,
       expiration: 0,
       nonce: 0,
@@ -1369,7 +1363,7 @@ describe("SettlementFacet", function () {
       // Re-derived locally with the same name/version/chainId/diamond
       const expected = ethers.utils._TypedDataEncoder.hashDomain({
         name: "Doefin Exchange",
-        version: "2.1",
+        version: "3",
         chainId: (await ethers.provider.getNetwork()).chainId,
         verifyingContract: diamondAddress,
       });
@@ -1470,9 +1464,6 @@ describe("SettlementFacet", function () {
         amount,
         pricePerToken: price,
         minFillAmount: 0,
-        orderType: 0,
-        quoteCurrency: ethers.constants.AddressZero,
-        exchangeRate: 0,
         feeRateBps: FRESH_FEE_BPS,
         expiration: 0,
         nonce: 0,

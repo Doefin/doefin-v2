@@ -6,7 +6,7 @@ describe("SignatureVerifierFacet", function () {
   let owner, eoaSigner, otherSigner;
 
   const DOMAIN_NAME = "Doefin Exchange";
-  const DOMAIN_VERSION = "2.1";
+  const DOMAIN_VERSION = "3";
 
   // EIP-712 typed data definition for signing in tests
   const ORDER_TYPE = {
@@ -20,9 +20,6 @@ describe("SignatureVerifierFacet", function () {
       { name: "amount", type: "uint128" },
       { name: "pricePerToken", type: "uint128" },
       { name: "minFillAmount", type: "uint128" },
-      { name: "orderType", type: "uint8" },
-      { name: "quoteCurrency", type: "address" },
-      { name: "exchangeRate", type: "uint128" },
       { name: "feeRateBps", type: "uint16" },
       { name: "expiration", type: "uint64" },
       { name: "nonce", type: "uint256" },
@@ -49,9 +46,6 @@ describe("SignatureVerifierFacet", function () {
       amount: 1000,
       pricePerToken: 500,
       minFillAmount: 100,
-      orderType: 0,
-      quoteCurrency: ethers.constants.AddressZero,
-      exchangeRate: 0,
       feeRateBps: 200,
       expiration: 0,
       nonce: 1,
