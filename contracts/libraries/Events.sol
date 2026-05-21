@@ -47,6 +47,11 @@ library Events {
     /// @param newTakerBps New taker fee in basis points
     event TradingFeesUpdated(uint16 oldMakerBps, uint16 oldTakerBps, uint16 newMakerBps, uint16 newTakerBps);
 
+    /// @notice Emitted when the admin updates the maximum settlement fee rate (SCRUM-224)
+    /// @param oldRate Previous maximum fee rate in basis points
+    /// @param newRate New maximum fee rate in basis points
+    event MaxFeeRateUpdated(uint16 oldRate, uint16 newRate);
+
     // ========================================
     // ACCESS CONTROL EVENTS
     // ========================================
@@ -376,4 +381,9 @@ library Events {
     /// @param oldOperator Previous operator address (may be `address(0)` on first-set)
     /// @param newOperator New operator address (never `address(0)`)
     event OperatorUpdated(address indexed oldOperator, address indexed newOperator);
+
+    /// @notice Emitted when a settlement fee is transferred to the protocol fee receiver (SCRUM-224)
+    /// @param receiver The protocol fee receiver address
+    /// @param amount The fee amount transferred
+    event FeeCharged(address indexed receiver, uint256 amount);
 }

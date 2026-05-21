@@ -57,6 +57,9 @@ library Errors {
     /// @notice Thrown when no change is made for fees/receiver
     error NoChangeRequired();
 
+    /// @notice Thrown when the admin attempts to set a max fee rate above the hard ceiling
+    error MaxFeeRateExceedsCeiling();
+
     // ========================================
     // CONDITION MANAGER ERRORS
     // ========================================
@@ -358,4 +361,10 @@ library Errors {
 
     /// @notice Thrown when taker and maker are the same address (self-trade prevention)
     error SelfTrade();
+
+    /// @notice Thrown when an operator-supplied fee exceeds the admin-set maximum rate
+    error FeeExceedsMaxRate();
+
+    /// @notice Thrown when an operator-supplied fee exceeds a party's payout/proceeds
+    error FeeExceedsProceeds();
 }
