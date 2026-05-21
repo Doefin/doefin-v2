@@ -124,12 +124,11 @@ library LibDoefinStorage {
         mapping(address => bool) isAllowed;
         mapping(address => uint256) unitPerPair; // token => unit amount (e.g., 1e6 USDC)
         mapping(address => string) tokenSymbols; // token => symbol (e.g., "BTC", "USDC", "USDT")
-        mapping(bytes32 => bytes32[]) conversionPaths; // keccak256(abi.encodePacked(fromToken, toToken)) => oracle asset IDs
         address feeReceiver;
         uint16 resolutionFeeBps;
         uint16 makerTradingFeeBps;
         uint16 takerTradingFeeBps;
-        uint256[10] __gap;
+        uint256[11] __gap;
     }
 
     // DEPRECATED (v2.0): preserved for storage layout safety, do not use
@@ -146,27 +145,9 @@ library LibDoefinStorage {
     }
 
     // DEPRECATED (v2.0): preserved for storage layout safety, do not use
-    enum OrderType {
-        Standard, // Regular buy/sell in collateral token
-        Fixed, // Orders that use quote currency for pricing/settlement
-        Dynamic // Orders that use dynamic exchange rates from oracles, priced in collateral token
-    }
-
-    // DEPRECATED (v2.0): preserved for storage layout safety, do not use
     struct OrderFeeConfig {
         uint16 makerFeeBps;
         uint16 takerFeeBps;
-    }
-
-    // DEPRECATED (v2.0): preserved for storage layout safety, do not use
-    struct CrossCurrencyData {
-        /// @notice Quote currency token address (e.g., ETH, BTC, WETH)
-        address quoteCurrencyToken;
-        /// @notice Floor exchange rate to use for pricing
-        /// @dev For Fixed: It's always 0, since the price is in Quote Currency
-        /// @dev For Dynamic Buy it's the max rate (worst case for buyer)
-        /// @dev For Dynamic Sell it's the min rate (worst case for seller)
-        uint64 floorRate;
     }
 
     // DEPRECATED (v2.0): preserved for storage layout safety, do not use
@@ -200,7 +181,6 @@ library LibDoefinStorage {
         uint256 collateralUnit;
         uint256 sharesOrBudgetAmount;
         uint256 matchCount;
-        OrderType orderType;
     }
 
     // DEPRECATED (v2.0): preserved for storage layout safety, do not use
@@ -223,8 +203,7 @@ library LibDoefinStorage {
         None,
         Complementary,
         Mint, // Via split (matching against sibling Buy)
-        Merge, // Via merge (matching against sibling Sell)
-        CrossCurrency // Cross-currency matches
+        Merge // Via merge (matching against sibling Sell)
     }
 
     // DEPRECATED (v2.0): preserved for storage layout safety, do not use
@@ -304,10 +283,8 @@ library LibDoefinStorage {
         mapping(bytes32 => uint256[]) buyOrdersByPositionAndCurrency;
         /// @notice Mapping of position ID and Currency to array of active sell order IDs
         mapping(bytes32 => uint256[]) sellOrdersByPositionAndCurrency;
-        /// @notice Mapping of order ID to CrossCurrencyData
-        mapping(uint256 => CrossCurrencyData) crossCurrencyData;
         /// @notice Added Extra Gaps for safe upgrades
-        uint256[10] __gap;
+        uint256[11] __gap;
     }
 
     // DEPRECATED (v2.0): preserved for storage layout safety, do not use
@@ -378,38 +355,6 @@ library LibDoefinStorage {
         uint256[10] __gap;
     }
 
-    struct AdapterConfig {
-        uint256 maxStaleness;
-        uint256 failureCount;
-        address adapterAddress;
-        bool enabled;
-    }
-
-    struct AssetConfig {
-        bytes32[] adapterPriority; // Ordered array of adapter IDs
-        uint256 maxStaleness;
-        uint256 lastUpdateTimestamp;
-        uint8 decimals; // Number of decimals for the oracle price (0-18, 0 defaults to 18)
-        bool tradingPaused;
-    }
-
-    struct PriceData {
-        uint256 price;
-        uint256 timestamp;
-        bytes32 lastSuccessfulAdapterId;
-        bool isValid;
-    }
-
-    struct OracleStorage {
-        mapping(bytes32 => AdapterConfig) adapters;
-        mapping(bytes32 => AssetConfig) assetConfigs;
-        mapping(bytes32 => PriceData) priceData;
-        mapping(bytes32 => bool) usedNonces;
-        address authorizedSigner;
-        uint256 maxManualUpdateAge; // Maximum age in seconds for manual price updates (default: 300)
-        uint256[9] __gap; // Reduced gap by 1 to accommodate new field
-    }
-
     struct AppStorage {
         ConditionalTokensStorage conditionalTokens;
         AccessControlStorage accessControl;
@@ -419,10 +364,9 @@ library LibDoefinStorage {
         EscrowStorage escrowStorage;
         PositionRegistryStorage positionRegistry;
         ReentrancyStorage reentrancyStorage;
-        OracleStorage oracleStorage;
         BlockHeaderOracleStorage blockHeaderOracleStorage;
         OracleAdapterStorage oracleAdapterStorage;
-        uint256[50] __gap;
+        uint256[51] __gap;
     }
 
     function appStorage() internal pure returns (AppStorage storage ds) {

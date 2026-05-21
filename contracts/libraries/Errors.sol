@@ -57,9 +57,6 @@ library Errors {
     /// @notice Thrown when no change is made for fees/receiver
     error NoChangeRequired();
 
-    /// @notice Thrown when conversion path is invalid (e.g., same from/to tokens)
-    error InvalidConversionPath();
-
     // ========================================
     // CONDITION MANAGER ERRORS
     // ========================================
@@ -202,47 +199,17 @@ library Errors {
     error InvalidParentCollectionId();
 
     // ========================================
-    // ORACLE ERRORS
+    // SIGNATURE ERRORS
     // ========================================
 
-    /// @notice Thrown when oracle adapter is not registered
-    error AdapterNotRegistered(bytes32 adapterId);
-
-    /// @notice Thrown when oracle adapter already exists
-    error AdapterAlreadyExists(bytes32 adapterId);
-
-    /// @notice Thrown when asset is not configured for oracle
-    error AssetNotConfigured(bytes32 assetId);
-
-    /// @notice Thrown when adapter priority array is empty
-    error EmptyAdapterPriority();
-
-    /// @notice Thrown when all configured oracle adapters fail to provide a valid price
-    error AllOracleAdaptersFailed(bytes32 assetId);
-
-    /// @notice Thrown when oracle timestamp is invalid
+    /// @notice Thrown when a signed-message timestamp is invalid
     error InvalidTimestamp();
-
-    /// @notice Thrown when signature signer is not authorized
-    error UnauthorizedSigner();
-
-    /// @notice Thrown when nonce has already been used for replay protection
-    error NonceAlreadyUsed();
 
     /// @notice Thrown when signature has expired
     error SignatureExpired();
 
     /// @notice Thrown when signature is invalid or ecrecover fails
     error InvalidSignature();
-
-    /// @notice Thrown when oracle decimals configuration is invalid (must be 0-18)
-    error InvalidOracleDecimals(bytes32 assetId, uint8 decimals);
-
-    /// @notice Thrown when feed ID is invalid (zero)
-    error InvalidFeedId();
-
-    /// @notice Thrown when decimals value is invalid (zero or greater than 18)
-    error InvalidDecimals();
 
     // ========================================
     // BLOCK HEADER ORACLE ERRORS
@@ -361,14 +328,8 @@ library Errors {
     /// @notice Thrown when trying to set owner to invalid address
     error InvalidAddress();
 
-    /// @notice Thrown when mock adapter is configured to fail for testing
-    error MockAdapterConfiguredToFail();
-
     /// @notice Thrown when caller is not the pending owner
     error NotPendingOwner();
-
-    /// @notice Thrown when max manual update age is invalid (too short or too long)
-    error InvalidMaxManualUpdateAge();
 
     // ========================================
     // SETTLEMENT ERRORS (v2.1)
