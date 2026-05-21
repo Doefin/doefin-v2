@@ -9,13 +9,13 @@ import {Errors} from "./Errors.sol";
  * @author Doefin
  * @notice Shared ECDSA + EIP-1271 signature primitives for the Doefin protocol
  * @dev Single source of truth for v normalization, low-`s` malleability rejection, and
- *      EIP-1271 dispatch. Promoted from three triplicated implementations in
- *      SettlementFacet, SignatureVerifierFacet, and OracleManagerFacet (SEC-005).
+ *      EIP-1271 dispatch. Promoted from duplicated implementations in
+ *      SettlementFacet and SignatureVerifierFacet (SEC-005).
  * @custom:security Always rejects high-`s` signatures (lower half of secp256k1 order only)
  *      and normalizes `v` to 27/28. Returns `address(0)` for invalid recoveries so callers
  *      can match the existing `recoveredSigner == address(0)` check pattern.
- * @custom:audit SEC-005 — was three copies; OracleManagerFacet's copy lacked v normalization
- *      and the low-`s` malleability check entirely. REMAINING-1 corroborates.
+ * @custom:audit SEC-005 — was multiple copies that lacked v normalization and the low-`s`
+ *      malleability check; consolidated here. REMAINING-1 corroborates.
  */
 library LibSignature {
     /// @notice secp256k1 half curve order — EIP-2 / Ethereum Yellow Paper. The maximum
