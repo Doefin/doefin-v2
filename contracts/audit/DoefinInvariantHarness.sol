@@ -483,7 +483,7 @@ contract DoefinInvariantHarness {
     // INTERNAL — ORDER CONSTRUCTION & SIGNING
     // ========================================
 
-    /// @dev Build a standard (non cross-currency) DoefinOrder for an actor.
+    /// @dev Build a DoefinOrder for an actor.
     ///      The order is signed separately via `_sign` using private key
     ///      `actorIndex + 1`, which `ecrecover`s back to `actors[actorIndex]`.
     /// @param actorIndex Index into the `actors` array.
@@ -515,9 +515,6 @@ contract DoefinInvariantHarness {
             amount: amount,
             pricePerToken: price,
             minFillAmount: 0,
-            orderType: 0,
-            quoteCurrency: address(0),
-            exchangeRate: 0,
             feeRateBps: FEE_BPS,
             expiration: 0,
             nonce: 0
@@ -532,7 +529,7 @@ contract DoefinInvariantHarness {
     {
         bytes32 domainSep = LibDoefinOrder.domainSeparator(
             "Doefin Exchange",
-            "2.1",
+            "3",
             block.chainid,
             diamond
         );
@@ -545,7 +542,7 @@ contract DoefinInvariantHarness {
     function _recordOrder(LibDoefinOrder.DoefinOrder memory order) internal {
         bytes32 domainSep = LibDoefinOrder.domainSeparator(
             "Doefin Exchange",
-            "2.1",
+            "3",
             block.chainid,
             diamond
         );

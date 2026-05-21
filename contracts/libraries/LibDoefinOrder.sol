@@ -25,9 +25,6 @@ library LibDoefinOrder {
         uint128 amount;
         uint128 pricePerToken;
         uint128 minFillAmount;
-        uint8 orderType;         // 0 = Standard, 1 = FixedCC, 2 = DynamicCC
-        address quoteCurrency;   // Zero address for standard orders
-        uint128 exchangeRate;    // 0 for standard, fixed rate or floor rate for CC
         uint16 feeRateBps;
         uint64 expiration;       // 0 = no expiry
         uint256 nonce;
@@ -49,9 +46,6 @@ library LibDoefinOrder {
         "uint128 amount,"
         "uint128 pricePerToken,"
         "uint128 minFillAmount,"
-        "uint8 orderType,"
-        "address quoteCurrency,"
-        "uint128 exchangeRate,"
         "uint16 feeRateBps,"
         "uint64 expiration,"
         "uint256 nonce"
@@ -88,9 +82,6 @@ library LibDoefinOrder {
                 order.amount,
                 order.pricePerToken,
                 order.minFillAmount,
-                order.orderType,
-                order.quoteCurrency,
-                order.exchangeRate,
                 order.feeRateBps,
                 order.expiration,
                 order.nonce
@@ -100,7 +91,7 @@ library LibDoefinOrder {
 
     /// @notice Compute the EIP-712 domain separator
     /// @param name The protocol name ("Doefin Exchange")
-    /// @param version The protocol version ("2.1")
+    /// @param version The protocol version ("3")
     /// @param chainId The chain ID
     /// @param verifyingContract The Diamond proxy address
     /// @return The keccak256 domain separator
@@ -128,7 +119,7 @@ library LibDoefinOrder {
     ///      no `chainId` guard while the other two facets recomputed it on every call; a
     ///      chain fork could leave cancellations unable to match the settlement digest.
     function diamondDomainSeparator(address verifyingContract) internal view returns (bytes32) {
-        return domainSeparator("Doefin Exchange", "2.1", block.chainid, verifyingContract);
+        return domainSeparator("Doefin Exchange", "3", block.chainid, verifyingContract);
     }
 
     /// @notice Compute the full EIP-712 hash (\\x19\\x01 + domain + struct)
@@ -169,9 +160,6 @@ library LibDoefinOrder {
                 order.amount,
                 order.pricePerToken,
                 order.minFillAmount,
-                order.orderType,
-                order.quoteCurrency,
-                order.exchangeRate,
                 order.feeRateBps,
                 order.expiration,
                 order.nonce
