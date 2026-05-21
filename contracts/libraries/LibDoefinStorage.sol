@@ -134,170 +134,6 @@ library LibDoefinStorage {
         uint256[12] __gap;
     }
 
-    // DEPRECATED (v2.0): preserved for storage layout safety, do not use
-    /// @notice Enum representing whether an order is a Buy or a Sell
-    enum OrderDirection {
-        Buy,
-        Sell
-    }
-
-    // DEPRECATED (v2.0): preserved for storage layout safety, do not use
-    enum ExecutionType {
-        Market,
-        Limit
-    }
-
-    // DEPRECATED (v2.0): preserved for storage layout safety, do not use
-    struct OrderFeeConfig {
-        uint16 makerFeeBps;
-        uint16 takerFeeBps;
-    }
-
-    // DEPRECATED (v2.0): preserved for storage layout safety, do not use
-    struct SettlementExecutionContext {
-        uint256 fillableAmount;
-        Order takerOrder;
-        Order makerOrder;
-        MatchType matchType;
-        ExecutionType executionType;
-    }
-
-    // DEPRECATED (v2.0): preserved for storage layout safety, do not use
-    struct ModifyCollateralContext {
-        uint256 positionId;
-        uint256 oldAmount;
-        uint256 newAmount;
-        uint256 oldPrice;
-        uint256 newPrice;
-        address maker;
-        uint16 makerFeeBps;
-        address collateralToken;
-        OrderDirection direction;
-    }
-
-    // DEPRECATED (v2.0): preserved for storage layout safety, do not use
-    struct SimulationContext {
-        uint256[] complementaryOrders;
-        uint256[] mintOrMergeOrders;
-        MatchType siblingMatchType;
-        OrderDirection direction;
-        uint256 collateralUnit;
-        uint256 sharesOrBudgetAmount;
-        uint256 matchCount;
-    }
-
-    // DEPRECATED (v2.0): preserved for storage layout safety, do not use
-    struct Match {
-        uint256 matchedOrderId;
-        uint256 amount;
-        uint256 effectivePrice;
-        MatchType matchType;
-    }
-
-    // DEPRECATED (v2.0): preserved for storage layout safety, do not use
-    struct MatchOrderRoute {
-        Match[] matches;
-        uint256 totalInputAmount;
-        uint256 totalOutputAmount;
-    }
-
-    // DEPRECATED (v2.0): preserved for storage layout safety, do not use
-    enum MatchType {
-        None,
-        Complementary,
-        Mint, // Via split (matching against sibling Buy)
-        Merge // Via merge (matching against sibling Sell)
-    }
-
-    // DEPRECATED (v2.0): preserved for storage layout safety, do not use
-    /// @notice Struct representing a single limit or market order
-    /// @dev Each order maps to a specific ERC1155 position token and can be either a buy or a sell
-    /// @notice Struct representing a single limit or market order
-    /// @dev Optimized storage packing: 7 slots (224 bytes), saves 96 bytes per order
-    /// @dev Slot layout ensures efficient gas usage through careful field ordering and size selection
-    struct Order {
-        /// @notice Position ID of the outcome token being traded
-        /// @dev Maps to ERC1155 token ID in the Conditional Tokens Framework
-        uint256 positionId;
-        /// @notice Total size of the order in outcome tokens
-        /// @dev Immutable after creation (unless modified via modifyOrder)
-        uint256 amount;
-        /// @notice Amount of tokens remaining to be filled
-        /// @dev Decreases as the order is matched; 0 means fully filled
-        uint256 remainingAmount;
-        /// @notice Minimum amount that must be filled in a single match
-        /// @dev Set to 0 for no minimum; prevents dust fills
-        uint256 minFillAmount;
-        /// @notice Price per outcome token
-        /// @dev For Standard orders: denominated in collateral token (e.g., 0.65 USDC per YES token)
-        /// @dev For CC Fixed orders: denominated in quote currency (e.g., 0.66 USDT per YES token)
-        /// @dev For CC Dynamic orders: floor price in collateral token (e.g., 0.000007 BTC per YES token)
-        uint256 pricePerToken;
-        /// @notice Address of the order creator
-        /// @dev Has permission to cancel or modify the order
-        address maker; // 20 bytes
-        /// @notice Timestamp after which the order becomes invalid
-        /// @dev Set to 0 for no expiry; uint32 supports dates until February 2106
-        uint32 expiry; // 4 bytes
-        /// @notice Timestamp when the order was created
-        /// @dev Used for FIFO tiebreaking when prices are equal; uint32 until year 2106
-        uint32 createdAt; // 4 bytes
-        /// @notice Maker fee in basis points (1 bp = 0.01%)
-        /// @dev Applied when this order is the passive side (maker) in a trade
-        uint16 makerFeeBps; // 2 bytes
-        /// @notice Taker fee in basis points (1 bp = 0.01%)
-        /// @dev Applied when this order is the aggressive side (taker) in a trade
-        uint16 takerFeeBps; // 2 bytes
-        /// @notice Address of the collateral token (e.g., USDC, WETH, BTC)
-        /// @dev Standard/Dynamic orders: token used for pricing and settlement
-        /// @dev Fixed CC orders: base token, but settlement occurs in quote currency
-        address collateralToken; // 20 bytes
-        /// @notice Unique identifier for this order
-        /// @dev Incrementally assigned; uint64 supports 18 quintillion orders
-        uint256 orderId; // 32 bytes
-        /// @notice Whether this is a Buy or Sell order
-        /// @dev Buy: user provides collateral, receives outcome tokens
-        /// @dev Sell: user provides outcome tokens, receives collateral
-        OrderDirection direction; // 1 byte
-        /// @notice Order execution type
-        /// @dev Market: executes immediately at best available price
-        /// @dev Limit: only executes at specified price or better
-        ExecutionType executionType; // 1 byte
-        /// @notice Whether the order is currently active and matchable
-        /// @dev Set to false when cancelled or fully filled
-        bool active; // 1 byte
-        /// @notice Fill-or-Kill flag
-        /// @dev If true, order must be completely filled immediately or it's cancelled
-        /// @dev If false, partial fills are allowed
-        bool fillOrKill; // 1 byte
-    }
-
-    // DEPRECATED (v2.0): preserved for storage layout safety, do not use
-    /// @notice Global storage layout for the Orderbook facet/module
-    struct OrderbookStorageStruct {
-        uint256 nextOrderId;
-        /// @notice Mapping from order ID to Order struct
-        mapping(uint256 => Order) orders;
-        // ========================================
-        // Single Mapping for All Orderbooks
-        // Key: keccak256(abi.encodePacked(positionId, quoteCurrencyToken));
-        // ========================================
-        /// @notice Mapping of position ID and Currency to array of active buy order IDs
-        mapping(bytes32 => uint256[]) buyOrdersByPositionAndCurrency;
-        /// @notice Mapping of position ID and Currency to array of active sell order IDs
-        mapping(bytes32 => uint256[]) sellOrdersByPositionAndCurrency;
-        /// @notice Added Extra Gaps for safe upgrades
-        uint256[11] __gap;
-    }
-
-    // DEPRECATED (v2.0): preserved for storage layout safety, do not use
-    struct EscrowStorage {
-        mapping(address => mapping(address => uint256)) collateralBalances; // user => ERC20 token => amount
-        mapping(address => mapping(uint256 => uint256)) lockedERC1155Balances; // user => positionId => amount
-        mapping(address => uint256) protocolFees; // ERC20 token => total accumulated
-        uint256[10] __gap;
-    }
-
     struct MarketMetadata {
         address collateralToken;
         bytes32 parentCollectionId;
@@ -363,8 +199,6 @@ library LibDoefinStorage {
         AccessControlStorage accessControl;
         ERC1155Storage erc1155Storage;
         AdminConfigStorage adminConfigStorage;
-        OrderbookStorageStruct orderbookStorage;
-        EscrowStorage escrowStorage;
         PositionRegistryStorage positionRegistry;
         ReentrancyStorage reentrancyStorage;
         BlockHeaderOracleStorage blockHeaderOracleStorage;
@@ -385,7 +219,6 @@ library LibDoefinStorage {
 
         AppStorage storage ds = appStorage();
 
-        ds.orderbookStorage.nextOrderId = 1; // DEPRECATED (v2.0): retained for storage layout safety
         ds.reentrancyStorage._status = 1;
 
         // Set admin config during initialization
