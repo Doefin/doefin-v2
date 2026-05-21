@@ -6,7 +6,7 @@ import {LibDoefinOrder} from "../libraries/LibDoefinOrder.sol";
 /**
  * @title INonceManager
  * @author Doefin
- * @notice Interface for on-chain order cancellation and nonce management in the v2.1 settlement system
+ * @notice Interface for on-chain order cancellation and nonce management in the v3 settlement system
  */
 interface INonceManager {
     function incrementNonce() external returns (uint256 newNonce);

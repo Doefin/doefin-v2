@@ -335,7 +335,7 @@ library Errors {
     error NotPendingOwner();
 
     // ========================================
-    // SETTLEMENT ERRORS (v2.1)
+    // SETTLEMENT ERRORS (v3)
     // ========================================
 
     /// @notice Thrown when EIP-712 order signature verification fails

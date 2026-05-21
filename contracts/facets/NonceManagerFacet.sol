@@ -11,7 +11,7 @@ import {INonceManager} from "../interfaces/INonceManager.sol";
 /**
  * @title NonceManagerFacet
  * @author Doefin
- * @notice On-chain order cancellation and nonce management for the v2.1 hybrid settlement system
+ * @notice On-chain order cancellation and nonce management for the v3 hybrid settlement system
  * @dev Provides three cancellation mechanisms:
  *      1. Individual order cancellation by hash
  *      2. Bulk cancellation via nonce increment (invalidates all orders with nonce < new value)

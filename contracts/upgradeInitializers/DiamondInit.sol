@@ -83,7 +83,7 @@ contract DiamondInit {
         ds.supportedInterfaces[type(IAccessControl).interfaceId] = true;
         ds.supportedInterfaces[type(IAdminConfig).interfaceId] = true;
         ds.supportedInterfaces[type(IDoefinBlockHeaderOracle).interfaceId] = true;
-        // v2.1 Settlement interfaces
+        // v3 Settlement interfaces
         ds.supportedInterfaces[type(ISignatureVerifier).interfaceId] = true;
         ds.supportedInterfaces[type(INonceManager).interfaceId] = true;
         ds.supportedInterfaces[type(ISettlement).interfaceId] = true;

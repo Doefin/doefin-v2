@@ -6,7 +6,7 @@ import {LibDoefinOrder} from "../libraries/LibDoefinOrder.sol";
 /**
  * @title ISettlement
  * @author Doefin
- * @notice Interface for the v2.1 hybrid settlement facet
+ * @notice Interface for the v3 hybrid settlement facet
  * @dev Operator-only entry point for executing matched order pairs on-chain
  */
 interface ISettlement {

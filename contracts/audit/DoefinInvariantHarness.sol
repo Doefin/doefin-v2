@@ -400,7 +400,7 @@ contract DoefinInvariantHarness {
 
     function _settlementCut() internal returns (IDiamondCut.FacetCut memory) {
         // SEC-004: cacheDomainSeparator() was removed — the separator is recomputed
-        // on every call by all three v2.1 facets.
+        // on every call by all three v3 facets.
         bytes4[] memory s = new bytes4[](8);
         s[0] = SettlementFacet.matchOrders.selector;
         s[1] = SettlementFacet.fillOrder.selector;

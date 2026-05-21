@@ -18,7 +18,7 @@ import {SafeERC20, IERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeE
 /**
  * @title SettlementFacet
  * @author Doefin
- * @notice Core on-chain settlement for the v2.1 hybrid model
+ * @notice Core on-chain settlement for the v3 hybrid model
  * @dev Operator-only entry point that executes matched order pairs. Replaces on-chain matching
  *      with a simpler validate-and-execute model. Supports Complementary, Mint, and Merge paths.
  */

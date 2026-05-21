@@ -4,7 +4,7 @@ pragma solidity ^0.8.6;
 /**
  * @title LibSettlementStorage
  * @author Doefin
- * @notice Storage layout for the v2.1 hybrid settlement system
+ * @notice Storage layout for the v3 hybrid settlement system
  * @dev Uses a dedicated storage slot separate from the main AppStorage to avoid
  *      layout collisions. Follows the same keccak256 slot + assembly pattern as LibDoefinStorage.
  */
@@ -24,7 +24,7 @@ library LibSettlementStorage {
     ///      (mapping *roots* are always zero, so in practice nothing) stays inert.
     ///
     ///      SEC-004 (mainnet audit): the former `domainSeparator` cache field is
-    ///      removed in this fresh-deploy storage-layout change. All three v2.1
+    ///      removed in this fresh-deploy storage-layout change. All three v3
     ///      facets now recompute the separator via
     ///      {LibDoefinOrder.diamondDomainSeparator} on every call. Removing the
     ///      cache eliminates the `chainId` drift hazard between facets and matches

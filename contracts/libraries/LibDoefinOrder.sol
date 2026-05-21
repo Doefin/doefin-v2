@@ -114,7 +114,7 @@ library LibDoefinOrder {
 
     /// @notice Convenience helper: compute the canonical Diamond domain separator using the
     ///         current `block.chainid` and the supplied verifying contract.
-    /// @dev Used by all three v2.1 facets (Settlement, SignatureVerifier, NonceManager) so
+    /// @dev Used by all three v3 facets (Settlement, SignatureVerifier, NonceManager) so
     ///      they cannot drift. SEC-004 — pre-fix, SettlementFacet cached the separator with
     ///      no `chainId` guard while the other two facets recomputed it on every call; a
     ///      chain fork could leave cancellations unable to match the settlement digest.

@@ -6,7 +6,7 @@ import {LibDoefinOrder} from "../libraries/LibDoefinOrder.sol";
 /**
  * @title ISignatureVerifier
  * @author Doefin
- * @notice Interface for EIP-712 order signature verification in the v2.1 settlement system
+ * @notice Interface for EIP-712 order signature verification in the v3 settlement system
  */
 interface ISignatureVerifier {
     function verifyOrderSignature(

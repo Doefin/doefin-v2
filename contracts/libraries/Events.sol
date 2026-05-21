@@ -323,7 +323,7 @@ library Events {
     event ApprovalForAll(address indexed owner, address indexed operator, bool approved);
 
     // ========================================
-    // SETTLEMENT EVENTS (v2.1)
+    // SETTLEMENT EVENTS (v3)
     // ========================================
 
     /// @notice Emitted when an individual order is settled (partially or fully filled)

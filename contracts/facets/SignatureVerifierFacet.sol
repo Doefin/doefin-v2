@@ -11,7 +11,7 @@ import {ISignatureVerifier} from "../interfaces/ISignatureVerifier.sol";
 /**
  * @title SignatureVerifierFacet
  * @author Doefin
- * @notice EIP-712 order signature verification for the v2.1 hybrid settlement system
+ * @notice EIP-712 order signature verification for the v3 hybrid settlement system
  * @dev Supports EOA signatures (ecrecover) and smart contract wallet signatures (EIP-1271).
  *      Called by SettlementFacet during order settlement to validate both taker and maker signatures.
  *      Uses LibDoefinOrder for all hashing -- does NOT reimplement EIP-712 logic.
@@ -96,7 +96,7 @@ contract SignatureVerifierFacet is ISignatureVerifier {
      * @dev Compute the EIP-712 domain separator using the Diamond's address and chain ID.
      * @return The domain separator.
      * @custom:audit SEC-004 — delegates to {LibDoefinOrder.diamondDomainSeparator} so the
-     *      three v2.1 facets (Settlement, SignatureVerifier, NonceManager) cannot drift.
+     *      three v3 facets (Settlement, SignatureVerifier, NonceManager) cannot drift.
      */
     function _getDomainSeparator() internal view returns (bytes32) {
         return LibDoefinOrder.diamondDomainSeparator(address(this));
