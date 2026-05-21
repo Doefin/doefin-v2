@@ -1,7 +1,7 @@
 {
   "contractName": "Diamond",
   "description": "Merged ABI for the Doefin v3 Diamond proxy (all active facets).",
-  "generatedAt": "2026-05-21T18:52:03.200Z",
+  "generatedAt": "2026-05-21T20:45:59.245Z",
   "contracts": [
     "Diamond",
     "DiamondCutFacet",
@@ -273,11 +273,6 @@
               "type": "uint128"
             },
             {
-              "internalType": "uint128",
-              "name": "minFillAmount",
-              "type": "uint128"
-            },
-            {
               "internalType": "uint64",
               "name": "expiration",
               "type": "uint64"
@@ -340,11 +335,6 @@
             {
               "internalType": "uint128",
               "name": "pricePerToken",
-              "type": "uint128"
-            },
-            {
-              "internalType": "uint128",
-              "name": "minFillAmount",
               "type": "uint128"
             },
             {
@@ -622,11 +612,6 @@
             {
               "internalType": "uint128",
               "name": "pricePerToken",
-              "type": "uint128"
-            },
-            {
-              "internalType": "uint128",
-              "name": "minFillAmount",
               "type": "uint128"
             },
             {
@@ -1561,11 +1546,6 @@
               "type": "uint128"
             },
             {
-              "internalType": "uint128",
-              "name": "minFillAmount",
-              "type": "uint128"
-            },
-            {
               "internalType": "uint64",
               "name": "expiration",
               "type": "uint64"
@@ -2089,11 +2069,6 @@
               "type": "uint128"
             },
             {
-              "internalType": "uint128",
-              "name": "minFillAmount",
-              "type": "uint128"
-            },
-            {
               "internalType": "uint64",
               "name": "expiration",
               "type": "uint64"
@@ -2202,11 +2177,6 @@
               "type": "uint128"
             },
             {
-              "internalType": "uint128",
-              "name": "minFillAmount",
-              "type": "uint128"
-            },
-            {
               "internalType": "uint64",
               "name": "expiration",
               "type": "uint64"
@@ -2271,11 +2241,6 @@
             {
               "internalType": "uint128",
               "name": "pricePerToken",
-              "type": "uint128"
-            },
-            {
-              "internalType": "uint128",
-              "name": "minFillAmount",
               "type": "uint128"
             },
             {
@@ -2964,11 +2929,6 @@
             {
               "internalType": "uint128",
               "name": "pricePerToken",
-              "type": "uint128"
-            },
-            {
-              "internalType": "uint128",
-              "name": "minFillAmount",
               "type": "uint128"
             },
             {

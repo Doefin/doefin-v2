@@ -97,7 +97,7 @@ describe("PENTEST BATCH · LOW + INFO", function () {
   describe("Cleanup LOWs / INFOs (no exploitable behaviour; one cleanup commit)", function () {
     it.skip("BIZ-002 — _settleMerge runs the CTF burn BEFORE the crossing-check (effects-before-checks). Atomic-revert unwinds it today; move the check above the burn for consistency with _settleMint.", function () {});
     it.skip("BIZ-005 — On-chain _computeFee asserted in tests only at price=0.5; add coverage at 0.1·unit and 0.9·unit (asymmetric branch), plus a multi-maker matchOrders with feeRateBps>0.", function () {});
-    it.skip("BIZ-008 — `minFillAmount` is signed (in EIP-712 typehash for hash stability) but not enforced (SCRUM-121/122). Add a NatSpec note; required if GAS-001 is deferred past launch.", function () {});
+    it.skip("BIZ-008 — RESOLVED (SCRUM-226): `minFillAmount` was signed but never enforced on-chain; it has been removed from the DoefinOrder struct and EIP-712 typehash (10-field v3 form).", function () {});
     it.skip("CPX-003 — _getOrderHash and the order-validity predicate are duplicated across NonceManagerFacet + SettlementFacet. Extract a single LibSettlementValidity.", function () {});
     it.skip("CPX-005 — RESOLVED (SCRUM-223): the cross-currency conversion-path machinery on AdminConfigFacet (4 functions + mapping + 2 events) has been deleted.", function () {});
     it.skip("CPX-006 — `matchOrders` is a long multi-responsibility function (cyclomatic ~9-10). Extract a `_settleAgainstMaker` loop-body helper + a `_sumFills` helper.", function () {});

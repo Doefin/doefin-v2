@@ -527,7 +527,6 @@ contract DoefinInvariantHarness {
             side: side,
             amount: amount,
             pricePerToken: price,
-            minFillAmount: 0,
             expiration: 0,
             nonce: 0
         });

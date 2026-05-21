@@ -19,7 +19,6 @@ describe("SignatureVerifierFacet", function () {
       { name: "side", type: "uint8" },
       { name: "amount", type: "uint128" },
       { name: "pricePerToken", type: "uint128" },
-      { name: "minFillAmount", type: "uint128" },
       { name: "expiration", type: "uint64" },
       { name: "nonce", type: "uint256" },
     ],
@@ -44,7 +43,6 @@ describe("SignatureVerifierFacet", function () {
       side: 0,
       amount: 1000,
       pricePerToken: 500,
-      minFillAmount: 100,
       expiration: 0,
       nonce: 1,
     };

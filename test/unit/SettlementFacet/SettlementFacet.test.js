@@ -31,7 +31,6 @@ describe("SettlementFacet", function () {
       { name: "side", type: "uint8" },
       { name: "amount", type: "uint128" },
       { name: "pricePerToken", type: "uint128" },
-      { name: "minFillAmount", type: "uint128" },
       { name: "expiration", type: "uint64" },
       { name: "nonce", type: "uint256" },
     ],
@@ -47,9 +46,11 @@ describe("SettlementFacet", function () {
   }
 
   function makeOrder(maker, positionId, side, amount, price, overrides = {}) {
-    // SCRUM-224: `feeRateBps` is no longer part of the signed order. A legacy
-    // `feeRateBps` key in `overrides` is dropped (back-compat with older specs).
-    const { feeRateBps, ...rest } = overrides;
+    // SCRUM-224: `feeRateBps` is no longer part of the signed order.
+    // SCRUM-226: `minFillAmount` removed from the signed order. Legacy
+    // `feeRateBps`/`minFillAmount` keys in `overrides` are dropped
+    // (back-compat with older specs).
+    const { feeRateBps, minFillAmount, ...rest } = overrides;
     return {
       salt: 1,
       maker,
@@ -59,7 +60,6 @@ describe("SettlementFacet", function () {
       side,
       amount,
       pricePerToken: price,
-      minFillAmount: 0,
       expiration: 0,
       nonce: 0,
       ...rest,
@@ -747,18 +747,20 @@ describe("SettlementFacet", function () {
   });
 
   // ========================================
-  // MIN FILL AMOUNT TESTS (HIGH-2)
+  // PARTIAL FILL TESTS
   // ========================================
 
-  describe("minFillAmount enforcement", function () {
+  // SCRUM-226 — `minFillAmount` was removed from the signed DoefinOrder struct.
+  // It was never enforced on-chain (any minimum-fill policy is an off-chain
+  // orderbook concern). These tests confirm arbitrarily small fills settle.
+  describe("Arbitrarily small fills (no on-chain minimum)", function () {
     const price = UNIT.div(2);
     const orderAmount = ethers.utils.parseUnits("1000", 6);
 
-    it("should succeed when fill amount is below minFillAmount (enforcement is off-chain)", async function () {
-      const minFill = ethers.utils.parseUnits("100", 6);
-      const fillAmount = ethers.utils.parseUnits("50", 6); // below min — no longer rejected on-chain
+    it("should succeed for a tiny partial fill of a large order", async function () {
+      const fillAmount = ethers.utils.parseUnits("1", 6); // tiny fill, no minimum
 
-      const takerOrder = makeOrder(buyer.address, positionIdA, 0, orderAmount, price, { salt: 22000, minFillAmount: minFill });
+      const takerOrder = makeOrder(buyer.address, positionIdA, 0, orderAmount, price, { salt: 22000 });
       const makerOrder = makeOrder(seller.address, positionIdA, 1, orderAmount, price, { salt: 22000 });
 
       const takerSig = await signOrder(buyer, takerOrder);
@@ -774,66 +776,23 @@ describe("SettlementFacet", function () {
       expect(await settlement.getFilledAmount(takerHash)).to.equal(fillAmount);
     });
 
-    it("should succeed when maker fill amount is below maker minFillAmount (enforcement is off-chain)", async function () {
-      const minFill = ethers.utils.parseUnits("100", 6);
-      const fillAmount = ethers.utils.parseUnits("50", 6);
-
-      const takerOrder = makeOrder(buyer.address, positionIdA, 0, orderAmount, price, { salt: 22001 });
-      const makerOrder = makeOrder(seller.address, positionIdA, 1, orderAmount, price, { salt: 22001, minFillAmount: minFill });
-
-      const takerSig = await signOrder(buyer, takerOrder);
-      const makerSig = await signOrder(seller, makerOrder);
-
-      await settlement.connect(operator).matchOrders(
-        takerOrder, takerSig, 0,
-        [makerOrder], [makerSig], [0],
-        fillAmount, [fillAmount], [0], [0]
-      );
-
-      const takerHash = await sigVerifier.getOrderHash(takerOrder);
-      expect(await settlement.getFilledAmount(takerHash)).to.equal(fillAmount);
-    });
-
-    it("should succeed when fill amount equals minFillAmount", async function () {
-      const minFill = ethers.utils.parseUnits("100", 6);
-      const fillAmount = ethers.utils.parseUnits("100", 6);
-
-      const takerOrder = makeOrder(buyer.address, positionIdA, 0, orderAmount, price, { salt: 22002, minFillAmount: minFill });
-      const makerOrder = makeOrder(seller.address, positionIdA, 1, orderAmount, price, { salt: 22002 });
-
-      const takerSig = await signOrder(buyer, takerOrder);
-      const makerSig = await signOrder(seller, makerOrder);
-
-      await settlement.connect(operator).matchOrders(
-        takerOrder, takerSig, 0,
-        [makerOrder], [makerSig], [0],
-        fillAmount, [fillAmount], [0], [0]
-      );
-
-      const takerHash = await sigVerifier.getOrderHash(takerOrder);
-      expect(await settlement.getFilledAmount(takerHash)).to.equal(fillAmount);
-    });
-
-    it("should allow exact-remaining fill even if below minFillAmount", async function () {
-      const minFill = ethers.utils.parseUnits("100", 6);
+    it("should allow a small exact-remaining fill after a larger first fill", async function () {
       const totalAmount = ethers.utils.parseUnits("150", 6);
       const firstFill = ethers.utils.parseUnits("100", 6);
-      const remaining = ethers.utils.parseUnits("50", 6); // below min, but is exact remaining
+      const remaining = ethers.utils.parseUnits("50", 6);
 
-      const takerOrder = makeOrder(buyer.address, positionIdA, 0, totalAmount, price, { salt: 22003, minFillAmount: minFill });
+      const takerOrder = makeOrder(buyer.address, positionIdA, 0, totalAmount, price, { salt: 22003 });
       const makerOrder = makeOrder(seller.address, positionIdA, 1, totalAmount, price, { salt: 22003 });
 
       const takerSig = await signOrder(buyer, takerOrder);
       const makerSig = await signOrder(seller, makerOrder);
 
-      // First fill at minFillAmount
       await settlement.connect(operator).matchOrders(
         takerOrder, takerSig, 0,
         [makerOrder], [makerSig], [0],
         firstFill, [firstFill], [0], [0]
       );
 
-      // Fill exact remaining (50 < minFill 100, but it's the last fill)
       await settlement.connect(operator).matchOrders(
         takerOrder, takerSig, 0,
         [makerOrder], [makerSig], [0],
@@ -842,25 +801,6 @@ describe("SettlementFacet", function () {
 
       const takerHash = await sigVerifier.getOrderHash(takerOrder);
       expect(await settlement.getFilledAmount(takerHash)).to.equal(totalAmount);
-    });
-
-    it("should succeed when minFillAmount is 0 (no restriction)", async function () {
-      const fillAmount = ethers.utils.parseUnits("1", 6); // tiny fill, minFill=0
-
-      const takerOrder = makeOrder(buyer.address, positionIdA, 0, orderAmount, price, { salt: 22004, minFillAmount: 0 });
-      const makerOrder = makeOrder(seller.address, positionIdA, 1, orderAmount, price, { salt: 22004 });
-
-      const takerSig = await signOrder(buyer, takerOrder);
-      const makerSig = await signOrder(seller, makerOrder);
-
-      await settlement.connect(operator).matchOrders(
-        takerOrder, takerSig, 0,
-        [makerOrder], [makerSig], [0],
-        fillAmount, [fillAmount], [0], [0]
-      );
-
-      const takerHash = await sigVerifier.getOrderHash(takerOrder);
-      expect(await settlement.getFilledAmount(takerHash)).to.equal(fillAmount);
     });
   });
 
@@ -1052,12 +992,12 @@ describe("SettlementFacet", function () {
       const freshTaker = {
         salt: 50000, maker: buyer.address, signer: buyer.address, positionId: posAHex,
         collateralToken: freshColl.address, side: 0, amount: fillAmount,
-        pricePerToken: price, minFillAmount: 0, expiration: 0, nonce: 0,
+        pricePerToken: price, expiration: 0, nonce: 0,
       };
       const freshMaker = {
         salt: 50000, maker: seller.address, signer: seller.address, positionId: posAHex,
         collateralToken: freshColl.address, side: 1, amount: fillAmount,
-        pricePerToken: price, minFillAmount: 0, expiration: 0, nonce: 0,
+        pricePerToken: price, expiration: 0, nonce: 0,
       };
       const freshTakerSig = await buyer._signTypedData(freshDomain, ORDER_TYPE, freshTaker);
       const freshMakerSig = await seller._signTypedData(freshDomain, ORDER_TYPE, freshMaker);
@@ -1647,7 +1587,6 @@ describe("SettlementFacet", function () {
         side,
         amount,
         pricePerToken: price,
-        minFillAmount: 0,
         feeRateBps: FRESH_FEE_BPS,
         expiration: 0,
         nonce: 0,

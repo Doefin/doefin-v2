@@ -15,7 +15,7 @@ const MAX_FEE_RATE_BPS = 500; // admin-set ceiling configured by the fixture
 const DOMAIN_NAME = "Doefin Exchange";
 const DOMAIN_VERSION = "3";
 
-// SCRUM-224: 11-field struct — `feeRateBps` removed (operator-supplied fee model).
+// SCRUM-226: 10-field struct — `minFillAmount` removed (unenforced; off-chain only).
 const ORDER_TYPE = {
   DoefinOrder: [
     { name: "salt", type: "uint256" },
@@ -26,7 +26,6 @@ const ORDER_TYPE = {
     { name: "side", type: "uint8" },
     { name: "amount", type: "uint128" },
     { name: "pricePerToken", type: "uint128" },
-    { name: "minFillAmount", type: "uint128" },
     { name: "expiration", type: "uint64" },
     { name: "nonce", type: "uint256" },
   ],
@@ -113,9 +112,11 @@ async function setupAuditFixture() {
   }
 
   function makeOrder(maker, positionId, side, amount, price, overrides = {}) {
-    // SCRUM-224: `feeRateBps` is no longer part of the signed order. Any
-    // `feeRateBps` key in `overrides` is silently dropped for back-compat.
-    const { feeRateBps, ...rest } = overrides;
+    // SCRUM-224: `feeRateBps` is no longer part of the signed order.
+    // SCRUM-226: `minFillAmount` removed from the signed order. Any
+    // `feeRateBps`/`minFillAmount` key in `overrides` is silently dropped
+    // for back-compat.
+    const { feeRateBps, minFillAmount, ...rest } = overrides;
     return {
       salt: 1,
       maker,
@@ -125,7 +126,6 @@ async function setupAuditFixture() {
       side,
       amount,
       pricePerToken: price,
-      minFillAmount: 0,
       expiration: 0,
       nonce: 0,
       ...rest,

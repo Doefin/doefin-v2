@@ -27,7 +27,6 @@ library LibDoefinOrder {
         uint8 side;              // 0 = BUY, 1 = SELL
         uint128 amount;
         uint128 pricePerToken;
-        uint128 minFillAmount;
         uint64 expiration;       // 0 = no expiry
         uint256 nonce;
     }
@@ -47,7 +46,6 @@ library LibDoefinOrder {
         "uint8 side,"
         "uint128 amount,"
         "uint128 pricePerToken,"
-        "uint128 minFillAmount,"
         "uint64 expiration,"
         "uint256 nonce"
         ")"
@@ -82,7 +80,6 @@ library LibDoefinOrder {
                 order.side,
                 order.amount,
                 order.pricePerToken,
-                order.minFillAmount,
                 order.expiration,
                 order.nonce
             )
@@ -159,7 +156,6 @@ library LibDoefinOrder {
                 order.side,
                 order.amount,
                 order.pricePerToken,
-                order.minFillAmount,
                 order.expiration,
                 order.nonce
             )

@@ -14,7 +14,7 @@ describe("LibDoefinOrder", function () {
     harness = await Harness.deploy();
     await harness.deployed();
 
-    // Canonical test order (SCRUM-224: 11-field struct, no feeRateBps)
+    // Canonical test order (SCRUM-226: 10-field struct, no minFillAmount)
     baseOrder = {
       salt: 1,
       maker: "0x1111111111111111111111111111111111111111",
@@ -24,7 +24,6 @@ describe("LibDoefinOrder", function () {
       side: 0, // BUY
       amount: 1000,
       pricePerToken: 500,
-      minFillAmount: 100,
       expiration: 0,
       nonce: 1,
     };
@@ -46,7 +45,6 @@ describe("LibDoefinOrder", function () {
         "uint8 side," +
         "uint128 amount," +
         "uint128 pricePerToken," +
-        "uint128 minFillAmount," +
         "uint64 expiration," +
         "uint256 nonce" +
         ")";
@@ -158,15 +156,6 @@ describe("LibDoefinOrder", function () {
       expect(original).to.not.equal(modified);
     });
 
-    it("should change when minFillAmount changes", async function () {
-      const original = await harness.hash(baseOrder);
-      const modified = await harness.hash({
-        ...baseOrder,
-        minFillAmount: 200,
-      });
-      expect(original).to.not.equal(modified);
-    });
-
     it("should change when expiration changes", async function () {
       const original = await harness.hash(baseOrder);
       const modified = await harness.hash({
@@ -195,7 +184,6 @@ describe("LibDoefinOrder", function () {
           "uint8",
           "uint128",
           "uint128",
-          "uint128",
           "uint64",
           "uint256",
         ],
@@ -209,7 +197,6 @@ describe("LibDoefinOrder", function () {
           baseOrder.side,
           baseOrder.amount,
           baseOrder.pricePerToken,
-          baseOrder.minFillAmount,
           baseOrder.expiration,
           baseOrder.nonce,
         ]
@@ -392,13 +379,13 @@ describe("LibDoefinOrder", function () {
   // ========================================
 
   describe("Cross-hash verification", function () {
-    // SCRUM-224: recomputed after removing `feeRateBps` from the DoefinOrder struct.
+    // SCRUM-226: recomputed after removing `minFillAmount` from the DoefinOrder struct.
     const EXPECTED_ORDER_TYPEHASH =
-      "0x11969b6478e606280c33c522f44d7b2d61a438aad21de1c2e22db80196910e70";
+      "0xff1c8998850575465e0fe5d8e2ad1901f5487c91977a245a2901fc65cd90a3b0";
     const EXPECTED_DOMAIN_TYPEHASH =
       "0x8b73c3c69bb8fe3d512ecc4cf759cc79239f7b179b0ffacaa9a75d522b39400f";
     const EXPECTED_STRUCT_HASH =
-      "0xb2ab3e17c0b0be1f7c027417cf57510bc9a33d95f48ef4a7ca7cdb8d445d4dbb";
+      "0x0ad5b0928699c9c92346c841ad2f9c92a166a382474ff94409efa3628c4337fd";
 
     it("DOEFIN_ORDER_TYPEHASH must match canonical value", async function () {
       const actual = await harness.DOEFIN_ORDER_TYPEHASH();

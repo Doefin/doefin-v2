@@ -160,11 +160,6 @@
             "type": "uint128"
           },
           {
-            "internalType": "uint128",
-            "name": "minFillAmount",
-            "type": "uint128"
-          },
-          {
             "internalType": "uint64",
             "name": "expiration",
             "type": "uint64"
@@ -227,11 +222,6 @@
           {
             "internalType": "uint128",
             "name": "pricePerToken",
-            "type": "uint128"
-          },
-          {
-            "internalType": "uint128",
-            "name": "minFillAmount",
             "type": "uint128"
           },
           {
@@ -509,11 +499,6 @@
           {
             "internalType": "uint128",
             "name": "pricePerToken",
-            "type": "uint128"
-          },
-          {
-            "internalType": "uint128",
-            "name": "minFillAmount",
             "type": "uint128"
           },
           {
@@ -1448,11 +1433,6 @@
             "type": "uint128"
           },
           {
-            "internalType": "uint128",
-            "name": "minFillAmount",
-            "type": "uint128"
-          },
-          {
             "internalType": "uint64",
             "name": "expiration",
             "type": "uint64"
@@ -1976,11 +1956,6 @@
             "type": "uint128"
           },
           {
-            "internalType": "uint128",
-            "name": "minFillAmount",
-            "type": "uint128"
-          },
-          {
             "internalType": "uint64",
             "name": "expiration",
             "type": "uint64"
@@ -2089,11 +2064,6 @@
             "type": "uint128"
           },
           {
-            "internalType": "uint128",
-            "name": "minFillAmount",
-            "type": "uint128"
-          },
-          {
             "internalType": "uint64",
             "name": "expiration",
             "type": "uint64"
@@ -2158,11 +2128,6 @@
           {
             "internalType": "uint128",
             "name": "pricePerToken",
-            "type": "uint128"
-          },
-          {
-            "internalType": "uint128",
-            "name": "minFillAmount",
             "type": "uint128"
           },
           {
@@ -2851,11 +2816,6 @@
           {
             "internalType": "uint128",
             "name": "pricePerToken",
-            "type": "uint128"
-          },
-          {
-            "internalType": "uint128",
-            "name": "minFillAmount",
             "type": "uint128"
           },
           {
