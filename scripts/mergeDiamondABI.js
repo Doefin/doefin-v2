@@ -42,8 +42,6 @@ const CONTRACTS = [
   // Oracle
   ['DoefinV1BlockHeaderOracleFacet', 'DoefinV1BlockHeaderOracle', 'facets'],
   ['OracleAdapterFacet', 'OracleAdapterFacet', 'facets'],
-  ['OracleManagerFacet', 'OracleManagerFacet', 'facets'],
-  ['BlockScholesOracleAdapter', 'BlockScholesOracleAdapter', 'facets'],
 
   // Read-only market data
   ['MarketDataFacet', 'MarketDataFacet', 'facets'],

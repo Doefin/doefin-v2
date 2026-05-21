@@ -1,7 +1,7 @@
 {
   "contractName": "Diamond",
   "description": "Merged ABI for the Doefin v3 Diamond proxy (all active facets).",
-  "generatedAt": "2026-04-22T17:20:29.062Z",
+  "generatedAt": "2026-05-21T15:42:56.791Z",
   "contracts": [
     "Diamond",
     "DiamondCutFacet",
@@ -18,18 +18,16 @@
     "ERC1155ReceiverFacet",
     "DoefinV1BlockHeaderOracle",
     "OracleAdapterFacet",
-    "OracleManagerFacet",
-    "BlockScholesOracleAdapter",
     "MarketDataFacet"
   ],
-  "totalEntries": 287,
+  "totalEntries": 213,
   "entriesByType": {
     "constructor": 1,
     "fallback": 1,
     "receive": 1,
-    "function": 129,
-    "event": 57,
-    "error": 98
+    "function": 93,
+    "event": 38,
+    "error": 79
   },
   "perContract": [
     {
@@ -59,13 +57,13 @@
     },
     {
       "contract": "AdminConfigFacet",
-      "added": 30,
+      "added": 23,
       "duplicates": 1
     },
     {
       "contract": "SettlementFacet",
-      "added": 44,
-      "duplicates": 3
+      "added": 43,
+      "duplicates": 4
     },
     {
       "contract": "SignatureVerifierFacet",
@@ -79,8 +77,8 @@
     },
     {
       "contract": "ConditionalTokensFacet",
-      "added": 25,
-      "duplicates": 19
+      "added": 26,
+      "duplicates": 18
     },
     {
       "contract": "ConditionManagerFacet",
@@ -106,16 +104,6 @@
       "contract": "OracleAdapterFacet",
       "added": 9,
       "duplicates": 0
-    },
-    {
-      "contract": "OracleManagerFacet",
-      "added": 41,
-      "duplicates": 3
-    },
-    {
-      "contract": "BlockScholesOracleAdapter",
-      "added": 26,
-      "duplicates": 3
     },
     {
       "contract": "MarketDataFacet",
@@ -147,13 +135,6 @@
     {
       "stateMutability": "payable",
       "type": "receive"
-    },
-    {
-      "inputs": [],
-      "name": "acceptOwnership",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
     },
     {
       "inputs": [
@@ -235,78 +216,6 @@
       "type": "function"
     },
     {
-      "inputs": [],
-      "name": "BASE_ASSET_BTC",
-      "outputs": [
-        {
-          "internalType": "uint8",
-          "name": "",
-          "type": "uint8"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "BASE_ASSET_ETH",
-      "outputs": [
-        {
-          "internalType": "uint8",
-          "name": "",
-          "type": "uint8"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "BLOCKSCHOLES_DECIMALS",
-      "outputs": [
-        {
-          "internalType": "uint8",
-          "name": "",
-          "type": "uint8"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "blockScholesOracle",
-      "outputs": [
-        {
-          "internalType": "address",
-          "name": "",
-          "type": "address"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "BTC_DECIMALS",
-      "outputs": [
-        {
-          "internalType": "uint8",
-          "name": "",
-          "type": "uint8"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "cacheDomainSeparator",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
       "inputs": [
         {
           "internalType": "bytes32",
@@ -366,21 +275,6 @@
             {
               "internalType": "uint128",
               "name": "minFillAmount",
-              "type": "uint128"
-            },
-            {
-              "internalType": "uint8",
-              "name": "orderType",
-              "type": "uint8"
-            },
-            {
-              "internalType": "address",
-              "name": "quoteCurrency",
-              "type": "address"
-            },
-            {
-              "internalType": "uint128",
-              "name": "exchangeRate",
               "type": "uint128"
             },
             {
@@ -459,21 +353,6 @@
               "type": "uint128"
             },
             {
-              "internalType": "uint8",
-              "name": "orderType",
-              "type": "uint8"
-            },
-            {
-              "internalType": "address",
-              "name": "quoteCurrency",
-              "type": "address"
-            },
-            {
-              "internalType": "uint128",
-              "name": "exchangeRate",
-              "type": "uint128"
-            },
-            {
               "internalType": "uint16",
               "name": "feeRateBps",
               "type": "uint16"
@@ -513,67 +392,6 @@
         }
       ],
       "name": "cancelOrdersForPosition",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "bytes32",
-          "name": "assetId",
-          "type": "bytes32"
-        },
-        {
-          "internalType": "bytes32[]",
-          "name": "adapterPriority",
-          "type": "bytes32[]"
-        },
-        {
-          "internalType": "uint256",
-          "name": "maxStaleness",
-          "type": "uint256"
-        },
-        {
-          "internalType": "uint8",
-          "name": "decimals",
-          "type": "uint8"
-        }
-      ],
-      "name": "configureAsset",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "bytes32",
-          "name": "assetId",
-          "type": "bytes32"
-        },
-        {
-          "internalType": "uint8",
-          "name": "feedId",
-          "type": "uint8"
-        },
-        {
-          "internalType": "uint8",
-          "name": "exchange",
-          "type": "uint8"
-        },
-        {
-          "internalType": "uint8",
-          "name": "baseAsset",
-          "type": "uint8"
-        },
-        {
-          "internalType": "uint8",
-          "name": "decimals",
-          "type": "uint8"
-        }
-      ],
-      "name": "configureAssetFeed",
       "outputs": [],
       "stateMutability": "nonpayable",
       "type": "function"
@@ -699,42 +517,6 @@
     {
       "inputs": [
         {
-          "internalType": "bytes32",
-          "name": "assetId",
-          "type": "bytes32"
-        },
-        {
-          "internalType": "uint256",
-          "name": "price",
-          "type": "uint256"
-        },
-        {
-          "internalType": "string",
-          "name": "justification",
-          "type": "string"
-        }
-      ],
-      "name": "emergencyUpdatePrice",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "EXCHANGE_BLOCKSCHOLES",
-      "outputs": [
-        {
-          "internalType": "uint8",
-          "name": "",
-          "type": "uint8"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
           "internalType": "bytes4",
           "name": "_functionSelector",
           "type": "bytes4"
@@ -809,53 +591,6 @@
       "type": "function"
     },
     {
-      "inputs": [],
-      "name": "FEED_ID_SPOT_PRICE",
-      "outputs": [
-        {
-          "internalType": "uint8",
-          "name": "",
-          "type": "uint8"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "bytes32",
-          "name": "",
-          "type": "bytes32"
-        }
-      ],
-      "name": "feedConfigs",
-      "outputs": [
-        {
-          "internalType": "uint8",
-          "name": "feedId",
-          "type": "uint8"
-        },
-        {
-          "internalType": "uint8",
-          "name": "exchange",
-          "type": "uint8"
-        },
-        {
-          "internalType": "uint8",
-          "name": "baseAsset",
-          "type": "uint8"
-        },
-        {
-          "internalType": "uint8",
-          "name": "decimals",
-          "type": "uint8"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
       "inputs": [
         {
           "components": [
@@ -905,21 +640,6 @@
               "type": "uint128"
             },
             {
-              "internalType": "uint8",
-              "name": "orderType",
-              "type": "uint8"
-            },
-            {
-              "internalType": "address",
-              "name": "quoteCurrency",
-              "type": "address"
-            },
-            {
-              "internalType": "uint128",
-              "name": "exchangeRate",
-              "type": "uint128"
-            },
-            {
               "internalType": "uint16",
               "name": "feeRateBps",
               "type": "uint16"
@@ -958,65 +678,6 @@
       "name": "fillOrder",
       "outputs": [],
       "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "bytes32",
-          "name": "adapterId",
-          "type": "bytes32"
-        }
-      ],
-      "name": "getAdapterInfo",
-      "outputs": [
-        {
-          "components": [
-            {
-              "internalType": "uint256",
-              "name": "maxStaleness",
-              "type": "uint256"
-            },
-            {
-              "internalType": "uint256",
-              "name": "failureCount",
-              "type": "uint256"
-            },
-            {
-              "internalType": "address",
-              "name": "adapterAddress",
-              "type": "address"
-            },
-            {
-              "internalType": "bool",
-              "name": "enabled",
-              "type": "bool"
-            }
-          ],
-          "internalType": "struct LibDoefinStorage.AdapterConfig",
-          "name": "",
-          "type": "tuple"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "getAdapterMetadata",
-      "outputs": [
-        {
-          "internalType": "string",
-          "name": "name",
-          "type": "string"
-        },
-        {
-          "internalType": "string",
-          "name": "version",
-          "type": "string"
-        }
-      ],
-      "stateMutability": "pure",
       "type": "function"
     },
     {
@@ -1088,84 +749,6 @@
           "internalType": "uint256[]",
           "name": "positionIds",
           "type": "uint256[]"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "bytes32",
-          "name": "assetId",
-          "type": "bytes32"
-        }
-      ],
-      "name": "getAssetOracleStatus",
-      "outputs": [
-        {
-          "components": [
-            {
-              "internalType": "bytes32[]",
-              "name": "adapterPriority",
-              "type": "bytes32[]"
-            },
-            {
-              "internalType": "uint256",
-              "name": "maxStaleness",
-              "type": "uint256"
-            },
-            {
-              "internalType": "uint256",
-              "name": "lastUpdateTimestamp",
-              "type": "uint256"
-            },
-            {
-              "internalType": "uint8",
-              "name": "decimals",
-              "type": "uint8"
-            },
-            {
-              "internalType": "bool",
-              "name": "tradingPaused",
-              "type": "bool"
-            }
-          ],
-          "internalType": "struct LibDoefinStorage.AssetConfig",
-          "name": "assetConfig",
-          "type": "tuple"
-        },
-        {
-          "components": [
-            {
-              "internalType": "uint256",
-              "name": "price",
-              "type": "uint256"
-            },
-            {
-              "internalType": "uint256",
-              "name": "timestamp",
-              "type": "uint256"
-            },
-            {
-              "internalType": "bytes32",
-              "name": "lastSuccessfulAdapterId",
-              "type": "bytes32"
-            },
-            {
-              "internalType": "bool",
-              "name": "isValid",
-              "type": "bool"
-            }
-          ],
-          "internalType": "struct LibDoefinStorage.PriceData",
-          "name": "priceData",
-          "type": "tuple"
-        },
-        {
-          "internalType": "bool",
-          "name": "isStale",
-          "type": "bool"
         }
       ],
       "stateMutability": "view",
@@ -1576,54 +1159,6 @@
       "type": "function"
     },
     {
-      "inputs": [
-        {
-          "internalType": "address",
-          "name": "fromToken",
-          "type": "address"
-        },
-        {
-          "internalType": "address",
-          "name": "toToken",
-          "type": "address"
-        }
-      ],
-      "name": "getConfiguredConversionPath",
-      "outputs": [
-        {
-          "internalType": "bytes32[]",
-          "name": "assetIds",
-          "type": "bytes32[]"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "address",
-          "name": "fromToken",
-          "type": "address"
-        },
-        {
-          "internalType": "address",
-          "name": "toToken",
-          "type": "address"
-        }
-      ],
-      "name": "getCrossCurrencyConversionPath",
-      "outputs": [
-        {
-          "internalType": "bytes32[]",
-          "name": "assetIds",
-          "type": "bytes32[]"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
       "inputs": [],
       "name": "getCurrentBlockHeight",
       "outputs": [
@@ -1792,35 +1327,6 @@
           "internalType": "struct LibDoefinStorage.BlockHeader",
           "name": "",
           "type": "tuple"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "bytes32",
-          "name": "assetId",
-          "type": "bytes32"
-        }
-      ],
-      "name": "getLatestPrice",
-      "outputs": [
-        {
-          "internalType": "uint256",
-          "name": "price",
-          "type": "uint256"
-        },
-        {
-          "internalType": "uint256",
-          "name": "timestamp",
-          "type": "uint256"
-        },
-        {
-          "internalType": "bool",
-          "name": "isValid",
-          "type": "bool"
         }
       ],
       "stateMutability": "view",
@@ -2067,21 +1573,6 @@
               "type": "uint128"
             },
             {
-              "internalType": "uint8",
-              "name": "orderType",
-              "type": "uint8"
-            },
-            {
-              "internalType": "address",
-              "name": "quoteCurrency",
-              "type": "address"
-            },
-            {
-              "internalType": "uint128",
-              "name": "exchangeRate",
-              "type": "uint128"
-            },
-            {
               "internalType": "uint16",
               "name": "feeRateBps",
               "type": "uint16"
@@ -2249,35 +1740,6 @@
     {
       "inputs": [
         {
-          "internalType": "bytes32",
-          "name": "assetId",
-          "type": "bytes32"
-        }
-      ],
-      "name": "getPrice",
-      "outputs": [
-        {
-          "internalType": "uint256",
-          "name": "price",
-          "type": "uint256"
-        },
-        {
-          "internalType": "uint256",
-          "name": "timestamp",
-          "type": "uint256"
-        },
-        {
-          "internalType": "bool",
-          "name": "isPaused",
-          "type": "bool"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
           "internalType": "uint256",
           "name": "blockHeight",
           "type": "uint256"
@@ -2311,19 +1773,6 @@
           "internalType": "struct LibDoefinStorage.DifficultyRangeQuestion[]",
           "name": "",
           "type": "tuple[]"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "getSupportedAssets",
-      "outputs": [
-        {
-          "internalType": "bytes32[]",
-          "name": "",
-          "type": "bytes32[]"
         }
       ],
       "stateMutability": "view",
@@ -2657,21 +2106,6 @@
               "type": "uint128"
             },
             {
-              "internalType": "uint8",
-              "name": "orderType",
-              "type": "uint8"
-            },
-            {
-              "internalType": "address",
-              "name": "quoteCurrency",
-              "type": "address"
-            },
-            {
-              "internalType": "uint128",
-              "name": "exchangeRate",
-              "type": "uint128"
-            },
-            {
               "internalType": "uint16",
               "name": "feeRateBps",
               "type": "uint16"
@@ -2743,39 +2177,6 @@
     {
       "inputs": [
         {
-          "internalType": "bytes32",
-          "name": "assetId",
-          "type": "bytes32"
-        },
-        {
-          "internalType": "uint256",
-          "name": "price",
-          "type": "uint256"
-        },
-        {
-          "internalType": "uint256",
-          "name": "timestamp",
-          "type": "uint256"
-        },
-        {
-          "internalType": "bytes32",
-          "name": "nonce",
-          "type": "bytes32"
-        },
-        {
-          "internalType": "bytes",
-          "name": "signature",
-          "type": "bytes"
-        }
-      ],
-      "name": "manualUpdatePrice",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
           "components": [
             {
               "internalType": "uint256",
@@ -2820,21 +2221,6 @@
             {
               "internalType": "uint128",
               "name": "minFillAmount",
-              "type": "uint128"
-            },
-            {
-              "internalType": "uint8",
-              "name": "orderType",
-              "type": "uint8"
-            },
-            {
-              "internalType": "address",
-              "name": "quoteCurrency",
-              "type": "address"
-            },
-            {
-              "internalType": "uint128",
-              "name": "exchangeRate",
               "type": "uint128"
             },
             {
@@ -2912,21 +2298,6 @@
             {
               "internalType": "uint128",
               "name": "minFillAmount",
-              "type": "uint128"
-            },
-            {
-              "internalType": "uint8",
-              "name": "orderType",
-              "type": "uint8"
-            },
-            {
-              "internalType": "address",
-              "name": "quoteCurrency",
-              "type": "address"
-            },
-            {
-              "internalType": "uint128",
-              "name": "exchangeRate",
               "type": "uint128"
             },
             {
@@ -3120,19 +2491,6 @@
       "type": "function"
     },
     {
-      "inputs": [],
-      "name": "pendingOwner",
-      "outputs": [
-        {
-          "internalType": "address",
-          "name": "",
-          "type": "address"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
       "inputs": [
         {
           "internalType": "address",
@@ -3151,19 +2509,6 @@
         }
       ],
       "name": "prepareCondition",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "address",
-          "name": "newOwner",
-          "type": "address"
-        }
-      ],
-      "name": "proposeOwnership",
       "outputs": [],
       "stateMutability": "nonpayable",
       "type": "function"
@@ -3199,29 +2544,6 @@
     {
       "inputs": [
         {
-          "internalType": "bytes32",
-          "name": "adapterId",
-          "type": "bytes32"
-        },
-        {
-          "internalType": "address",
-          "name": "adapterAddress",
-          "type": "address"
-        },
-        {
-          "internalType": "uint256",
-          "name": "maxStaleness",
-          "type": "uint256"
-        }
-      ],
-      "name": "registerAdapter",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
           "internalType": "address",
           "name": "signer",
           "type": "address"
@@ -3240,43 +2562,12 @@
     {
       "inputs": [
         {
-          "internalType": "bytes32",
-          "name": "adapterId",
-          "type": "bytes32"
-        }
-      ],
-      "name": "removeAdapter",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
           "internalType": "address",
           "name": "token",
           "type": "address"
         }
       ],
       "name": "removeCollateralToken",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "address",
-          "name": "fromToken",
-          "type": "address"
-        },
-        {
-          "internalType": "address",
-          "name": "toToken",
-          "type": "address"
-        }
-      ],
-      "name": "removeConversionPath",
       "outputs": [],
       "stateMutability": "nonpayable",
       "type": "function"
@@ -3400,73 +2691,11 @@
       "inputs": [
         {
           "internalType": "address",
-          "name": "signer",
-          "type": "address"
-        }
-      ],
-      "name": "setAuthorizedSigner",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "address",
-          "name": "newOracleAddress",
-          "type": "address"
-        }
-      ],
-      "name": "setBlockScholesOracle",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "address",
-          "name": "fromToken",
-          "type": "address"
-        },
-        {
-          "internalType": "address",
-          "name": "toToken",
-          "type": "address"
-        },
-        {
-          "internalType": "bytes32[]",
-          "name": "assetIds",
-          "type": "bytes32[]"
-        }
-      ],
-      "name": "setConversionPath",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "address",
           "name": "feeReceiver",
           "type": "address"
         }
       ],
       "name": "setFeeReceiver",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "uint256",
-          "name": "maxAge",
-          "type": "uint256"
-        }
-      ],
-      "name": "setMaxManualUpdateAge",
       "outputs": [],
       "stateMutability": "nonpayable",
       "type": "function"
@@ -3564,19 +2793,6 @@
       "name": "splitPosition",
       "outputs": [],
       "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "STABLECOIN_DECIMALS",
-      "outputs": [
-        {
-          "internalType": "uint8",
-          "name": "",
-          "type": "uint8"
-        }
-      ],
-      "stateMutability": "view",
       "type": "function"
     },
     {
@@ -3692,25 +2908,6 @@
     {
       "inputs": [
         {
-          "internalType": "uint256",
-          "name": "",
-          "type": "uint256"
-        }
-      ],
-      "name": "supportedAssets",
-      "outputs": [
-        {
-          "internalType": "bytes32",
-          "name": "",
-          "type": "bytes32"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
           "internalType": "bytes4",
           "name": "_interfaceId",
           "type": "bytes4"
@@ -3743,77 +2940,6 @@
     {
       "inputs": [],
       "name": "unpauseTrading",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "bytes32",
-          "name": "adapterId",
-          "type": "bytes32"
-        },
-        {
-          "components": [
-            {
-              "internalType": "uint256",
-              "name": "maxStaleness",
-              "type": "uint256"
-            },
-            {
-              "internalType": "uint256",
-              "name": "failureCount",
-              "type": "uint256"
-            },
-            {
-              "internalType": "address",
-              "name": "adapterAddress",
-              "type": "address"
-            },
-            {
-              "internalType": "bool",
-              "name": "enabled",
-              "type": "bool"
-            }
-          ],
-          "internalType": "struct LibDoefinStorage.AdapterConfig",
-          "name": "config",
-          "type": "tuple"
-        }
-      ],
-      "name": "updateAdapterConfig",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "bytes32",
-          "name": "assetId",
-          "type": "bytes32"
-        },
-        {
-          "internalType": "bytes32[]",
-          "name": "newPriority",
-          "type": "bytes32[]"
-        }
-      ],
-      "name": "updateAssetAdapterPriority",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "bytes32",
-          "name": "assetId",
-          "type": "bytes32"
-        }
-      ],
-      "name": "updatePrice",
       "outputs": [],
       "stateMutability": "nonpayable",
       "type": "function"
@@ -3868,21 +2994,6 @@
               "type": "uint128"
             },
             {
-              "internalType": "uint8",
-              "name": "orderType",
-              "type": "uint8"
-            },
-            {
-              "internalType": "address",
-              "name": "quoteCurrency",
-              "type": "address"
-            },
-            {
-              "internalType": "uint128",
-              "name": "exchangeRate",
-              "type": "uint128"
-            },
-            {
               "internalType": "uint16",
               "name": "feeRateBps",
               "type": "uint16"
@@ -3929,129 +3040,6 @@
       "inputs": [
         {
           "indexed": true,
-          "internalType": "bytes32",
-          "name": "adapterId",
-          "type": "bytes32"
-        },
-        {
-          "components": [
-            {
-              "internalType": "uint256",
-              "name": "maxStaleness",
-              "type": "uint256"
-            },
-            {
-              "internalType": "uint256",
-              "name": "failureCount",
-              "type": "uint256"
-            },
-            {
-              "internalType": "address",
-              "name": "adapterAddress",
-              "type": "address"
-            },
-            {
-              "internalType": "bool",
-              "name": "enabled",
-              "type": "bool"
-            }
-          ],
-          "indexed": false,
-          "internalType": "struct LibDoefinStorage.AdapterConfig",
-          "name": "config",
-          "type": "tuple"
-        }
-      ],
-      "name": "AdapterConfigUpdated",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": true,
-          "internalType": "bytes32",
-          "name": "adapterId",
-          "type": "bytes32"
-        },
-        {
-          "indexed": true,
-          "internalType": "bytes32",
-          "name": "assetId",
-          "type": "bytes32"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint256",
-          "name": "failureCount",
-          "type": "uint256"
-        }
-      ],
-      "name": "AdapterFailed",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": true,
-          "internalType": "bytes32",
-          "name": "adapterId",
-          "type": "bytes32"
-        },
-        {
-          "indexed": false,
-          "internalType": "address",
-          "name": "adapterAddress",
-          "type": "address"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint256",
-          "name": "maxStaleness",
-          "type": "uint256"
-        }
-      ],
-      "name": "AdapterRegistered",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": true,
-          "internalType": "bytes32",
-          "name": "adapterId",
-          "type": "bytes32"
-        }
-      ],
-      "name": "AdapterRemoved",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": true,
-          "internalType": "bytes32",
-          "name": "assetId",
-          "type": "bytes32"
-        },
-        {
-          "indexed": false,
-          "internalType": "bytes32[]",
-          "name": "attemptedAdapters",
-          "type": "bytes32[]"
-        }
-      ],
-      "name": "AllAdaptersFailed",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": true,
           "internalType": "address",
           "name": "owner",
           "type": "address"
@@ -4070,69 +3058,6 @@
         }
       ],
       "name": "ApprovalForAll",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": true,
-          "internalType": "bytes32",
-          "name": "assetId",
-          "type": "bytes32"
-        },
-        {
-          "indexed": false,
-          "internalType": "bytes32[]",
-          "name": "newPriority",
-          "type": "bytes32[]"
-        }
-      ],
-      "name": "AssetAdapterPriorityUpdated",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": true,
-          "internalType": "bytes32",
-          "name": "assetId",
-          "type": "bytes32"
-        },
-        {
-          "indexed": false,
-          "internalType": "bytes32[]",
-          "name": "adapterPriority",
-          "type": "bytes32[]"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint256",
-          "name": "maxStaleness",
-          "type": "uint256"
-        }
-      ],
-      "name": "AssetConfigured",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": true,
-          "internalType": "address",
-          "name": "oldSigner",
-          "type": "address"
-        },
-        {
-          "indexed": true,
-          "internalType": "address",
-          "name": "newSigner",
-          "type": "address"
-        }
-      ],
-      "name": "AuthorizedSignerUpdated",
       "type": "event"
     },
     {
@@ -4195,19 +3120,6 @@
         }
       ],
       "name": "BlockReorged",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": true,
-          "internalType": "address",
-          "name": "oracleAddress",
-          "type": "address"
-        }
-      ],
-      "name": "BlockScholesOracleSet",
       "type": "event"
     },
     {
@@ -4395,50 +3307,6 @@
       "anonymous": false,
       "inputs": [
         {
-          "indexed": true,
-          "internalType": "address",
-          "name": "fromToken",
-          "type": "address"
-        },
-        {
-          "indexed": true,
-          "internalType": "address",
-          "name": "toToken",
-          "type": "address"
-        }
-      ],
-      "name": "ConversionPathRemoved",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": true,
-          "internalType": "address",
-          "name": "fromToken",
-          "type": "address"
-        },
-        {
-          "indexed": true,
-          "internalType": "address",
-          "name": "toToken",
-          "type": "address"
-        },
-        {
-          "indexed": false,
-          "internalType": "bytes32[]",
-          "name": "assetIds",
-          "type": "bytes32[]"
-        }
-      ],
-      "name": "ConversionPathSet",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
           "components": [
             {
               "internalType": "address",
@@ -4568,68 +3436,6 @@
       "inputs": [
         {
           "indexed": true,
-          "internalType": "bytes32",
-          "name": "assetId",
-          "type": "bytes32"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint256",
-          "name": "price",
-          "type": "uint256"
-        },
-        {
-          "indexed": false,
-          "internalType": "string",
-          "name": "justification",
-          "type": "string"
-        }
-      ],
-      "name": "EmergencyPriceUpdate",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": true,
-          "internalType": "bytes32",
-          "name": "assetId",
-          "type": "bytes32"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint8",
-          "name": "feedId",
-          "type": "uint8"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint8",
-          "name": "exchange",
-          "type": "uint8"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint8",
-          "name": "baseAsset",
-          "type": "uint8"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint8",
-          "name": "decimals",
-          "type": "uint8"
-        }
-      ],
-      "name": "FeedConfigured",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": true,
           "internalType": "address",
           "name": "oldReceiver",
           "type": "address"
@@ -4649,37 +3455,6 @@
       "inputs": [
         {
           "indexed": true,
-          "internalType": "bytes32",
-          "name": "assetId",
-          "type": "bytes32"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint256",
-          "name": "price",
-          "type": "uint256"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint256",
-          "name": "timestamp",
-          "type": "uint256"
-        },
-        {
-          "indexed": false,
-          "internalType": "address",
-          "name": "signer",
-          "type": "address"
-        }
-      ],
-      "name": "ManualPriceUpdate",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": true,
           "internalType": "address",
           "name": "account",
           "type": "address"
@@ -4692,19 +3467,6 @@
         }
       ],
       "name": "MarketMakerStatusUpdated",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": false,
-          "internalType": "uint256",
-          "name": "maxAge",
-          "type": "uint256"
-        }
-      ],
-      "name": "MaxManualUpdateAgeSet",
       "type": "event"
     },
     {
@@ -4773,6 +3535,25 @@
         }
       ],
       "name": "NonceBumped",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "oldOperator",
+          "type": "address"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "newOperator",
+          "type": "address"
+        }
+      ],
+      "name": "OperatorUpdated",
       "type": "event"
     },
     {
@@ -4879,25 +3660,6 @@
         }
       ],
       "name": "OrdersMatched",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": true,
-          "internalType": "address",
-          "name": "currentOwner",
-          "type": "address"
-        },
-        {
-          "indexed": true,
-          "internalType": "address",
-          "name": "proposedOwner",
-          "type": "address"
-        }
-      ],
-      "name": "OwnershipProposed",
       "type": "event"
     },
     {
@@ -5190,62 +3952,6 @@
         {
           "indexed": true,
           "internalType": "bytes32",
-          "name": "assetId",
-          "type": "bytes32"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint256",
-          "name": "lastUpdateTimestamp",
-          "type": "uint256"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint256",
-          "name": "currentTimestamp",
-          "type": "uint256"
-        }
-      ],
-      "name": "PriceStale",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": true,
-          "internalType": "bytes32",
-          "name": "assetId",
-          "type": "bytes32"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint256",
-          "name": "price",
-          "type": "uint256"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint256",
-          "name": "timestamp",
-          "type": "uint256"
-        },
-        {
-          "indexed": false,
-          "internalType": "bytes32",
-          "name": "adapterId",
-          "type": "bytes32"
-        }
-      ],
-      "name": "PriceUpdated",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": true,
-          "internalType": "bytes32",
           "name": "questionId",
           "type": "bytes32"
         },
@@ -5377,44 +4083,6 @@
       "inputs": [
         {
           "indexed": true,
-          "internalType": "bytes32",
-          "name": "assetId",
-          "type": "bytes32"
-        }
-      ],
-      "name": "TradingPaused",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": true,
-          "internalType": "bytes32",
-          "name": "assetId",
-          "type": "bytes32"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint256",
-          "name": "newPrice",
-          "type": "uint256"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint256",
-          "name": "timestamp",
-          "type": "uint256"
-        }
-      ],
-      "name": "TradingResumed",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": true,
           "internalType": "address",
           "name": "operator",
           "type": "address"
@@ -5485,41 +4153,8 @@
       "type": "event"
     },
     {
-      "inputs": [
-        {
-          "internalType": "bytes32",
-          "name": "adapterId",
-          "type": "bytes32"
-        }
-      ],
-      "name": "AdapterAlreadyExists",
-      "type": "error"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "bytes32",
-          "name": "adapterId",
-          "type": "bytes32"
-        }
-      ],
-      "name": "AdapterNotRegistered",
-      "type": "error"
-    },
-    {
       "inputs": [],
       "name": "AddFacetCannotBeZero",
-      "type": "error"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "bytes32",
-          "name": "assetId",
-          "type": "bytes32"
-        }
-      ],
-      "name": "AllOracleAdaptersFailed",
       "type": "error"
     },
     {
@@ -5540,17 +4175,6 @@
     {
       "inputs": [],
       "name": "ArrayLengthMismatch",
-      "type": "error"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "bytes32",
-          "name": "assetId",
-          "type": "bytes32"
-        }
-      ],
-      "name": "AssetNotConfigured",
       "type": "error"
     },
     {
@@ -5645,11 +4269,6 @@
     },
     {
       "inputs": [],
-      "name": "EmptyAdapterPriority",
-      "type": "error"
-    },
-    {
-      "inputs": [],
       "name": "EmptyArray",
       "type": "error"
     },
@@ -5661,27 +4280,6 @@
     {
       "inputs": [],
       "name": "FeeTooHigh",
-      "type": "error"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "bytes32",
-          "name": "orderHash",
-          "type": "bytes32"
-        },
-        {
-          "internalType": "uint128",
-          "name": "fillAmount",
-          "type": "uint128"
-        },
-        {
-          "internalType": "uint128",
-          "name": "minFillAmount",
-          "type": "uint128"
-        }
-      ],
-      "name": "FillBelowMinimum",
       "type": "error"
     },
     {
@@ -5707,27 +4305,7 @@
     },
     {
       "inputs": [],
-      "name": "InvalidAddress",
-      "type": "error"
-    },
-    {
-      "inputs": [],
       "name": "InvalidComplement",
-      "type": "error"
-    },
-    {
-      "inputs": [],
-      "name": "InvalidConversionPath",
-      "type": "error"
-    },
-    {
-      "inputs": [],
-      "name": "InvalidDecimals",
-      "type": "error"
-    },
-    {
-      "inputs": [],
-      "name": "InvalidFeedId",
       "type": "error"
     },
     {
@@ -5752,28 +4330,7 @@
     },
     {
       "inputs": [],
-      "name": "InvalidMaxManualUpdateAge",
-      "type": "error"
-    },
-    {
-      "inputs": [],
       "name": "InvalidOracleAddress",
-      "type": "error"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "bytes32",
-          "name": "assetId",
-          "type": "bytes32"
-        },
-        {
-          "internalType": "uint8",
-          "name": "decimals",
-          "type": "uint8"
-        }
-      ],
-      "name": "InvalidOracleDecimals",
       "type": "error"
     },
     {
@@ -5819,17 +4376,7 @@
     },
     {
       "inputs": [],
-      "name": "InvalidSignature",
-      "type": "error"
-    },
-    {
-      "inputs": [],
       "name": "InvalidSignatureLength",
-      "type": "error"
-    },
-    {
-      "inputs": [],
-      "name": "InvalidTimestamp",
       "type": "error"
     },
     {
@@ -5855,11 +4402,6 @@
     {
       "inputs": [],
       "name": "NoChangeRequired",
-      "type": "error"
-    },
-    {
-      "inputs": [],
-      "name": "NonceAlreadyUsed",
       "type": "error"
     },
     {
@@ -5894,17 +4436,7 @@
     },
     {
       "inputs": [],
-      "name": "NotOwner",
-      "type": "error"
-    },
-    {
-      "inputs": [],
       "name": "NotOwnerNorApproved",
-      "type": "error"
-    },
-    {
-      "inputs": [],
-      "name": "NotPendingOwner",
       "type": "error"
     },
     {
@@ -6023,11 +4555,6 @@
     },
     {
       "inputs": [],
-      "name": "SignatureExpired",
-      "type": "error"
-    },
-    {
-      "inputs": [],
       "name": "TokenAlreadyAllowed",
       "type": "error"
     },
@@ -6060,11 +4587,6 @@
         }
       ],
       "name": "UnauthorizedOperator",
-      "type": "error"
-    },
-    {
-      "inputs": [],
-      "name": "UnauthorizedSigner",
       "type": "error"
     },
     {

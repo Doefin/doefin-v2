@@ -160,7 +160,6 @@ async function main() {
     "AdminConfigFacet",
     "MarketDataFacet",
     "OracleAdapterFacet",
-    "OracleManagerFacet",
     "SignatureVerifierFacet",
     "NonceManagerFacet",
     "SettlementFacet",

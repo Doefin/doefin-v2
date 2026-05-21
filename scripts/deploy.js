@@ -144,7 +144,6 @@ async function deployDiamond() {
     "AdminConfigFacet",
     "MarketDataFacet",
     "OracleAdapterFacet",
-    "OracleManagerFacet",
     // v2.1 Settlement facets
     "SignatureVerifierFacet",
     "NonceManagerFacet",

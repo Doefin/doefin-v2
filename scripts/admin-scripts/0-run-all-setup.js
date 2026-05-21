@@ -61,18 +61,8 @@ async function main() {
             required: true
         },
         {
-            path: 'scripts/admin-scripts/12-setup-cross-currency.js',
-            description: 'Step 6: Setup Cross-Currency Trading',
-            required: false
-        },
-        {
-            path: 'scripts/admin-scripts/15-update-oracle-prices.js',
-            description: 'Step 7: Update Oracle Prices',
-            required: false
-        },
-        {
             path: 'scripts/admin-scripts/6-create-orders.js',
-            description: 'Step 8: Create Sample Orders',
+            description: 'Step 6: Create Sample Orders',
             required: false
         }
     ];
@@ -116,9 +106,7 @@ async function main() {
         console.log('\n🎉 Minimum setup complete! Your prediction market is ready.');
         console.log('\n🔄 Next Steps:');
         console.log('   1. Check your .env file for generated addresses and IDs');
-        console.log('   2. Run cross-currency order creation:');
-        console.log('      npx hardhat run scripts/admin-scripts/14-create-cross-currency-orders.js --network baseSepolia');
-        console.log('   3. Run position token verification:');
+        console.log('   2. Run position token verification:');
         console.log('      npx hardhat run scripts/admin-scripts/17-verify-position-tokens.js --network baseSepolia');
     } else {
         console.log('\n⚠️ Setup incomplete. Please check errors above and rerun failed scripts.');
