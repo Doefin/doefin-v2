@@ -47,11 +47,15 @@ import {ISettlementAdmin} from "../interfaces/ISettlementAdmin.sol";
 contract DiamondInit {
     /**
      * @notice Initializes the diamond with owner, fee configuration, and ERC-165 interfaces
-     * @dev Sets up complete diamond state including ownership, trading fees, and supported interfaces
-     * @dev Called via delegatecall from DiamondCutFacet during deployment
+     * @dev Sets the contract owner, initializes the reentrancy guard and admin config,
+     *      and registers the supported ERC-165 interfaces. Called via delegatecall from
+     *      DiamondCutFacet during deployment.
      * @param _owner Address to be set as the contract owner with administrative privileges
      * @custom:delegation Executed via delegatecall to maintain diamond storage context
-     * @custom:fees Initializes protocol fees: 5% resolution. Settlement fees are operator-supplied (SCRUM-224).
+     * @custom:fees Sets resolutionFeeBps = 500 (5%) — the CTF redemption fee charged by
+     *      ConditionalTokensFacet. Settlement fees are operator-supplied and bounded by
+     *      the admin-set maxFeeRateBps (default 0, fail-closed); they are not configured
+     *      here (SCRUM-224).
      * @custom:interfaces Registers all supported ERC-165 interfaces for protocol compliance
      * @custom:deployment One-time setup function for diamond initialization
      * @custom:owner Sets contract owner for administrative operations

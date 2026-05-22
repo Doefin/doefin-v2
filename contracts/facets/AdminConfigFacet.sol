@@ -2,6 +2,7 @@
 pragma solidity ^0.8.6;
 
 import {LibAdminConfigStorage} from "../libraries/LibAdminConfigStorage.sol";
+import {LibConstants} from "../libraries/LibConstants.sol";
 import {IAdminConfig} from "../interfaces/IAdminConfig.sol";
 import {LibDiamond} from "../libraries/LibDiamond.sol";
 import {Errors} from "../libraries/Errors.sol";
@@ -121,7 +122,7 @@ contract AdminConfigFacet is IAdminConfig {
      */
     function setResolutionFeeBps(uint16 bps) external override {
         LibDiamond.enforceIsContractOwner();
-        if (bps > 10_000) revert Errors.FeeTooHigh();
+        if (bps > LibConstants.BPS_DENOMINATOR) revert Errors.FeeTooHigh();
 
         LibAdminConfigStorage.AdminConfigStorage storage acs = LibAdminConfigStorage.adminConfigStorage();
         uint16 oldFeeBps = acs.resolutionFeeBps;

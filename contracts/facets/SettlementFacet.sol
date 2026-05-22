@@ -11,6 +11,7 @@ import {LibReentrancyGuard} from "../libraries/LibReentrancyGuard.sol";
 import {LibAccessControl} from "../libraries/LibAccessControl.sol";
 import {LibSignature} from "../libraries/LibSignature.sol";
 import {LibOrderValidity} from "../libraries/LibOrderValidity.sol";
+import {LibConstants} from "../libraries/LibConstants.sol";
 import {Errors} from "../libraries/Errors.sol";
 import {Events} from "../libraries/Events.sol";
 import {ISettlement} from "../interfaces/ISettlement.sol";
@@ -713,7 +714,7 @@ contract SettlementFacet is ISettlement {
     function _validateFee(uint128 fee, uint256 cashValue) internal view {
         if (fee == 0) return;
         uint16 maxFeeRateBps = LibAdminConfigStorage.adminConfigStorage().maxFeeRateBps;
-        uint256 maxAllowed = (cashValue * uint256(maxFeeRateBps)) / 10000;
+        uint256 maxAllowed = (cashValue * uint256(maxFeeRateBps)) / LibConstants.BPS_DENOMINATOR;
         if (uint256(fee) > maxAllowed) revert Errors.FeeExceedsMaxRate();
     }
 
@@ -723,8 +724,8 @@ contract SettlementFacet is ISettlement {
 
     /**
      * @dev Resolve the (conditionId, partition) pair for a binary-complement maker/taker
-     *      match. Previously duplicated verbatim across `_settleMint:497-506` and
-     *      `_settleMerge:550-553` (CPX-007 + GAS-002).
+     *      match. Previously duplicated verbatim across `_settleMint` and `_settleMerge`
+     *      (CPX-007 + GAS-002).
      * @param takerPositionId The taker's CTF position id.
      * @param makerPositionId The maker's CTF position id.
      * @param ds The shared AppStorage pointer (caller already resolves the namespace once

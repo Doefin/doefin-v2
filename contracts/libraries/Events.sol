@@ -336,7 +336,7 @@ library Events {
     /// @notice Emitted when two orders are matched and settled against each other
     /// @param takerHash The EIP-712 hash of the taker order
     /// @param makerHash The EIP-712 hash of the maker order
-    /// @param matchType The settlement path used (0 = Complementary, 1 = Mint, 2 = Merge)
+    /// @param matchType The settlement path used (1 = Complementary, 2 = Mint, 3 = Merge)
     /// @param amount The amount matched
     event OrdersMatched(bytes32 indexed takerHash, bytes32 indexed makerHash, uint8 matchType, uint128 amount);
 

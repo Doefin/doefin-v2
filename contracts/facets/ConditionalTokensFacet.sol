@@ -6,6 +6,7 @@ pragma solidity ^0.8.6;
 
 import {LibDoefinStorage} from "../libraries/LibDoefinStorage.sol";
 import {LibAdminConfigStorage} from "../libraries/LibAdminConfigStorage.sol";
+import {LibConstants} from "../libraries/LibConstants.sol";
 import {LibCTHelpers} from "../libraries/LibCTHelpers.sol";
 import {LibERC1155} from "../libraries/LibERC1155.sol";
 import {IConditionalTokens} from "../interfaces/IConditionalTokens.sol";
@@ -228,7 +229,7 @@ contract ConditionalTokensFacet is IConditionalTokens {
             return;
         }
 
-        uint256 feeAmount = (amount * feeBps) / 10_000;
+        uint256 feeAmount = (amount * feeBps) / LibConstants.BPS_DENOMINATOR;
         uint256 userAmount = amount - feeAmount;
 
         LibReentrancyGuard._nonReentrantBefore();
