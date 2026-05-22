@@ -89,13 +89,14 @@ describe("Characterization — access-control matrix (SCRUM-230 A3)", function (
   });
 
   describe("ConditionalTokensFacet.prepareCondition owner gate", function () {
-    // PRE-A3 the gate reverts NotAuthorized; A3 standardizes it to
-    // LibDiamond.enforceIsContractOwner -> NotContractOwner. This assertion is
-    // updated to NotContractOwner in the A3 refactor commit.
+    // A3 / ARCH-02: prepareCondition's owner gate was standardized onto
+    // LibDiamond.enforceIsContractOwner — its revert is now NotContractOwner
+    // (was NotAuthorized pre-A3). This is the one intentional revert-reason
+    // change in A3; every other row of the matrix is strict parity.
     it("reverts for a non-owner caller", async function () {
       await expect(
         ctf.connect(stranger).prepareCondition(other.address, ethers.constants.HashZero, 2)
-      ).to.be.revertedWith("NotAuthorized()");
+      ).to.be.revertedWith("NotContractOwner()");
     });
   });
 

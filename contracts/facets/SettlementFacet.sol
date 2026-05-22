@@ -8,6 +8,7 @@ import {LibAdminConfigStorage} from "../libraries/LibAdminConfigStorage.sol";
 import {LibCTFCondition} from "../libraries/LibCTFCondition.sol";
 import {LibERC1155} from "../libraries/LibERC1155.sol";
 import {LibReentrancyGuard} from "../libraries/LibReentrancyGuard.sol";
+import {LibAccessControl} from "../libraries/LibAccessControl.sol";
 import {LibSignature} from "../libraries/LibSignature.sol";
 import {LibOrderValidity} from "../libraries/LibOrderValidity.sol";
 import {Errors} from "../libraries/Errors.sol";
@@ -35,8 +36,7 @@ contract SettlementFacet is ISettlement {
     // ========================================
 
     modifier onlyOperator() {
-        LibSettlementStorage.SettlementStorage storage ss = LibSettlementStorage.settlementStorage();
-        if (msg.sender != ss.operator) revert Errors.UnauthorizedOperator(msg.sender);
+        LibAccessControl.enforceIsOperator();
         _;
     }
 

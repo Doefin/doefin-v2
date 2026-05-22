@@ -112,11 +112,13 @@ describe("ConditionalTokensFacet Advanced", function () {
       const questionId = ethers.utils.id("unauthorized-prep");
       const outcomeSlotCount = 2;
 
+      // SCRUM-230 / ARCH-02: prepareCondition's owner gate was standardized onto
+      // LibDiamond.enforceIsContractOwner — revert is now NotContractOwner.
       await expect(
         conditionalTokensFacet
           .connect(user1)
           .prepareCondition(oracle.address, questionId, outcomeSlotCount)
-      ).to.be.revertedWith("NotAuthorized()");
+      ).to.be.revertedWith("NotContractOwner()");
     });
 
     it("should handle multiple outcome slots", async () => {

@@ -20,9 +20,6 @@ library Errors {
     /// @notice Thrown when caller is not a market maker
     error NotMarketMaker();
 
-    /// @notice Thrown when caller is not authorized to perform action
-    error NotAuthorized();
-
     /// @notice Thrown when caller is not the order maker
     error NotOrderMaker();
 

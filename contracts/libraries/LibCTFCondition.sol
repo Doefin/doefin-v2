@@ -12,7 +12,6 @@ import {Errors} from "./Errors.sol";
 import {Events} from "./Events.sol";
 import {LibPositionRegistry} from "./LibPositionRegistry.sol";
 import {LibReentrancyGuard} from "./LibReentrancyGuard.sol";
-import {LibAccessControl} from "./LibAccessControl.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 library LibCTFCondition {
@@ -80,7 +79,7 @@ library LibCTFCondition {
         uint256 amount,
         uint256[] memory partition
     ) internal {
-        if (!LibAccessControl.isCollateralTokenAllowed(collateralToken)) {
+        if (!LibAdminConfigStorage.adminConfigStorage().isAllowed[collateralToken]) {
             revert Errors.TokenNotAllowed();
         }
 
@@ -128,7 +127,7 @@ library LibCTFCondition {
         uint256 amount,
         uint256[] memory partition
     ) internal {
-        if (!LibAccessControl.isCollateralTokenAllowed(collateralToken)) {
+        if (!LibAdminConfigStorage.adminConfigStorage().isAllowed[collateralToken]) {
             revert Errors.TokenNotAllowed();
         }
 
@@ -202,7 +201,7 @@ library LibCTFCondition {
     }
 
     function _validateCollateral(address collateralToken, uint256 amount) internal view {
-        if (!LibAccessControl.isCollateralTokenAllowed(collateralToken)) {
+        if (!LibAdminConfigStorage.adminConfigStorage().isAllowed[collateralToken]) {
             revert Errors.TokenNotAllowed();
         }
 

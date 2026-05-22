@@ -12,7 +12,6 @@ pragma solidity ^0.8.6;
 /******************************************************************************/
 
 import {LibDiamond} from "./libraries/LibDiamond.sol";
-import {LibAccessControl} from "./libraries/LibAccessControl.sol";
 import {IDiamondCut} from "./interfaces/IDiamondCut.sol";
 import {Errors} from "./libraries/Errors.sol";
 

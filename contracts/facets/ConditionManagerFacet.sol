@@ -6,6 +6,7 @@ pragma solidity ^0.8.6;
 
 import {LibDoefinStorage} from "../libraries/LibDoefinStorage.sol";
 import {LibAccessControl} from "../libraries/LibAccessControl.sol";
+import {LibDiamond} from "../libraries/LibDiamond.sol";
 import {LibCTFCondition} from "../libraries/LibCTFCondition.sol";
 import {LibConditionMetadata} from "../libraries/LibConditionMetadata.sol";
 import {LibOracleAdapter} from "../libraries/LibOracleAdapter.sol";
@@ -200,7 +201,7 @@ contract ConditionManagerFacet is IConditionManager {
             revert Errors.ConditionDoesNotExist();
         }
 
-        if (cond.creator != msg.sender && !LibAccessControl.isOwner(msg.sender)) {
+        if (cond.creator != msg.sender && msg.sender != LibDiamond.contractOwner()) {
             revert Errors.NotAuthorizedToCancel();
         }
 

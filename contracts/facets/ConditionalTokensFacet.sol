@@ -10,7 +10,7 @@ import {LibCTHelpers} from "../libraries/LibCTHelpers.sol";
 import {LibERC1155} from "../libraries/LibERC1155.sol";
 import {IConditionalTokens} from "../interfaces/IConditionalTokens.sol";
 import {LibCTFCondition} from "../libraries/LibCTFCondition.sol";
-import {LibAccessControl} from "../libraries/LibAccessControl.sol";
+import {LibDiamond} from "../libraries/LibDiamond.sol";
 import {LibReentrancyGuard} from "../libraries/LibReentrancyGuard.sol";
 import {Errors} from "../libraries/Errors.sol";
 import {Events} from "../libraries/Events.sol";
@@ -36,14 +36,12 @@ contract ConditionalTokensFacet is IConditionalTokens {
      * @param questionId Unique identifier for the question being asked
      * @param outcomeSlotCount Number of possible outcomes (must be >= 2)
      * @custom:emits ConditionPreparation with condition details
-     * @custom:reverts NotAuthorized if caller is not contract owner
+     * @custom:reverts NotContractOwner if caller is not contract owner
      * @custom:security Owner-only access prevents spam conditions
      * @custom:note Condition must be resolved by the specified oracle to enable redemptions
      */
     function prepareCondition(address oracle, bytes32 questionId, uint8 outcomeSlotCount) external override {
-        if (!LibAccessControl.isOwner(msg.sender)) {
-            revert Errors.NotAuthorized();
-        }
+        LibDiamond.enforceIsContractOwner();
         bytes32 conditionId = LibCTFCondition.prepareCondition(oracle, questionId, outcomeSlotCount);
 
         emit Events.ConditionPreparation(conditionId, oracle, questionId, outcomeSlotCount);
@@ -57,7 +55,7 @@ contract ConditionalTokensFacet is IConditionalTokens {
      * @param questionId The unique identifier for the question being resolved
      * @param payouts Array of payout numerators for each outcome (denominator is sum of all)
      * @custom:emits PayoutReported (via LibCTFCondition implementation)
-     * @custom:reverts NotAuthorized if caller is not the designated oracle
+     * @custom:reverts if msg.sender is not the oracle the condition was prepared for
      * @custom:reverts InvalidPayouts if payout array doesn't match expected format
      * @custom:security Oracle-only access ensures trusted resolution
      * @custom:note Payouts are normalized: winning outcome = 1, losing outcomes = 0 for binary markets
