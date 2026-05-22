@@ -200,18 +200,6 @@ library LibCTFCondition {
         }
     }
 
-    function _validateCollateral(address collateralToken, uint256 amount) internal view {
-        if (!LibAdminConfigStorage.adminConfigStorage().isAllowed[collateralToken]) {
-            revert Errors.TokenNotAllowed();
-        }
-
-        uint256 unit = LibAdminConfigStorage.adminConfigStorage().unitPerPair[collateralToken];
-
-        if (amount % unit != 0) {
-            revert Errors.CollateralNotAligned();
-        }
-    }
-
     function _reportPayouts(address oracle, bytes32 questionId, uint256[] memory payouts) internal {
         if (payouts.length == 0 || payouts.length > type(uint8).max) {
             revert Errors.InvalidPayoutLength();

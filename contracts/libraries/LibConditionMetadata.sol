@@ -29,47 +29,19 @@ library LibConditionMetadata {
     }
     
     // ========================================
-    // ENCODING FUNCTIONS
-    // ========================================
-    
-    /// @notice Encode DifficultyThreshold metadata
-    function encodeDifficultyThreshold(
-        uint256 threshold,
-        uint256 targetBlockHeight
-    ) internal pure returns (bytes memory) {
-        return abi.encode(threshold, targetBlockHeight);
-    }
-    
-    /// @notice Encode DifficultyRange metadata
-    function encodeDifficultyRange(
-        uint256 targetBlockHeight,
-        uint256[] memory buckets
-    ) internal pure returns (bytes memory) {
-        return abi.encode(targetBlockHeight, buckets);
-    }
-    
-    /// @notice Encode BlockCount metadata
-    function encodeBlockCount(
-        uint256 startTimestamp,
-        uint256 endTimestamp,
-        uint256[] memory countBuckets
-    ) internal pure returns (bytes memory) {
-        return abi.encode(startTimestamp, endTimestamp, countBuckets);
-    }
-    
-    /// @notice Encode MiningDuration metadata
-    function encodeMiningDuration(
-        uint256 startBlockHeight,
-        uint256 blockCount,
-        uint256[] memory durationBuckets
-    ) internal pure returns (bytes memory) {
-        return abi.encode(startBlockHeight, blockCount, durationBuckets);
-    }
-    
-    // ========================================
     // DECODING FUNCTIONS
     // ========================================
-    
+    //
+    // @dev Question metadata is encoded OFF-CHAIN (the JS helpers in
+    //      `test/utils/oracleAdapterUtils.js` and the admin scripts under
+    //      `scripts/admin-scripts/`); `ConditionManagerFacet.createConditionWithMetadata`
+    //      accepts the already-encoded `bytes` blob. The on-chain symmetric
+    //      `encode*` helpers were removed in the SCRUM-234 dead-code pass —
+    //      they were never invoked by any production caller and the
+    //      reachability analysis confirmed zero callsites in `contracts/`.
+    //      Each `decode*` below mirrors the layout the JS side produces.
+
+
     /// @notice Decode DifficultyThreshold metadata
     function decodeDifficultyThreshold(bytes memory metadata)
         internal pure
