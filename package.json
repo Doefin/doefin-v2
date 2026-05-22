@@ -34,6 +34,8 @@
     "audit:medusa": "docker compose -f security/docker-compose.yml exec audit bash security/scripts/run-medusa.sh",
     "audit:all": "docker compose -f security/docker-compose.yml exec audit bash security/scripts/run-all.sh",
     "audit:complexity": "docker compose -f security/docker-compose.yml exec audit slither . --config-file security/slither.config.json --print human-summary,contract-summary,vars-and-auth",
+    "audit:deadcode": "bash security/scripts/run-deadcode.sh",
+    "audit:deadcode:matrix": "node audit/scripts/usage-matrix.js",
     "audit:lint": "solhint 'contracts/**/*.sol'",
     "audit:gas": "mkdir -p audit/output/gas && REPORT_GAS=true npx hardhat test",
     "audit:coverage": "npx hardhat coverage",

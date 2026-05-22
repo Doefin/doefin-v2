@@ -1,0 +1,10 @@
+{
+  "compile_force_framework": "hardhat",
+  "detectors_to_exclude": "naming-convention,solc-version,pragma",
+  "exclude_informational": false,
+  "exclude_low": false,
+  "exclude_medium": false,
+  "exclude_high": false,
+  "exclude_optimization": false,
+  "filter_paths": "node_modules,contracts/mock/,contracts/audit/"
+}
