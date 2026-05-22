@@ -82,10 +82,23 @@ the match type is determined per maker.
 - A separate `resolutionFeeBps` (redemption fee, charged in `ConditionalTokensFacet` when
   winning positions are redeemed) is distinct from trading fees and still exists.
 
-### Storage
-- Main: `LibDoefinStorage` at `keccak256("doefin.storage")` — shared `AppStorage` struct
-- Settlement: `LibSettlementStorage` at `keccak256("doefin.settlement.storage")` — isolated v3 storage
-- Follow EIP-7201 namespaced storage pattern for any new storage structs
+### Storage (EIP-7201 namespaced — SCRUM-229)
+
+Each storage namespace lives at an EIP-7201 slot:
+`keccak256(abi.encode(uint256(keccak256(id)) - 1)) & ~bytes32(uint256(0xff))`,
+with a `@custom:storage-location erc7201:<id>` annotation on its struct. The `& ~0xff`
+mask reserves a 256-slot-aligned region, so namespaced structs need no hand-sized `__gap`.
+
+- `LibDoefinStorage` (`doefin.storage`) — legacy `AppStorage` monolith, **grandfathered**:
+  holds only the CTF / ERC1155 / position-registry / reentrancy / Bitcoin-oracle
+  sub-structs (these keep their `__gap`s). Do not add new sub-structs here.
+- `LibSettlementStorage` (`doefin.settlement.storage`) — v3 settlement storage
+- `LibAdminConfigStorage` (`doefin.admin-config.storage`) — protocol admin config
+- `LibAccessControlStorage` (`doefin.access-control.storage`) — market-maker role
+- **New modules get their own EIP-7201 namespace library** — never embed sub-structs in
+  `AppStorage`.
+- `test/storage/storage-layout-snapshot.test.js` is the CI gate against layout drift;
+  an intentional layout change must regenerate the snapshot (`UPDATE_STORAGE_SNAPSHOT=true`).
 
 ## Branch Strategy
 
@@ -107,7 +120,7 @@ the match type is determined per maker.
 - Central `Errors.sol` for custom errors (no revert strings)
 - Central `Events.sol` for events
 - Libraries: `internal` functions, named `Lib*`, comprehensive NatSpec with `@custom:*` tags
-- `__gap` pattern in storage structs for upgrade safety
+- EIP-7201 namespaced storage — new modules get their own namespace library (see Storage section)
 - All facets must be under 24KiB (check with `npx hardhat size-contracts`)
 
 ## Verification Commands

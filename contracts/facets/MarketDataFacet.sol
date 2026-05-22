@@ -34,9 +34,6 @@ contract MarketDataFacet is IMarketData {
      * @custom:registry Delegates to LibPositionRegistry.getMarketsForCondition for implementation
      * @custom:ctf Compatible with Gnosis CTF condition and market structures
      */
-    /// @notice Get all markets for a given condition (now returns all markets across different collaterals/parents)
-    /// @param conditionId The condition identifier
-    /// @return markets Array of market metadata for all markets associated with the condition
     function getMarketsByCondition(bytes32 conditionId) external view override returns (LibDoefinStorage.MarketMetadata[] memory markets) {
         // Use the new registry function that returns all markets for a condition
         return LibPositionRegistry.getMarketsForCondition(conditionId);
@@ -53,9 +50,6 @@ contract MarketDataFacet is IMarketData {
      * @custom:condition Condition-centric view of all associated position tokens
      * @custom:gas Linear cost based on total number of markets and positions for the condition
      */
-    /// @notice Get all position IDs across all markets for a given condition
-    /// @param conditionId The condition identifier
-    /// @return positionIds Array of all position IDs associated with the condition
     function getAllPositionIdsByCondition(bytes32 conditionId) external view returns (uint256[] memory positionIds) {
         LibDoefinStorage.MarketMetadata[] memory markets = LibPositionRegistry.getMarketsForCondition(conditionId);
 
@@ -89,11 +83,6 @@ contract MarketDataFacet is IMarketData {
      * @custom:validation Uses centralized market key building and existence validation
      * @custom:revert Errors.ConditionDoesNotExist() if market combination doesn't exist
      */
-    /// @notice Get position IDs for a specific market (condition + parent + collateral)
-    /// @param conditionId The condition identifier
-    /// @param parentCollectionId The parent collection identifier
-    /// @param collateralToken The collateral token address
-    /// @return positionIds Array of position IDs for the specific market
     function getPositionIdsByMarket(
         bytes32 conditionId,
         bytes32 parentCollectionId,
@@ -125,9 +114,6 @@ contract MarketDataFacet is IMarketData {
      * @custom:metadata Comprehensive market data structure with all relevant information
      * @custom:delegation Delegates to LibPositionRegistry.getMarketMetadata for implementation
      */
-    /// @notice Get market metadata for a specific position
-    /// @param positionId The position identifier
-    /// @return metadata Complete market metadata including collateral token, parent collection, position IDs, and partitions
     function getMarketMetadata(uint256 positionId) external view override returns (LibDoefinStorage.MarketMetadata memory metadata) {
         // Use existing validation from LibPositionRegistry
         return LibPositionRegistry.getMarketMetadata(positionId);
@@ -146,11 +132,6 @@ contract MarketDataFacet is IMarketData {
      * @custom:market Uses centralized market key building for consistent identification
      * @custom:revert Errors.ConditionDoesNotExist() if market combination doesn't exist
      */
-    /// @notice Get market metadata for a specific market combination
-    /// @param conditionId The condition identifier
-    /// @param parentCollectionId The parent collection identifier
-    /// @param collateralToken The collateral token address
-    /// @return metadata Complete market metadata for the specific market
     function getMarketMetadataByMarket(
         bytes32 conditionId,
         bytes32 parentCollectionId,
@@ -182,9 +163,6 @@ contract MarketDataFacet is IMarketData {
      * @custom:delegation Delegates to LibPositionRegistry.getCollateralToken for implementation
      * @custom:token Returns ERC20 token address used as collateral for the position
      */
-    /// @notice Get the collateral token address for a position
-    /// @param positionId The position identifier
-    /// @return collateralToken The address of the collateral token
     function getCollateralToken(uint256 positionId) external view override returns (address collateralToken) {
         return LibPositionRegistry.getCollateralToken(positionId);
     }
@@ -198,11 +176,8 @@ contract MarketDataFacet is IMarketData {
      * @custom:view Read-only access to admin configuration storage
      * @custom:validation Validates position existence before accessing unit configuration
      * @custom:precision Essential for accurate trading calculations and token conversions
-     * @custom:admin Uses admin configuration storage for collateral unit settings
+     * @custom:admin Uses the admin-config storage namespace for collateral unit settings
      */
-    /// @notice Get the collateral token unit/digits for a position
-    /// @param positionId The position identifier
-    /// @return unit The unit per pair for the collateral token
     function getCollateralUnit(uint256 positionId) external view override returns (uint256 unit) {
         // Validate position first
         LibPositionRegistry.validatePositionId(positionId);
@@ -225,9 +200,6 @@ contract MarketDataFacet is IMarketData {
      * @custom:ctf Essential for Gnosis CTF integration and condition resolution
      * @custom:mapping Uses direct storage mapping for efficient condition lookup
      */
-    /// @notice Get the condition ID for a position
-    /// @param positionId The position identifier
-    /// @return conditionId The condition identifier
     function getConditionId(uint256 positionId) external view override returns (bytes32 conditionId) {
         // Validate position first
         LibPositionRegistry.validatePositionId(positionId);
@@ -248,9 +220,6 @@ contract MarketDataFacet is IMarketData {
      * @custom:delegation Delegates to LibPositionRegistry.getComplement for implementation
      * @custom:market Core market structure function for position relationship understanding
      */
-    /// @notice Get the complement position ID for a given position
-    /// @param positionId The position identifier
-    /// @return complementId The complement position ID
     function getComplement(uint256 positionId) external view override returns (uint256 complementId) {
         // Use existing library function
         return LibPositionRegistry.getComplement(positionId);
@@ -273,13 +242,6 @@ contract MarketDataFacet is IMarketData {
      * @custom:aggregation Combines multiple position-related queries into single call
      * @custom:revert Errors.TokenNotAllowed() if collateral token not configured
      */
-    /// @notice Get comprehensive position information in one call
-    /// @param positionId The position identifier
-    /// @return conditionId The condition identifier
-    /// @return collateralToken The collateral token address
-    /// @return unit The collateral token unit
-    /// @return complementId The complement position ID
-    /// @return metadata The complete market metadata
     function getPositionInfo(
         uint256 positionId
     )
