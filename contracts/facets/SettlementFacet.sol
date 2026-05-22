@@ -123,6 +123,9 @@ contract SettlementFacet is ISettlement {
         LibAdminConfigStorage.AdminConfigStorage storage acs = LibAdminConfigStorage.adminConfigStorage();
         uint256 takerUnit = acs.unitPerPair[takerOrder.collateralToken];
         address feeReceiver = acs.feeReceiver;
+        // GAS-003: hoist maxFeeRateBps once (same packed slot as feeReceiver — already
+        // warm) and thread it to _validateFee, which becomes a pure, storage-free check.
+        uint16 maxFeeRateBps = acs.maxFeeRateBps;
 
         // CPX-006 + GAS-006: single linear maker loop. The aggregate
         // `sum(makerFillAmounts) == takerFillAmount` consistency check that previously
@@ -147,6 +150,7 @@ contract SettlementFacet is ISettlement {
                 domainSep,
                 takerUnit,
                 feeReceiver,
+                maxFeeRateBps,
                 ss,
                 ds
             );
@@ -183,6 +187,7 @@ contract SettlementFacet is ISettlement {
         bytes32 domainSep,
         uint256 takerUnit,
         address feeReceiver,
+        uint16 maxFeeRateBps,
         LibSettlementStorage.SettlementStorage storage ss,
         LibDoefinStorage.AppStorage storage ds
     ) private {
@@ -207,6 +212,7 @@ contract SettlementFacet is ISettlement {
             matchType,
             takerUnit,
             feeReceiver,
+            maxFeeRateBps,
             ds
         );
 
@@ -247,12 +253,13 @@ contract SettlementFacet is ISettlement {
         _validateOrder(ss, order, orderHash);
         _checkFillAmount(ss, orderHash, order.amount, fillAmount);
 
-        // GAS-004: read `unit` once.
+        // GAS-004: read `unit` once. GAS-003: hoist feeReceiver + maxFeeRateBps alongside it.
         // `_validateOrder` already enforces `unit != 0` and `price <= unit` (SEC-002/BIZ-004).
-        uint256 unit = LibAdminConfigStorage.adminConfigStorage().unitPerPair[order.collateralToken];
+        LibAdminConfigStorage.AdminConfigStorage storage acs = LibAdminConfigStorage.adminConfigStorage();
+        uint256 unit = acs.unitPerPair[order.collateralToken];
 
         // Transfer collateral between maker and operator based on side
-        _executeOperatorFill(order, fillAmount, fee, unit);
+        _executeOperatorFill(order, fillAmount, fee, unit, acs.feeReceiver, acs.maxFeeRateBps);
 
         ss.orderHashToFilledAmount[orderHash] += fillAmount;
         emit Events.OrderSettled(orderHash, order.maker, fillAmount, fee);
@@ -413,14 +420,15 @@ contract SettlementFacet is ISettlement {
         uint8 matchType,
         uint256 unit,
         address feeReceiver,
+        uint16 maxFeeRateBps,
         LibDoefinStorage.AppStorage storage ds
     ) internal {
         if (matchType == MATCH_COMPLEMENTARY) {
-            _settleComplementary(taker, maker, fillAmount, takerFee, makerFee, unit, feeReceiver);
+            _settleComplementary(taker, maker, fillAmount, takerFee, makerFee, unit, feeReceiver, maxFeeRateBps);
         } else if (matchType == MATCH_MINT) {
-            _settleMint(taker, maker, fillAmount, takerFee, makerFee, unit, feeReceiver, ds);
+            _settleMint(taker, maker, fillAmount, takerFee, makerFee, unit, feeReceiver, maxFeeRateBps, ds);
         } else if (matchType == MATCH_MERGE) {
-            _settleMerge(taker, maker, fillAmount, takerFee, makerFee, unit, feeReceiver, ds);
+            _settleMerge(taker, maker, fillAmount, takerFee, makerFee, unit, feeReceiver, maxFeeRateBps, ds);
         }
     }
 
@@ -442,7 +450,8 @@ contract SettlementFacet is ISettlement {
         uint128 takerFee,
         uint128 makerFee,
         uint256 unit,
-        address feeReceiver
+        address feeReceiver,
+        uint16 maxFeeRateBps
     ) internal {
         if (taker.collateralToken != maker.collateralToken) revert Errors.InvalidMatch();
 
@@ -458,15 +467,18 @@ contract SettlementFacet is ISettlement {
         uint128 sellerPrice = takerIsBuyer ? maker.pricePerToken : taker.pricePerToken;
         if (buyerPrice < sellerPrice) revert Errors.InvalidMatch();
 
-        // Use maker's price as execution price (maker is passive, taker is aggressor)
-        uint256 collateralAmount = (uint256(maker.pricePerToken) * uint256(fillAmount)) / unit;
+        // Use maker's price as execution price (maker is passive, taker is aggressor).
+        // GAS-006: unchecked — `_validateOrder` enforces `pricePerToken <= unit` (BIZ-004)
+        // and `unit` is a practical collateral scale, so the product stays far below 2^256.
+        uint256 collateralAmount;
+        unchecked { collateralAmount = (uint256(maker.pricePerToken) * uint256(fillAmount)) / unit; }
 
         // SCRUM-224: operator-supplied fees, validated against the per-party collateral
         // (the contract-derived cash value of this leg) and the admin-set max rate.
         // The seller's fee is paid out of their `collateralAmount` proceeds, so it is
         // additionally bounded by `fee <= proceeds`.
-        _validateFee(buyerFee, collateralAmount);
-        _validateFee(sellerFee, collateralAmount);
+        _validateFee(buyerFee, collateralAmount, maxFeeRateBps);
+        _validateFee(sellerFee, collateralAmount, maxFeeRateBps);
         if (sellerFee > collateralAmount) revert Errors.FeeExceedsProceeds();
 
         // Buyer pays collateral to seller
@@ -502,6 +514,7 @@ contract SettlementFacet is ISettlement {
         uint128 makerFee,
         uint256 unit,
         address feeReceiver,
+        uint16 maxFeeRateBps,
         LibDoefinStorage.AppStorage storage ds
     ) internal {
         if (taker.collateralToken != maker.collateralToken) revert Errors.InvalidMatch();
@@ -512,7 +525,9 @@ contract SettlementFacet is ISettlement {
         // Maker pays their committed price; taker pays the complement (effective price = unit - P_m).
         // GAS-007: `fillAmount - makerCollateral` is guarded by the crossing check above —
         // when `P_t + P_m >= unit`, `makerCollateral = (P_m * fill) / unit <= fill`.
-        uint256 makerCollateral = (uint256(maker.pricePerToken) * uint256(fillAmount)) / unit;
+        // GAS-006: unchecked — `pricePerToken <= unit` (BIZ-004) bounds the product.
+        uint256 makerCollateral;
+        unchecked { makerCollateral = (uint256(maker.pricePerToken) * uint256(fillAmount)) / unit; }
         uint256 takerCollateral;
         unchecked { takerCollateral = uint256(fillAmount) - makerCollateral; }
         // 1-wei rounding surplus (from integer division) flows to taker by construction.
@@ -522,8 +537,8 @@ contract SettlementFacet is ISettlement {
         // collateral (the contract-derived cash value of their leg) and the admin-set
         // max rate. Both fees are paid on top of the collateral (not out of a payout),
         // so only the max-rate / cash-value bound applies.
-        _validateFee(takerFee, takerCollateral);
-        _validateFee(makerFee, makerCollateral);
+        _validateFee(takerFee, takerCollateral, maxFeeRateBps);
+        _validateFee(makerFee, makerCollateral, maxFeeRateBps);
 
         // Collect collateral from both buyers to Diamond
         IERC20(taker.collateralToken).safeTransferFrom(taker.maker, address(this), takerCollateral);
@@ -573,6 +588,7 @@ contract SettlementFacet is ISettlement {
         uint128 makerFee,
         uint256 unit,
         address feeReceiver,
+        uint16 maxFeeRateBps,
         LibDoefinStorage.AppStorage storage ds
     ) internal {
         if (taker.collateralToken != maker.collateralToken) revert Errors.InvalidMatch();
@@ -605,7 +621,9 @@ contract SettlementFacet is ISettlement {
         // Maker receives their committed price; taker receives the complement (effective return = unit - P_m).
         // GAS-007: `fillAmount - makerPayout` is guarded by the crossing check above —
         // when `P_t + P_m <= unit`, `makerPayout = (P_m * fill) / unit <= fill`.
-        uint256 makerPayout = (uint256(maker.pricePerToken) * uint256(fillAmount)) / unit;
+        // GAS-006: unchecked — `pricePerToken <= unit` (BIZ-004) bounds the product.
+        uint256 makerPayout;
+        unchecked { makerPayout = (uint256(maker.pricePerToken) * uint256(fillAmount)) / unit; }
         uint256 takerPayout;
         unchecked { takerPayout = uint256(fillAmount) - makerPayout; }
         // 1-wei rounding surplus (from integer division) flows to taker by construction.
@@ -617,8 +635,8 @@ contract SettlementFacet is ISettlement {
         // `fee <= proceeds` — this generalises and replaces the BIZ-001 checked-
         // subtraction guard: if a fee ever exceeds the payout the call reverts cleanly
         // instead of silently skipping a party's payout while still remitting the fee.
-        _validateFee(takerFee, takerPayout);
-        _validateFee(makerFee, makerPayout);
+        _validateFee(takerFee, takerPayout, maxFeeRateBps);
+        _validateFee(makerFee, makerPayout, maxFeeRateBps);
         if (takerFee > takerPayout || makerFee > makerPayout) revert Errors.FeeExceedsProceeds();
 
         uint256 takerNet;
@@ -655,10 +673,13 @@ contract SettlementFacet is ISettlement {
         LibDoefinOrder.DoefinOrder calldata order,
         uint128 fillAmount,
         uint128 fee,
-        uint256 unit
+        uint256 unit,
+        address feeReceiver,
+        uint16 maxFeeRateBps
     ) internal {
-        address feeReceiver = LibAdminConfigStorage.adminConfigStorage().feeReceiver;
-        uint256 collateralAmount = (uint256(order.pricePerToken) * uint256(fillAmount)) / unit;
+        // GAS-006: unchecked — `pricePerToken <= unit` (BIZ-004) bounds the product.
+        uint256 collateralAmount;
+        unchecked { collateralAmount = (uint256(order.pricePerToken) * uint256(fillAmount)) / unit; }
 
         // SEC-003: reject dust fills that round the collateral leg down to nothing.
         if (collateralAmount == 0) revert Errors.ZeroAmount();
@@ -666,7 +687,7 @@ contract SettlementFacet is ISettlement {
         // SCRUM-224: validate the operator-supplied fee against the contract-derived
         // collateral leg and the admin-set max rate. The fee is paid out of
         // `collateralAmount`, so it must not exceed those proceeds.
-        _validateFee(fee, collateralAmount);
+        _validateFee(fee, collateralAmount, maxFeeRateBps);
         if (fee > collateralAmount) revert Errors.FeeExceedsProceeds();
 
         // GAS-007: `collateralAmount - fee` is guarded by the `fee > collateralAmount`
@@ -706,14 +727,14 @@ contract SettlementFacet is ISettlement {
      *      operator-asserted value).
      * @param fee The operator-supplied fee for this leg.
      * @param cashValue The contract-derived per-party collateral value of the leg.
+     * @param maxFeeRateBps The admin-set maximum fee rate, hoisted once by the caller (GAS-003).
      * @custom:security Fail-closed — `maxFeeRateBps == 0` is NOT treated as "unlimited":
      *      it makes `maxAllowed` zero, so any non-zero fee reverts. This is a deliberate
      *      divergence from Polymarket CTF Exchange V2 (fail-closed is the safer posture).
      * @custom:reverts FeeExceedsMaxRate when `fee` exceeds `cashValue * maxFeeRateBps / 10000`.
      */
-    function _validateFee(uint128 fee, uint256 cashValue) internal view {
+    function _validateFee(uint128 fee, uint256 cashValue, uint16 maxFeeRateBps) internal pure {
         if (fee == 0) return;
-        uint16 maxFeeRateBps = LibAdminConfigStorage.adminConfigStorage().maxFeeRateBps;
         uint256 maxAllowed = (cashValue * uint256(maxFeeRateBps)) / LibConstants.BPS_DENOMINATOR;
         if (uint256(fee) > maxAllowed) revert Errors.FeeExceedsMaxRate();
     }
