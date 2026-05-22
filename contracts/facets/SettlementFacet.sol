@@ -58,9 +58,11 @@ contract SettlementFacet is ISettlement {
     // ========================================
 
     /**
-     * @notice Settle a matched pair: one taker against one or more makers
+     * @notice Settle a matched pair: one taker against one or more makers (user-vs-user CLOB).
      * @dev Only callable by the authorized operator. Validates signatures, order validity,
      *      fill amounts, determines match type, and executes the appropriate settlement path.
+     * @dev See {fillOrder} for the operator-as-counterparty primitive used by any
+     *      market-making service (LMSR / FPMM / discretionary).
      * @param takerOrder The taker's signed order
      * @param takerSignature The taker's ECDSA signature
      * @param takerSignatureType 0 = EOA, 1 = EIP-1271
@@ -224,16 +226,46 @@ contract SettlementFacet is ISettlement {
     }
 
     /**
-     * @notice Fill a single order (operator is the counterparty)
-     * @dev The operator fills the order directly — no matching. Validates signature and fill amount.
+     * @notice Fill a single order — the operator is the counterparty (no user-on-user matching).
+     *
+     * @dev Distinct from {matchOrders} (user-vs-user CLOB settlement). This is the
+     *      operator-as-counterparty primitive: the operator (or a market-maker service
+     *      run under the operator role) settles collateral and position tokens directly
+     *      against its own inventory. No CTF split/merge is performed — for a buy order
+     *      the operator must already hold the position tokens; for a sell order it
+     *      receives them. The execution helper is `_executeOperatorFill` (vs
+     *      `_settleComplementary` / `_settleMint` / `_settleMerge` for {matchOrders}).
+     *
+     * @dev Strategic role — automated or discretionary market making.
+     *      {matchOrders} requires two crossing user orders to exist; if a book is thin
+     *      or one-sided, only an operator-as-MM can provide the missing side.
+     *      `fillOrder` is the on-chain primitive any market-making algorithm uses to
+     *      settle a quote, including:
+     *        - Hanson's LMSR (cost function `C(q) = b·ln Σ exp(q_i/b)`; bounded subsidy
+     *          `b·ln N`; the canonical academic MM for prediction markets);
+     *        - Fixed-product (FPMM, constant-product — the Gnosis design used by
+     *          Polymarket's early AMM pools);
+     *        - Reservation-price / inventory-skewed quoting;
+     *        - Human-discretionary market making.
+     *      Polymarket CTF Exchange V2 ships the same `fillOrder` + `matchOrders` pair
+     *      for the same reason: the CLOB matches user orders, an MM service quotes
+     *      via `fillOrder`.
+     *
+     * @dev Current Doefin integration. The doefin-backend `match-engine` settles via
+     *      `matchOrders` exclusively (pure orderbook relayer; the operator never takes
+     *      inventory risk). `fillOrder` is currently unused on-chain — it is retained
+     *      as the standing primitive for any future Doefin-operated or licensed
+     *      market-making service.
+     *
      * @dev SCRUM-224 — `fee` is operator-supplied (no longer derived from a signed
      *      `feeRateBps`). `_executeOperatorFill` validates it against the contract-derived
      *      collateral leg via `_validateFee`.
-     * @param order The order to fill
-     * @param signature The order's ECDSA signature
-     * @param signatureType 0 = EOA, 1 = EIP-1271
-     * @param fillAmount Amount to fill
-     * @param fee Operator-supplied fee for this fill
+     *
+     * @param order The order to fill.
+     * @param signature The order's ECDSA signature.
+     * @param signatureType 0 = EOA, 1 = EIP-1271.
+     * @param fillAmount Amount to fill.
+     * @param fee Operator-supplied fee for this fill.
      * @custom:reverts ZeroAmount, FeeExceedsMaxRate, FeeExceedsProceeds
      */
     function fillOrder(
