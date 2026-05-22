@@ -63,34 +63,6 @@ library LibPositionRegistry {
     }
 
     /**
-     * @notice Validates that two positions belong to the same condition and returns the condition ID
-     * @dev Used during mint/merge operations to ensure positions are from the same prediction market
-     * @dev Both positions must be registered and belong to the same conditional token condition
-     * @param positionId1 First position ID to validate
-     * @param positionId2 Second position ID to validate
-     * @return The shared condition ID for both positions
-     * @custom:reverts InvalidPositionId if either position is not registered
-     * @custom:reverts InvalidMatch if positions belong to different conditions
-     * @custom:note Essential for CTF compliance - positions must share condition for split/merge
-     */
-    function retrieveConditionId(uint256 positionId1, uint256 positionId2) internal view returns (bytes32) {
-        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
-
-        // Validate both positions exist
-        validatePositionId(positionId1);
-        validatePositionId(positionId2);
-
-        // Get condition IDs for both positions
-        bytes32 conditionId1 = ds.positionRegistry.conditionIdByPositionId[positionId1];
-        bytes32 conditionId2 = ds.positionRegistry.conditionIdByPositionId[positionId2];
-
-        // Ensure they belong to the same condition
-        if (conditionId1 != conditionId2) revert Errors.InvalidMatch();
-
-        return conditionId1;
-    }
-
-    /**
      * @notice Gets the condition ID associated with a specific position
      * @dev Each position belongs to exactly one condition in the conditional token framework
      * @param positionId The position ID to query
@@ -108,21 +80,6 @@ library LibPositionRegistry {
         LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
         if (ds.positionRegistry.marketKeyByPositionId[positionId] == bytes32(0)) {
             revert Errors.InvalidPositionId();
-        }
-    }
-
-    function validateComplement(uint256 positionId, uint256 complementPositionId) internal view {
-        validatePositionId(positionId);
-        validatePositionId(complementPositionId);
-
-        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
-
-        // They must belong to the same market
-        bytes32 positionMarketKey = ds.positionRegistry.marketKeyByPositionId[positionId];
-        bytes32 complementMarketKey = ds.positionRegistry.marketKeyByPositionId[complementPositionId];
-
-        if (positionMarketKey != complementMarketKey) {
-            revert Errors.InvalidComplement();
         }
     }
 
@@ -228,10 +185,5 @@ library LibPositionRegistry {
     /// @return Market key hash (condition + parent + collateral)
     function buildMarketKey(bytes32 conditionId, bytes32 parentCollectionId, address collateralToken) internal pure returns (bytes32) {
         return keccak256(abi.encode(conditionId, parentCollectionId, collateralToken));
-    }
-
-    function getMarketCount(bytes32 conditionId) internal view returns (uint256) {
-        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
-        return ds.positionRegistry.marketKeysByCondition[conditionId].length;
     }
 }
