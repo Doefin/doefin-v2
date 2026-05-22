@@ -39,69 +39,10 @@ contract MarketDataFacet is IMarketData {
         return LibPositionRegistry.getMarketsForCondition(conditionId);
     }
 
-    /**
-     * @notice Retrieves all position IDs across all markets for a specific condition
-     * @dev Aggregates position IDs from all markets (different collateral/parent combinations) for the condition
-     * @dev Useful for comprehensive position discovery and condition-wide analysis
-     * @param conditionId The unique condition identifier to query position IDs for
-     * @return positionIds Array of all position IDs associated with the condition across all markets
-     * @custom:view Read-only aggregation of position data across markets
-     * @custom:aggregation Combines position IDs from multiple markets into single array
-     * @custom:condition Condition-centric view of all associated position tokens
-     * @custom:gas Linear cost based on total number of markets and positions for the condition
-     */
-    function getAllPositionIdsByCondition(bytes32 conditionId) external view returns (uint256[] memory positionIds) {
-        LibDoefinStorage.MarketMetadata[] memory markets = LibPositionRegistry.getMarketsForCondition(conditionId);
-
-        // Calculate total position count
-        uint256 totalPositions = 0;
-        for (uint256 i = 0; i < markets.length; i++) {
-            totalPositions += markets[i].positionIds.length;
-        }
-
-        // Build combined array
-        positionIds = new uint256[](totalPositions);
-        uint256 index = 0;
-        for (uint256 i = 0; i < markets.length; i++) {
-            for (uint256 j = 0; j < markets[i].positionIds.length; j++) {
-                positionIds[index] = markets[i].positionIds[j];
-                index++;
-            }
-        }
-    }
-
-    /**
-     * @notice Retrieves position IDs for a specific market defined by condition, parent, and collateral
-     * @dev Returns position IDs for the exact market combination, not aggregated across markets
-     * @dev Market is uniquely identified by the combination of all three parameters
-     * @param conditionId The unique condition identifier
-     * @param parentCollectionId The parent collection identifier for market segmentation
-     * @param collateralToken The collateral token address for the specific market
-     * @return positionIds Array of position IDs for the specific market combination
-     * @custom:view Read-only access to specific market position data
-     * @custom:market Precise market identification using three-parameter key
-     * @custom:validation Uses centralized market key building and existence validation
-     * @custom:revert Errors.ConditionDoesNotExist() if market combination doesn't exist
-     */
-    function getPositionIdsByMarket(
-        bytes32 conditionId,
-        bytes32 parentCollectionId,
-        address collateralToken
-    ) external view override returns (uint256[] memory positionIds) {
-        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
-
-        // Create the market key using centralized helper
-        bytes32 marketKeyHash = LibPositionRegistry.buildMarketKey(conditionId, parentCollectionId, collateralToken);
-
-        LibDoefinStorage.MarketMetadata storage metadata = ds.positionRegistry.marketsByKey[marketKeyHash];
-
-        // Validate market exists
-        if (metadata.collateralToken == address(0)) {
-            revert Errors.ConditionDoesNotExist();
-        }
-
-        return metadata.positionIds;
-    }
+    // SCRUM-234 (dead-code B-1/B-2) — `getAllPositionIdsByCondition` and
+    // `getPositionIdsByMarket` were removed. Layer-3 reachability confirmed zero
+    // callers across contracts/ + doefin-backend/ + doefin-frontend/ + ops scripts
+    // + tests; both were registered selectors with no integration surface.
 
     /**
      * @notice Retrieves complete market metadata for a specific position token
@@ -200,13 +141,13 @@ contract MarketDataFacet is IMarketData {
      * @custom:ctf Essential for Gnosis CTF integration and condition resolution
      * @custom:mapping Uses direct storage mapping for efficient condition lookup
      */
-    function getConditionId(uint256 positionId) external view override returns (bytes32 conditionId) {
-        // Validate position first
-        LibPositionRegistry.validatePositionId(positionId);
-
-        // Use existing mapping
-        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
-        return ds.positionRegistry.conditionIdByPositionId[positionId];
+    /// @dev SCRUM-234 (dead-code A-15) — routed through
+    ///      {LibPositionRegistry.getConditionId} (which calls `validatePositionId` and
+    ///      then reads `conditionIdByPositionId`), mirroring the pattern of
+    ///      {getComplement} below. The library function now has a real production
+    ///      caller, removing the asymmetric direct-storage-read previously used here.
+    function getConditionId(uint256 positionId) external view override returns (bytes32) {
+        return LibPositionRegistry.getConditionId(positionId);
     }
 
     /**

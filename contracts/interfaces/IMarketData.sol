@@ -12,21 +12,10 @@ interface IMarketData {
     /// @return markets Array of market metadata for all markets associated with the condition
     function getMarketsByCondition(bytes32 conditionId) external view returns (LibDoefinStorage.MarketMetadata[] memory markets);
 
-    /// @notice Get all position IDs across all markets for a given condition
-    /// @param conditionId The condition identifier
-    /// @return positionIds Array of all position IDs associated with the condition
-    function getAllPositionIdsByCondition(bytes32 conditionId) external view returns (uint256[] memory positionIds);
-
-    /// @notice Get position IDs for a specific market (condition + parent + collateral)
-    /// @param conditionId The condition identifier
-    /// @param parentCollectionId The parent collection identifier
-    /// @param collateralToken The collateral token address
-    /// @return positionIds Array of position IDs for the specific market
-    function getPositionIdsByMarket(
-        bytes32 conditionId,
-        bytes32 parentCollectionId,
-        address collateralToken
-    ) external view returns (uint256[] memory positionIds);
+    // SCRUM-234 (dead-code B-1/B-2) — `getAllPositionIdsByCondition` and
+    // `getPositionIdsByMarket` declarations were removed; the matching facet
+    // implementations are gone (zero callers across contracts/ + backend/ + frontend/
+    // + ops scripts + tests).
 
     /// @notice Get market metadata for a specific position
     /// @param positionId The position identifier
