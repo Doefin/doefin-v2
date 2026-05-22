@@ -12,7 +12,7 @@
 //   Gap-4 (LOW)    INV-FILL-1  duplicate maker order in one matchOrders call
 //   Gap-5 (LOW)    INV-NONCE-2 settlement-side revert for expired / stale / low-salt
 //   Gap-6 (LOW)    INV-MATCH-3 mint/merge with mismatched collateralToken
-//   Gap-8 (LOW)    INV-MISC-1  _settleX zero-collateral leg (documented behaviour)
+//   Gap-8 (LOW)    INV-MISC-1  _settleX zero-collateral leg rejected (BL-N2 guard)
 //
 // Gap-7 (cross-runtime EIP-712 differential) lives in
 // test/unit/LibDoefinOrder/eip712-differential.test.js.
@@ -606,55 +606,117 @@ describe("SettlementFacet — invariant coverage gaps", function () {
 
   // ──────────────────────────────────────────────────────────────────────
   // Gap-8 — INV-MISC-1 / BL-N2: the `matchOrders` settle paths
-  // (`_settleComplementary` / `_settleMint` / `_settleMerge`) have NO
-  // standalone collateral-zero guard — unlike `_executeOperatorFill` which
-  // rejects `collateralAmount == 0`. A complementary leg whose collateral
-  // component truncates to 0 (`floorDiv(P_m*f, unit) == 0`) transfers `f`
-  // position tokens for zero collateral. This is benign by the trust model;
-  // the test PINS that documented behaviour so a future change is noticed.
+  // (`_settleComplementary` / `_settleMint` / `_settleMerge`) now reject a leg
+  // whose per-party collateral component truncates to 0
+  // (`floorDiv(P*f, unit) == 0`) — symmetric with the `_executeOperatorFill`
+  // (`fillOrder`) SEC-003 `collateralAmount == 0` guard. A degenerate leg
+  // would otherwise move `f` position tokens for zero payment. These tests
+  // PIN the symmetric guard on all three settle paths, both for a literal
+  // `price == 0` and for a sub-unit `fillAmount` dust truncation.
   // ──────────────────────────────────────────────────────────────────────
-  describe("Gap-8 — INV-MISC-1: complementary settle permits a zero-collateral leg", function () {
-    it("a complementary leg at price 0 transfers position tokens for zero collateral and does not revert", async function () {
-      const { settlement, collateral, erc1155Facet } = ctx.contracts;
-      const { buyer, seller, operator, feeReceiver } = ctx.signers;
+  describe("Gap-8 — INV-MISC-1 / BL-N2: matchOrders settle paths reject a zero-collateral leg", function () {
+    it("complementary: a leg at price 0 reverts ZeroAmount", async function () {
+      const { settlement } = ctx.contracts;
+      const { buyer, seller, operator } = ctx.signers;
       const { positionIdA } = ctx.market;
+      const { makeOrder, signOrder } = ctx.helpers;
 
       const fill = ethers.utils.parseUnits("100", 6);
-      // Maker (passive) price is 0 ⇒ execution price 0 ⇒ collateralAmount =
+      // Maker (passive) price 0 ⇒ execution price 0 ⇒ collateralAmount =
       // 0*fill/unit = 0. Buyer price >= seller price (0 >= 0) so the
-      // complementary price check passes; side check passes (0/1).
+      // complementary price check passes; side check passes (0/1). The
+      // BL-N2 guard now rejects the resulting zero-collateral leg.
       const zeroPrice = ethers.constants.Zero;
-      const { makeOrder, signOrder } = ctx.helpers;
       const takerOrder = makeOrder(buyer.address, positionIdA, 0, fill, zeroPrice, { salt: 68001 });
       const makerOrder = makeOrder(seller.address, positionIdA, 1, fill, zeroPrice, { salt: 68001 });
       const takerSig = await signOrder(buyer, takerOrder);
       const makerSig = await signOrder(seller, makerOrder);
 
-      const buyerCollBefore = await collateral.balanceOf(buyer.address);
-      const sellerCollBefore = await collateral.balanceOf(seller.address);
-      const feeRcvBefore = await collateral.balanceOf(feeReceiver.address);
-      const buyerPosBefore = await erc1155Facet.balanceOf(buyer.address, positionIdA);
-      const sellerPosBefore = await erc1155Facet.balanceOf(seller.address, positionIdA);
+      await expect(
+        settlement.connect(operator).matchOrders(
+          takerOrder, takerSig, 0,
+          [makerOrder], [makerSig], [0],
+          fill, [fill], [0], [0],
+        ),
+      ).to.be.revertedWith("ZeroAmount()");
+    });
 
-      // Documented behaviour (BL-N2): the leg settles. No collateral-zero
-      // guard fires on the matchOrders path.
-      await settlement.connect(operator).matchOrders(
-        takerOrder, takerSig, 0,
-        [makerOrder], [makerSig], [0],
-        fill, [fill], [0], [0],
-      );
+    it("complementary: a sub-unit dust leg (P*f < unit) reverts ZeroAmount", async function () {
+      const { settlement } = ctx.contracts;
+      const { buyer, seller, operator } = ctx.signers;
+      const { positionIdA } = ctx.market;
+      const { makeOrder, signOrder } = ctx.helpers;
 
-      // Zero collateral moved — buyer paid nothing, seller received nothing,
-      // feeReceiver got nothing (fees are 0).
-      expect(await collateral.balanceOf(buyer.address)).to.equal(buyerCollBefore);
-      expect(await collateral.balanceOf(seller.address)).to.equal(sellerCollBefore);
-      expect(await collateral.balanceOf(feeReceiver.address)).to.equal(feeRcvBefore);
+      // price 1 wei, fill 100 ⇒ collateralAmount = floorDiv(1*100, 1e6) = 0.
+      // A non-zero price truncated to a zero leg — the dust case the guard
+      // exists for, distinct from the literal price-0 case above.
+      const fill = ethers.BigNumber.from(100);
+      const price = ethers.BigNumber.from(1);
+      const takerOrder = makeOrder(buyer.address, positionIdA, 0, fill, price, { salt: 68002 });
+      const makerOrder = makeOrder(seller.address, positionIdA, 1, fill, price, { salt: 68002 });
+      const takerSig = await signOrder(buyer, takerOrder);
+      const makerSig = await signOrder(seller, makerOrder);
 
-      // ...but the `fill` position tokens DID move seller -> buyer.
-      expect((await erc1155Facet.balanceOf(buyer.address, positionIdA)).sub(buyerPosBefore))
-        .to.equal(fill);
-      expect(sellerPosBefore.sub(await erc1155Facet.balanceOf(seller.address, positionIdA)))
-        .to.equal(fill);
+      await expect(
+        settlement.connect(operator).matchOrders(
+          takerOrder, takerSig, 0,
+          [makerOrder], [makerSig], [0],
+          fill, [fill], [0], [0],
+        ),
+      ).to.be.revertedWith("ZeroAmount()");
+    });
+
+    it("mint: a buyer leg whose collateral truncates to 0 reverts ZeroAmount", async function () {
+      const { settlement } = ctx.contracts;
+      const { buyer, buyerB, operator } = ctx.signers;
+      const { positionIdA, positionIdB } = ctx.market;
+      const { UNIT } = ctx.constants;
+      const { makeOrder, signOrder } = ctx.helpers;
+
+      // Taker BUYs A at price `unit`; maker BUYs B at price 0. Crossing holds
+      // (`P_t + P_m = unit >= unit`). makerCollateral = floorDiv(0*f, unit) = 0
+      // ⇒ the maker would mint `f` of outcome B for no payment. The BL-N2
+      // guard (`makerCollateral == 0 || takerCollateral == 0`) rejects it.
+      const fill = ethers.utils.parseUnits("100", 6);
+      const takerOrder = makeOrder(buyer.address, positionIdA, 0, fill, UNIT, { salt: 68003 });
+      const makerOrder = makeOrder(buyerB.address, positionIdB, 0, fill, ethers.constants.Zero, { salt: 68003 });
+      const takerSig = await signOrder(buyer, takerOrder);
+      const makerSig = await signOrder(buyerB, makerOrder);
+
+      await expect(
+        settlement.connect(operator).matchOrders(
+          takerOrder, takerSig, 0,
+          [makerOrder], [makerSig], [0],
+          fill, [fill], [0], [0],
+        ),
+      ).to.be.revertedWith("ZeroAmount()");
+    });
+
+    it("merge: a seller leg whose payout truncates to 0 reverts ZeroAmount", async function () {
+      const { settlement } = ctx.contracts;
+      const { seller, buyerB, operator } = ctx.signers;
+      const { positionIdA, positionIdB } = ctx.market;
+      const { UNIT } = ctx.constants;
+      const { makeOrder, signOrder } = ctx.helpers;
+
+      // Taker SELLs A (seller holds positionA inventory); maker SELLs B
+      // (buyerB holds positionB inventory). Maker price 0 ⇒ makerPayout =
+      // floorDiv(0*f, unit) = 0 ⇒ the maker would burn `f` of outcome B for
+      // no collateral return. Crossing holds (`P_t + P_m = unit/2 <= unit`).
+      // The BL-N2 guard rejects the zero-payout leg before the CTF burn.
+      const fill = ethers.utils.parseUnits("100", 6);
+      const takerOrder = makeOrder(seller.address, positionIdA, 1, fill, UNIT.div(2), { salt: 68004 });
+      const makerOrder = makeOrder(buyerB.address, positionIdB, 1, fill, ethers.constants.Zero, { salt: 68004 });
+      const takerSig = await signOrder(seller, takerOrder);
+      const makerSig = await signOrder(buyerB, makerOrder);
+
+      await expect(
+        settlement.connect(operator).matchOrders(
+          takerOrder, takerSig, 0,
+          [makerOrder], [makerSig], [0],
+          fill, [fill], [0], [0],
+        ),
+      ).to.be.revertedWith("ZeroAmount()");
     });
   });
 });

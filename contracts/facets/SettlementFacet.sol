@@ -473,6 +473,12 @@ contract SettlementFacet is ISettlement {
         uint256 collateralAmount;
         unchecked { collateralAmount = (uint256(maker.pricePerToken) * uint256(fillAmount)) / unit; }
 
+        // BL-N2: reject a dust leg whose collateral truncates to 0 (`P_maker == 0` or
+        // `P_maker * fillAmount < unit`) — a zero-value trade would transfer `fillAmount`
+        // position tokens for no payment. Symmetric with the `_executeOperatorFill`
+        // SEC-003 guard so both settlement entrypoints fail closed on a degenerate leg.
+        if (collateralAmount == 0) revert Errors.ZeroAmount();
+
         // SCRUM-224: operator-supplied fees, validated against the per-party collateral
         // (the contract-derived cash value of this leg) and the admin-set max rate.
         // The seller's fee is paid out of their `collateralAmount` proceeds, so it is
@@ -532,6 +538,11 @@ contract SettlementFacet is ISettlement {
         unchecked { takerCollateral = uint256(fillAmount) - makerCollateral; }
         // 1-wei rounding surplus (from integer division) flows to taker by construction.
         // Do not add a makerExpected + 1 tolerance — this is intentional.
+
+        // BL-N2: reject a dust leg — either buyer's collateral truncating to 0 would
+        // mint them `fillAmount` outcome tokens for no payment. Symmetric with the
+        // `_executeOperatorFill` SEC-003 guard.
+        if (makerCollateral == 0 || takerCollateral == 0) revert Errors.ZeroAmount();
 
         // SCRUM-224: operator-supplied fees, validated against each buyer's per-party
         // collateral (the contract-derived cash value of their leg) and the admin-set
@@ -599,6 +610,24 @@ contract SettlementFacet is ISettlement {
         // checks ordering was inconsistent and harder to reason about.
         if (uint256(taker.pricePerToken) + uint256(maker.pricePerToken) > unit) revert Errors.InvalidMatch();
 
+        // Maker receives their committed price; taker receives the complement (effective return = unit - P_m).
+        // GAS-007: `fillAmount - makerPayout` is guarded by the crossing check above —
+        // when `P_t + P_m <= unit`, `makerPayout = (P_m * fill) / unit <= fill`.
+        // GAS-006: unchecked — `pricePerToken <= unit` (BIZ-004) bounds the product.
+        uint256 makerPayout;
+        unchecked { makerPayout = (uint256(maker.pricePerToken) * uint256(fillAmount)) / unit; }
+        uint256 takerPayout;
+        unchecked { takerPayout = uint256(fillAmount) - makerPayout; }
+        // 1-wei rounding surplus (from integer division) flows to taker by construction.
+        // Do not add a makerExpected + 1 tolerance — this is intentional.
+
+        // BL-N2: reject a dust leg BEFORE any state mutation — either seller's payout
+        // truncating to 0 would burn `fillAmount` of their position tokens for no
+        // collateral return. Checked here (checks-before-effects, mirroring `_settleMint`
+        // and the BIZ-002 crossing check) so the CTF burn is never reached on a
+        // degenerate leg. Symmetric with the `_executeOperatorFill` SEC-003 guard.
+        if (makerPayout == 0 || takerPayout == 0) revert Errors.ZeroAmount();
+
         // Collect position tokens from both sellers to Diamond
         LibERC1155.safeTransferFrom(address(this), taker.maker, address(this), uint256(taker.positionId), fillAmount, "");
         LibERC1155.safeTransferFrom(address(this), maker.maker, address(this), uint256(maker.positionId), fillAmount, "");
@@ -617,17 +646,6 @@ contract SettlementFacet is ISettlement {
             partition,
             fillAmount
         );
-
-        // Maker receives their committed price; taker receives the complement (effective return = unit - P_m).
-        // GAS-007: `fillAmount - makerPayout` is guarded by the crossing check above —
-        // when `P_t + P_m <= unit`, `makerPayout = (P_m * fill) / unit <= fill`.
-        // GAS-006: unchecked — `pricePerToken <= unit` (BIZ-004) bounds the product.
-        uint256 makerPayout;
-        unchecked { makerPayout = (uint256(maker.pricePerToken) * uint256(fillAmount)) / unit; }
-        uint256 takerPayout;
-        unchecked { takerPayout = uint256(fillAmount) - makerPayout; }
-        // 1-wei rounding surplus (from integer division) flows to taker by construction.
-        // Do not add a makerExpected + 1 tolerance — this is intentional.
 
         // SCRUM-224: operator-supplied fees, validated against each seller's per-party
         // payout (the contract-derived cash value of their leg) and the admin-set max
