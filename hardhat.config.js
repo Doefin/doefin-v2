@@ -23,7 +23,9 @@ module.exports = {
     settings: {
       optimizer: {
         enabled: true,
-        runs: 1, // Production-standard optimization for balanced gas efficiency and bytecode size
+        // SCRUM-231 (GAS-001): tuned for the constantly-called settlement hot path
+        // rather than one-shot deploy size. All facets retain ample 24 KiB headroom.
+        runs: 200,
       },
       viaIR: true, // Enable IR-based code generator to avoid "stack too deep" errors
       metadata: {
