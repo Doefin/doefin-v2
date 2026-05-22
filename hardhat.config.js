@@ -28,7 +28,24 @@ module.exports = {
       viaIR: true, // Enable IR-based code generator to avoid "stack too deep" errors
       metadata: {
         bytecodeHash: "none" // Remove metadata hash to save bytecode space
-      }
+      },
+      // Emit `storageLayout` alongside Hardhat's default outputs so the
+      // storage-layout snapshot test (ARCH-05 / SCRUM-229) can read every
+      // struct's slot/offset back from build-info. The other selections are
+      // Hardhat's defaults, restated so adding `storageLayout` cannot drop them.
+      outputSelection: {
+        "*": {
+          "*": [
+            "abi",
+            "evm.bytecode",
+            "evm.deployedBytecode",
+            "evm.methodIdentifiers",
+            "metadata",
+            "storageLayout",
+          ],
+          "": ["ast"],
+        },
+      },
     },
   },
   contractSizer: {
