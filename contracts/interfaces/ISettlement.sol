@@ -7,7 +7,9 @@ import {LibDoefinOrder} from "../libraries/LibDoefinOrder.sol";
  * @title ISettlement
  * @author Doefin
  * @notice Interface for the v3 hybrid settlement facet
- * @dev Operator-only entry point for executing matched order pairs on-chain
+ * @dev Operator-only entry point for executing matched order pairs on-chain.
+ *      Owner-only governance (operator management, pause switch) lives in the
+ *      separate {ISettlementAdmin} interface (ARCH-01 / SCRUM-230).
  */
 interface ISettlement {
     function matchOrders(
@@ -31,15 +33,5 @@ interface ISettlement {
         uint128 fee
     ) external;
 
-    function setOperator(address _operator) external;
-
-    function pauseTrading() external;
-
-    function unpauseTrading() external;
-
     function getFilledAmount(bytes32 orderHash) external view returns (uint256);
-
-    function getOperator() external view returns (address);
-
-    function isTradingPaused() external view returns (bool);
 }

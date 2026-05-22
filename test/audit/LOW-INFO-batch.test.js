@@ -40,31 +40,31 @@ describe("PENTEST BATCH · LOW + INFO", function () {
 
   describe("SEC-011 (LOW, FIXED) — setOperator zero-address guard + OperatorUpdated event", function () {
     it("FIX VERIFIED — setOperator(address(0)) reverts ZeroAddress()", async function () {
-      const { settlement } = ctx.contracts;
+      const { settlementAdmin } = ctx.contracts;
       const { owner } = ctx.signers;
 
       // Pre-fix: silently accepted, bricking settlement with no on-chain trace.
       // Post-fix: a clean, named revert.
       await expect(
-        settlement.connect(owner).setOperator(ethers.constants.AddressZero),
+        settlementAdmin.connect(owner).setOperator(ethers.constants.AddressZero),
       ).to.be.revertedWith("ZeroAddress()");
     });
 
     it("FIX VERIFIED — setOperator(non-zero) emits OperatorUpdated(old, new)", async function () {
-      const { settlement } = ctx.contracts;
+      const { settlementAdmin } = ctx.contracts;
       const { owner, operator, attacker } = ctx.signers;
 
-      const oldOperator = await settlement.getOperator();
+      const oldOperator = await settlementAdmin.getOperator();
 
       // Change to a new operator and watch for the event.
-      await expect(settlement.connect(owner).setOperator(attacker.address))
-        .to.emit(settlement, "OperatorUpdated")
+      await expect(settlementAdmin.connect(owner).setOperator(attacker.address))
+        .to.emit(settlementAdmin, "OperatorUpdated")
         .withArgs(oldOperator, attacker.address);
 
-      expect(await settlement.getOperator()).to.equal(attacker.address);
+      expect(await settlementAdmin.getOperator()).to.equal(attacker.address);
 
       // Restore the fixture operator so subsequent tests aren't impacted.
-      await settlement.connect(owner).setOperator(operator.address);
+      await settlementAdmin.connect(owner).setOperator(operator.address);
     });
   });
 

@@ -144,10 +144,11 @@ async function deployDiamond() {
     "AdminConfigFacet",
     "MarketDataFacet",
     "OracleAdapterFacet",
-    // v2.1 Settlement facets
+    // v3 Settlement facets
     "SignatureVerifierFacet",
     "NonceManagerFacet",
     "SettlementFacet",
+    "SettlementAdminFacet",
   ];
   const cut = [];
   for (const FacetName of FacetNames) {
@@ -240,10 +241,10 @@ async function deployDiamond() {
     }
   }
 
-  // --- v2.1 Settlement initialization ---
+  // --- v3 Settlement initialization ---
   if (process.env.OPERATOR_ADDRESS) {
-    const settlement = await ethers.getContractAt("ISettlement", diamond.address);
-    const setOpTx = await settlement.setOperator(process.env.OPERATOR_ADDRESS);
+    const settlementAdmin = await ethers.getContractAt("ISettlementAdmin", diamond.address);
+    const setOpTx = await settlementAdmin.setOperator(process.env.OPERATOR_ADDRESS);
     await setOpTx.wait();
     console.log("Operator set to:", process.env.OPERATOR_ADDRESS);
   } else {

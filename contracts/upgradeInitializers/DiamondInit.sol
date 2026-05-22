@@ -27,6 +27,7 @@ import {IDoefinBlockHeaderOracle} from "../interfaces/IDoefinBlockHeaderOracle.s
 import {ISignatureVerifier} from "../interfaces/ISignatureVerifier.sol";
 import {INonceManager} from "../interfaces/INonceManager.sol";
 import {ISettlement} from "../interfaces/ISettlement.sol";
+import {ISettlementAdmin} from "../interfaces/ISettlementAdmin.sol";
 
 // It is expected that this contract is customized if you want to deploy your diamond
 // with data from a deployment script. Use the init function to initialize state variables
@@ -87,6 +88,7 @@ contract DiamondInit {
         ds.supportedInterfaces[type(ISignatureVerifier).interfaceId] = true;
         ds.supportedInterfaces[type(INonceManager).interfaceId] = true;
         ds.supportedInterfaces[type(ISettlement).interfaceId] = true;
+        ds.supportedInterfaces[type(ISettlementAdmin).interfaceId] = true;
 
         // add your own state variables
         // EIP-2535 specifies that the `diamondCut` function takes two optional

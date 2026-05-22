@@ -52,6 +52,7 @@ async function setupAuditFixture() {
   const diamondAddress = await deployDiamond();
 
   const settlement       = await ethers.getContractAt("SettlementFacet",        diamondAddress);
+  const settlementAdmin  = await ethers.getContractAt("SettlementAdminFacet",   diamondAddress);
   const sigVerifier      = await ethers.getContractAt("SignatureVerifierFacet", diamondAddress);
   const nonceMgr         = await ethers.getContractAt("NonceManagerFacet",      diamondAddress);
   const adminConfig      = await ethers.getContractAt("AdminConfigFacet",       diamondAddress);
@@ -68,7 +69,7 @@ async function setupAuditFixture() {
   await adminConfig.addCollateralToken(collateral.address, UNIT);
   await adminConfig.setFeeReceiver(feeReceiver.address);
   await adminConfig.setMaxFeeRate(MAX_FEE_RATE_BPS);
-  await settlement.setOperator(operator.address);
+  await settlementAdmin.setOperator(operator.address);
   await accessControl.addMarketMaker(owner.address);
 
   // One binary condition with outcomes A (indexSet=1) and B (indexSet=2).
@@ -155,7 +156,7 @@ async function setupAuditFixture() {
   return {
     diamondAddress,
     contracts: {
-      settlement, sigVerifier, nonceMgr, adminConfig, conditionMgr,
+      settlement, settlementAdmin, sigVerifier, nonceMgr, adminConfig, conditionMgr,
       conditionalTokens, erc1155Facet, accessControl, collateral,
     },
     signers: { owner, operator, buyer, seller, buyerB, feeReceiver, attacker },

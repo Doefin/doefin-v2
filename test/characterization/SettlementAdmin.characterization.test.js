@@ -135,3 +135,45 @@ describe("Characterization — settlement governance (SCRUM-230 A2)", function (
     });
   });
 });
+
+/**
+ * Post-extraction wiring check (SCRUM-230 A2 / ARCH-01).
+ *
+ * Confirms the diamondCut routed the five governance selectors to the extracted
+ * SettlementAdminFacet and that the matchOrders hot path stays on a distinct
+ * facet — the structural boundary the extraction created.
+ */
+describe("Facet wiring — SettlementAdminFacet extraction (SCRUM-230 A2)", function () {
+  this.timeout(120000);
+
+  it("the 5 governance selectors resolve to one facet, distinct from matchOrders' facet", async function () {
+    const diamond = await deployDiamond();
+    const loupe = await ethers.getContractAt("DiamondLoupeFacet", diamond);
+
+    const adminIface = (await ethers.getContractFactory("SettlementAdminFacet"))
+      .interface;
+    const settlementIface = (await ethers.getContractFactory("SettlementFacet"))
+      .interface;
+
+    const govSelectors = [
+      "setOperator",
+      "pauseTrading",
+      "unpauseTrading",
+      "getOperator",
+      "isTradingPaused",
+    ].map((n) => adminIface.getSighash(n));
+
+    const adminFacet = await loupe.facetAddress(govSelectors[0]);
+    expect(adminFacet).to.not.equal(ethers.constants.AddressZero);
+    for (const s of govSelectors) {
+      expect(await loupe.facetAddress(s)).to.equal(adminFacet);
+    }
+
+    // The hot path stays on SettlementFacet — a different facet address.
+    const matchOrdersFacet = await loupe.facetAddress(
+      settlementIface.getSighash("matchOrders")
+    );
+    expect(matchOrdersFacet).to.not.equal(ethers.constants.AddressZero);
+    expect(matchOrdersFacet).to.not.equal(adminFacet);
+  });
+});

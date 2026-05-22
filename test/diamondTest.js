@@ -45,8 +45,9 @@ describe("DiamondTest", async function () {
       addresses.push(address);
     }
     initialFacetCount = addresses.length;
-    // DiamondCutFacet + 14 deployed facets = 15
-    assert.equal(initialFacetCount, 15);
+    // DiamondCutFacet + 15 deployed facets = 16
+    // (SettlementAdminFacet extracted from SettlementFacet — SCRUM-230 / ARCH-01)
+    assert.equal(initialFacetCount, 16);
   });
 
   it("facets should have the right function selectors -- call to facetFunctionSelectors function", async () => {

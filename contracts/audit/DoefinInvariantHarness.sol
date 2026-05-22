@@ -66,6 +66,7 @@ import {MarketDataFacet} from "../facets/MarketDataFacet.sol";
 import {SignatureVerifierFacet} from "../facets/SignatureVerifierFacet.sol";
 import {NonceManagerFacet} from "../facets/NonceManagerFacet.sol";
 import {SettlementFacet} from "../facets/SettlementFacet.sol";
+import {SettlementAdminFacet} from "../facets/SettlementAdminFacet.sol";
 import {DiamondInit} from "../upgradeInitializers/DiamondInit.sol";
 
 import {IDiamondCut} from "../interfaces/IDiamondCut.sol";
@@ -82,6 +83,7 @@ import {IMarketData} from "../interfaces/IMarketData.sol";
 import {ISignatureVerifier} from "../interfaces/ISignatureVerifier.sol";
 import {INonceManager} from "../interfaces/INonceManager.sol";
 import {ISettlement} from "../interfaces/ISettlement.sol";
+import {ISettlementAdmin} from "../interfaces/ISettlementAdmin.sol";
 
 import {LibDoefinOrder} from "../libraries/LibDoefinOrder.sol";
 import {MockERC20} from "../mock/MockERC20.sol";
@@ -164,6 +166,7 @@ contract DoefinInvariantHarness {
 
     // Facet handles bound to the Diamond address.
     ISettlement internal immutable settlement;
+    ISettlementAdmin internal immutable settlementAdmin;
     INonceManager internal immutable nonceManager;
     IConditionalTokens internal immutable ctf;
     IERC1155Facet internal immutable erc1155;
@@ -219,6 +222,7 @@ contract DoefinInvariantHarness {
         diamond = _deployDiamond();
 
         settlement = ISettlement(diamond);
+        settlementAdmin = ISettlementAdmin(diamond);
         nonceManager = INonceManager(diamond);
         ctf = IConditionalTokens(diamond);
         erc1155 = IERC1155Facet(diamond);
@@ -248,7 +252,7 @@ contract DoefinInvariantHarness {
         Diamond diamondProxy = new Diamond(address(this), address(diamondCutFacet));
         DiamondInit diamondInit = new DiamondInit();
 
-        IDiamondCut.FacetCut[] memory cuts = new IDiamondCut.FacetCut[](12);
+        IDiamondCut.FacetCut[] memory cuts = new IDiamondCut.FacetCut[](13);
         cuts[0] = _loupeCut();
         cuts[1] = _ownershipCut();
         cuts[2] = _erc1155Cut();
@@ -261,6 +265,7 @@ contract DoefinInvariantHarness {
         cuts[9] = _signatureVerifierCut();
         cuts[10] = _nonceManagerCut();
         cuts[11] = _settlementCut();
+        cuts[12] = _settlementAdminCut();
 
         IDiamondCut(address(diamondProxy)).diamondCut(
             cuts,
@@ -401,16 +406,23 @@ contract DoefinInvariantHarness {
     function _settlementCut() internal returns (IDiamondCut.FacetCut memory) {
         // SEC-004: cacheDomainSeparator() was removed — the separator is recomputed
         // on every call by all three v3 facets.
-        bytes4[] memory s = new bytes4[](8);
+        bytes4[] memory s = new bytes4[](3);
         s[0] = SettlementFacet.matchOrders.selector;
         s[1] = SettlementFacet.fillOrder.selector;
-        s[2] = SettlementFacet.setOperator.selector;
-        s[3] = SettlementFacet.pauseTrading.selector;
-        s[4] = SettlementFacet.unpauseTrading.selector;
-        s[5] = SettlementFacet.getFilledAmount.selector;
-        s[6] = SettlementFacet.getOperator.selector;
-        s[7] = SettlementFacet.isTradingPaused.selector;
+        s[2] = SettlementFacet.getFilledAmount.selector;
         return _cut(address(new SettlementFacet()), s);
+    }
+
+    /// @dev ARCH-01 / SCRUM-230 — owner-only settlement governance (operator
+    ///      management, pause switch) was extracted into SettlementAdminFacet.
+    function _settlementAdminCut() internal returns (IDiamondCut.FacetCut memory) {
+        bytes4[] memory s = new bytes4[](5);
+        s[0] = SettlementAdminFacet.setOperator.selector;
+        s[1] = SettlementAdminFacet.pauseTrading.selector;
+        s[2] = SettlementAdminFacet.unpauseTrading.selector;
+        s[3] = SettlementAdminFacet.getOperator.selector;
+        s[4] = SettlementAdminFacet.isTradingPaused.selector;
+        return _cut(address(new SettlementAdminFacet()), s);
     }
 
     // ========================================
@@ -433,7 +445,7 @@ contract DoefinInvariantHarness {
         // validated. Without this, `maxFeeRateBps == 0` would fail-closed and any
         // non-zero fee the harness passes would revert.
         IAdminConfig(diamond).setMaxFeeRate(MAX_FEE_RATE_BPS);
-        settlement.setOperator(address(this));
+        settlementAdmin.setOperator(address(this));
         IAccessControl(diamond).addMarketMaker(address(this));
     }
 
@@ -977,7 +989,7 @@ contract DoefinInvariantHarness {
         // call into a guarded path must still succeed (latch not held).
         // getFilledAmount is a cheap guarded-facet view that does not enter the
         // guard, so a successful read implies the Diamond is responsive.
-        try settlement.isTradingPaused() returns (bool) {
+        try settlementAdmin.isTradingPaused() returns (bool) {
             return true;
         } catch {
             return false;

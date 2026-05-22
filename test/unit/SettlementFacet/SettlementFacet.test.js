@@ -6,7 +6,7 @@ const { getConditionId, getCollectionId, getPositionId } = require("../../utils/
 describe("SettlementFacet", function () {
   // Contracts
   let diamondAddress;
-  let settlement, sigVerifier, nonceMgr, adminConfig, conditionMgr, conditionalTokens, erc1155Facet;
+  let settlement, settlementAdmin, sigVerifier, nonceMgr, adminConfig, conditionMgr, conditionalTokens, erc1155Facet;
   let collateral; // MockERC20
 
   // Signers
@@ -92,6 +92,7 @@ describe("SettlementFacet", function () {
 
     // Get facet interfaces on Diamond
     settlement = await ethers.getContractAt("SettlementFacet", diamondAddress);
+    settlementAdmin = await ethers.getContractAt("SettlementAdminFacet", diamondAddress);
     sigVerifier = await ethers.getContractAt("SignatureVerifierFacet", diamondAddress);
     nonceMgr = await ethers.getContractAt("NonceManagerFacet", diamondAddress);
     adminConfig = await ethers.getContractAt("AdminConfigFacet", diamondAddress);
@@ -110,7 +111,7 @@ describe("SettlementFacet", function () {
     await adminConfig.setMaxFeeRate(MAX_FEE_RATE_BPS);
 
     // Set operator
-    await settlement.setOperator(operator.address);
+    await settlementAdmin.setOperator(operator.address);
 
     // Grant market maker role to owner (needed to create conditions)
     const accessControl = await ethers.getContractAt("AccessControlFacet", diamondAddress);
@@ -180,36 +181,36 @@ describe("SettlementFacet", function () {
 
   describe("Admin functions", function () {
     it("should set operator correctly", async function () {
-      expect(await settlement.getOperator()).to.equal(operator.address);
+      expect(await settlementAdmin.getOperator()).to.equal(operator.address);
     });
 
     it("should revert setOperator for non-owner", async function () {
       await expect(
-        settlement.connect(buyer).setOperator(buyer.address)
+        settlementAdmin.connect(buyer).setOperator(buyer.address)
       ).to.be.revertedWith("NotContractOwner()");
     });
 
     it("should pause and unpause trading", async function () {
-      await settlement.pauseTrading();
-      expect(await settlement.isTradingPaused()).to.equal(true);
+      await settlementAdmin.pauseTrading();
+      expect(await settlementAdmin.isTradingPaused()).to.equal(true);
 
-      await settlement.unpauseTrading();
-      expect(await settlement.isTradingPaused()).to.equal(false);
+      await settlementAdmin.unpauseTrading();
+      expect(await settlementAdmin.isTradingPaused()).to.equal(false);
     });
 
     it("should emit SettlementTradingPaused/Unpaused events", async function () {
-      await expect(settlement.pauseTrading())
-        .to.emit(settlement, "SettlementTradingPaused")
+      await expect(settlementAdmin.pauseTrading())
+        .to.emit(settlementAdmin, "SettlementTradingPaused")
         .withArgs(owner.address);
 
-      await expect(settlement.unpauseTrading())
-        .to.emit(settlement, "SettlementTradingUnpaused")
+      await expect(settlementAdmin.unpauseTrading())
+        .to.emit(settlementAdmin, "SettlementTradingUnpaused")
         .withArgs(owner.address);
     });
 
     it("should revert pauseTrading for non-owner", async function () {
       await expect(
-        settlement.connect(operator).pauseTrading()
+        settlementAdmin.connect(operator).pauseTrading()
       ).to.be.revertedWith("NotContractOwner()");
     });
 
@@ -236,7 +237,7 @@ describe("SettlementFacet", function () {
     });
 
     it("should revert matchOrders when paused", async function () {
-      await settlement.pauseTrading();
+      await settlementAdmin.pauseTrading();
 
       const order = makeOrder(buyer.address, positionIdA, 0, 100, UNIT.div(2));
       const sig = await signOrder(buyer, order);
@@ -247,7 +248,7 @@ describe("SettlementFacet", function () {
         )
       ).to.be.reverted;
 
-      await settlement.unpauseTrading();
+      await settlementAdmin.unpauseTrading();
     });
   });
 
@@ -948,6 +949,7 @@ describe("SettlementFacet", function () {
       // defaults to 0. Fail-closed: any non-zero fee must revert FeeExceedsMaxRate.
       const freshDiamond = await deployDiamond();
       const freshSettlement = await ethers.getContractAt("SettlementFacet", freshDiamond);
+      const freshSettlementAdmin = await ethers.getContractAt("SettlementAdminFacet", freshDiamond);
       const freshAdmin = await ethers.getContractAt("AdminConfigFacet", freshDiamond);
       const freshAccess = await ethers.getContractAt("AccessControlFacet", freshDiamond);
       const freshCondMgr = await ethers.getContractAt("ConditionManagerFacet", freshDiamond);
@@ -962,7 +964,7 @@ describe("SettlementFacet", function () {
       await freshAdmin.addCollateralToken(freshColl.address, UNIT);
       await freshAdmin.setFeeReceiver(feeReceiver.address);
       // NB: setMaxFeeRate intentionally NOT called — maxFeeRateBps stays 0.
-      await freshSettlement.setOperator(operator.address);
+      await freshSettlementAdmin.setOperator(operator.address);
       await freshAccess.addMarketMaker(owner.address);
 
       const qId = ethers.utils.formatBytes32String("scrum-224-failclosed");
