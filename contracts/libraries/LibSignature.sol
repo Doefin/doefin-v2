@@ -2,6 +2,8 @@
 pragma solidity ^0.8.6;
 
 import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
+import {LibDoefinOrder} from "./LibDoefinOrder.sol";
+import {LibSettlementStorage} from "./LibSettlementStorage.sol";
 import {Errors} from "./Errors.sol";
 
 /**
@@ -80,5 +82,48 @@ library LibSignature {
         }
 
         return ecrecover(digest, v, r, s);
+    }
+
+    /**
+     * @notice Verify an EIP-712 order signature — EOA (type 0) or EIP-1271 (type 1).
+     * @dev The single dispatch wrapper for the v3 facets. Promoted from byte-for-byte
+     *      copies in SettlementFacet and SignatureVerifierFacet (CPX-001 / SCRUM-230):
+     *      a settlement-facet copy and an orderbook-pre-check copy could drift apart,
+     *      so the signature-acceptance policy now lives here once.
+     * @param order The DoefinOrder being verified.
+     * @param orderHash The pre-computed EIP-712 order hash.
+     * @param signature The 65-byte ECDSA signature.
+     * @param signatureType 0 = EOA (signer must be maker), 1 = EIP-1271 (or a
+     *        pre-registered delegated signer); any other value is rejected.
+     * @custom:reverts InvalidOrderSignature if recovery fails, the recovered signer
+     *      does not match `order.signer`, the type-0 signer is not the maker, the
+     *      EIP-1271 check fails, or `signatureType > 1`.
+     */
+    function verifyOrderSignature(
+        LibDoefinOrder.DoefinOrder calldata order,
+        bytes32 orderHash,
+        bytes calldata signature,
+        uint8 signatureType
+    ) internal view {
+        address recoveredSigner = recoverCalldata(orderHash, signature);
+        if (recoveredSigner == address(0) || recoveredSigner != order.signer) {
+            revert Errors.InvalidOrderSignature(orderHash);
+        }
+
+        if (signatureType == 0) {
+            // EOA: signer must be maker
+            if (order.signer != order.maker) revert Errors.InvalidOrderSignature(orderHash);
+        } else if (signatureType == 1) {
+            // EIP-1271: short-circuit on a pre-registered EOA signer; otherwise dispatch
+            // to IERC1271(maker).isValidSignature.
+            LibSettlementStorage.SettlementStorage storage ss = LibSettlementStorage.settlementStorage();
+            if (!ss.registeredOrderSigners[order.maker][order.signer]) {
+                if (!verifyEIP1271(order.maker, orderHash, signature)) {
+                    revert Errors.InvalidOrderSignature(orderHash);
+                }
+            }
+        } else {
+            revert Errors.InvalidOrderSignature(orderHash);
+        }
     }
 }

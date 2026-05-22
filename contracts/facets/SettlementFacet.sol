@@ -111,7 +111,7 @@ contract SettlementFacet is ISettlement {
         // because `_validateOrder` is called per-maker below; the `_settleX` routines may
         // therefore trust `unit != 0` and `price <= unit`.
         bytes32 takerHash = LibDoefinOrder.hashOrderCalldata(takerOrder, domainSep);
-        _verifySignature(takerOrder, takerHash, takerSignature, takerSignatureType);
+        LibSignature.verifyOrderSignature(takerOrder, takerHash, takerSignature, takerSignatureType);
         _validateOrder(ss, takerOrder, takerHash);
         _checkFillAmount(ss, takerHash, takerOrder.amount, takerFillAmount);
 
@@ -189,7 +189,7 @@ contract SettlementFacet is ISettlement {
         if (makerOrder.maker == takerOrder.maker) revert Errors.SelfTrade();
 
         bytes32 makerHash = LibDoefinOrder.hashOrderCalldata(makerOrder, domainSep);
-        _verifySignature(makerOrder, makerHash, makerSignature, makerSignatureType);
+        LibSignature.verifyOrderSignature(makerOrder, makerHash, makerSignature, makerSignatureType);
         _validateOrder(ss, makerOrder, makerHash);
         _checkFillAmount(ss, makerHash, makerOrder.amount, fillAmount);
 
@@ -242,7 +242,7 @@ contract SettlementFacet is ISettlement {
         bytes32 domainSep = _getDomainSeparator();
         bytes32 orderHash = LibDoefinOrder.hashOrderCalldata(order, domainSep);
 
-        _verifySignature(order, orderHash, signature, signatureType);
+        LibSignature.verifyOrderSignature(order, orderHash, signature, signatureType);
         _validateOrder(ss, order, orderHash);
         _checkFillAmount(ss, orderHash, order.amount, fillAmount);
 
@@ -279,40 +279,6 @@ contract SettlementFacet is ISettlement {
         return LibDoefinOrder.diamondDomainSeparator(address(this));
     }
 
-    /**
-     * @dev Verify an EIP-712 order signature (EOA or EIP-1271).
-     * @custom:audit SEC-005 — routed through `LibSignature` (single source of truth) and
-     *      uses the typed `IERC1271(maker).isValidSignature` dispatch instead of the raw
-     *      `staticcall` previously used here. The compiler now decodes the return value
-     *      and the catch-block makes a non-IERC1271 maker fail closed.
-     */
-    function _verifySignature(
-        LibDoefinOrder.DoefinOrder calldata order,
-        bytes32 orderHash,
-        bytes calldata signature,
-        uint8 signatureType
-    ) internal view {
-        address recoveredSigner = LibSignature.recoverCalldata(orderHash, signature);
-        if (recoveredSigner == address(0) || recoveredSigner != order.signer) {
-            revert Errors.InvalidOrderSignature(orderHash);
-        }
-
-        if (signatureType == 0) {
-            // EOA: signer must be maker
-            if (order.signer != order.maker) revert Errors.InvalidOrderSignature(orderHash);
-        } else if (signatureType == 1) {
-            // EIP-1271: short-circuit on a pre-registered EOA signer; otherwise dispatch to
-            // IERC1271(maker).isValidSignature.
-            LibSettlementStorage.SettlementStorage storage ss = LibSettlementStorage.settlementStorage();
-            if (!ss.registeredOrderSigners[order.maker][order.signer]) {
-                if (!LibSignature.verifyEIP1271(order.maker, orderHash, signature)) {
-                    revert Errors.InvalidOrderSignature(orderHash);
-                }
-            }
-        } else {
-            revert Errors.InvalidOrderSignature(orderHash);
-        }
-    }
 
     /**
      * @dev Validate an order on the settlement hot path: shared orderbook-validity rules

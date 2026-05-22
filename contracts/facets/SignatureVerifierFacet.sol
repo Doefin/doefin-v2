@@ -4,7 +4,6 @@ pragma solidity ^0.8.6;
 import {LibDoefinOrder} from "../libraries/LibDoefinOrder.sol";
 import {LibSettlementStorage} from "../libraries/LibSettlementStorage.sol";
 import {LibSignature} from "../libraries/LibSignature.sol";
-import {Errors} from "../libraries/Errors.sol";
 import {Events} from "../libraries/Events.sol";
 import {ISignatureVerifier} from "../interfaces/ISignatureVerifier.sol";
 
@@ -40,7 +39,7 @@ contract SignatureVerifierFacet is ISignatureVerifier {
         uint8 signatureType
     ) external view returns (bool) {
         bytes32 orderHash = _getOrderHash(order);
-        _verifySignature(order, orderHash, signature, signatureType);
+        LibSignature.verifyOrderSignature(order, orderHash, signature, signatureType);
         return true;
     }
 
@@ -111,46 +110,4 @@ contract SignatureVerifierFacet is ISignatureVerifier {
         return LibDoefinOrder.hashOrderCalldata(order, _getDomainSeparator());
     }
 
-    /**
-     * @dev Core verification logic for both EOA and EIP-1271 signatures.
-     * @param order The DoefinOrder struct
-     * @param orderHash The pre-computed EIP-712 order hash
-     * @param signature The 65-byte ECDSA signature
-     * @param signatureType 0 = EOA, 1 = EIP-1271
-     * @custom:audit SEC-005 — recovery and EIP-1271 dispatch are routed through
-     *      {LibSignature} to keep the malleability check and v normalization in one place
-     *      across all three facets.
-     * @custom:reverts InvalidOrderSignature if verification fails
-     * @custom:reverts InvalidSignatureLength if signature is not 65 bytes
-     */
-    function _verifySignature(
-        LibDoefinOrder.DoefinOrder calldata order,
-        bytes32 orderHash,
-        bytes calldata signature,
-        uint8 signatureType
-    ) internal view {
-        address recoveredSigner = LibSignature.recoverCalldata(orderHash, signature);
-
-        if (recoveredSigner == address(0) || recoveredSigner != order.signer) {
-            revert Errors.InvalidOrderSignature(orderHash);
-        }
-
-        if (signatureType == 0) {
-            // EOA mode: signer must equal maker
-            if (order.signer != order.maker) {
-                revert Errors.InvalidOrderSignature(orderHash);
-            }
-        } else if (signatureType == 1) {
-            // EIP-1271 mode: short-circuit on a pre-registered EOA signer; otherwise
-            // dispatch to IERC1271(maker).isValidSignature via LibSignature.
-            LibSettlementStorage.SettlementStorage storage ss = LibSettlementStorage.settlementStorage();
-            if (!ss.registeredOrderSigners[order.maker][order.signer]) {
-                if (!LibSignature.verifyEIP1271(order.maker, orderHash, signature)) {
-                    revert Errors.InvalidOrderSignature(orderHash);
-                }
-            }
-        } else {
-            revert Errors.InvalidOrderSignature(orderHash);
-        }
-    }
 }
