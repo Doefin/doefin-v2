@@ -5,6 +5,7 @@
 pragma solidity ^0.8.6;
 
 import {LibDoefinStorage} from "../libraries/LibDoefinStorage.sol";
+import {LibAdminConfigStorage} from "../libraries/LibAdminConfigStorage.sol";
 import {LibCTHelpers} from "../libraries/LibCTHelpers.sol";
 import {LibERC1155} from "../libraries/LibERC1155.sol";
 import {IConditionalTokens} from "../interfaces/IConditionalTokens.sol";
@@ -214,10 +215,10 @@ contract ConditionalTokensFacet is IConditionalTokens {
      * @custom:note Zero fee configuration bypasses fee deduction entirely
      */
     function _handlePayoutTransfer(address collateralToken, address recipient, uint256 amount) internal {
-        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
+        LibAdminConfigStorage.AdminConfigStorage storage acs = LibAdminConfigStorage.adminConfigStorage();
 
-        address feeReceiver = ds.adminConfigStorage.feeReceiver;
-        uint16 feeBps = ds.adminConfigStorage.resolutionFeeBps;
+        address feeReceiver = acs.feeReceiver;
+        uint16 feeBps = acs.resolutionFeeBps;
 
         if (feeReceiver == address(0)) revert Errors.InvalidFeeReceiver();
 

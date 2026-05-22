@@ -4,7 +4,8 @@
 
 pragma solidity ^0.8.6;
 
-import {LibDoefinStorage} from "./LibDoefinStorage.sol";
+import {LibAdminConfigStorage} from "./LibAdminConfigStorage.sol";
+import {LibAccessControlStorage} from "./LibAccessControlStorage.sol";
 import {LibDiamond} from "./LibDiamond.sol";
 import {Errors} from "./Errors.sol";
 
@@ -16,7 +17,7 @@ library LibAccessControl {
 
     // MarketMaker
     function isMarketMaker(address _account) internal view returns (bool) {
-        return LibDoefinStorage.appStorage().accessControl.marketMakers[_account];
+        return LibAccessControlStorage.accessControlStorage().marketMakers[_account];
     }
 
     function enforceIsMarketMaker() internal view {
@@ -26,13 +27,13 @@ library LibAccessControl {
     }
 
     function isCollateralTokenAllowed(address _token) internal view returns (bool) {
-        return LibDoefinStorage.appStorage().adminConfigStorage.isAllowed[_token];
+        return LibAdminConfigStorage.adminConfigStorage().isAllowed[_token];
     }
 
     function setMarketMaker(address _account, bool _status) internal {
         if (!isOwner(msg.sender)) {
             revert Errors.NotContractOwner();
         }
-        LibDoefinStorage.appStorage().accessControl.marketMakers[_account] = _status;
+        LibAccessControlStorage.accessControlStorage().marketMakers[_account] = _status;
     }
 }

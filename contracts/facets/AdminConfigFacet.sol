@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 pragma solidity ^0.8.6;
 
-import {LibDoefinStorage} from "../libraries/LibDoefinStorage.sol";
+import {LibAdminConfigStorage} from "../libraries/LibAdminConfigStorage.sol";
 import {IAdminConfig} from "../interfaces/IAdminConfig.sol";
 import {LibDiamond} from "../libraries/LibDiamond.sol";
 import {Errors} from "../libraries/Errors.sol";
@@ -42,24 +42,24 @@ contract AdminConfigFacet is IAdminConfig {
         if (token == address(0)) revert Errors.InvalidTokenAddress();
         if (unitPerPair == 0) revert Errors.InvalidUnitPerPair();
 
-        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
+        LibAdminConfigStorage.AdminConfigStorage storage acs = LibAdminConfigStorage.adminConfigStorage();
 
-        if (ds.adminConfigStorage.isAllowed[token]) revert Errors.TokenAlreadyAllowed();
+        if (acs.isAllowed[token]) revert Errors.TokenAlreadyAllowed();
 
-        ds.adminConfigStorage.isAllowed[token] = true;
-        ds.adminConfigStorage.unitPerPair[token] = unitPerPair;
+        acs.isAllowed[token] = true;
+        acs.unitPerPair[token] = unitPerPair;
 
         // Automatically fetch and store token symbol
         try IERC20Metadata(token).symbol() returns (string memory symbol) {
             // Only store the symbol if it's non-empty, otherwise use fallback
             if (bytes(symbol).length > 0) {
-                ds.adminConfigStorage.tokenSymbols[token] = symbol;
+                acs.tokenSymbols[token] = symbol;
             } else {
-                ds.adminConfigStorage.tokenSymbols[token] = "UNKNOWN";
+                acs.tokenSymbols[token] = "UNKNOWN";
             }
         } catch {
             // Fallback for tokens without symbol() function
-            ds.adminConfigStorage.tokenSymbols[token] = "UNKNOWN";
+            acs.tokenSymbols[token] = "UNKNOWN";
         }
 
         emit Events.CollateralTokenAdded(token, unitPerPair);
@@ -77,12 +77,12 @@ contract AdminConfigFacet is IAdminConfig {
      */
     function removeCollateralToken(address token) external override {
         LibDiamond.enforceIsContractOwner();
-        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
+        LibAdminConfigStorage.AdminConfigStorage storage acs = LibAdminConfigStorage.adminConfigStorage();
 
-        if (!ds.adminConfigStorage.isAllowed[token]) revert Errors.TokenNotAllowed();
+        if (!acs.isAllowed[token]) revert Errors.TokenNotAllowed();
 
-        ds.adminConfigStorage.isAllowed[token] = false;
-        delete ds.adminConfigStorage.unitPerPair[token];
+        acs.isAllowed[token] = false;
+        delete acs.unitPerPair[token];
 
         emit Events.CollateralTokenRemoved(token);
     }
@@ -101,10 +101,10 @@ contract AdminConfigFacet is IAdminConfig {
     function setFeeReceiver(address feeReceiver) external override {
         LibDiamond.enforceIsContractOwner();
         if (feeReceiver == address(0)) revert Errors.InvalidFeeReceiver();
-        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
-        address oldReceiver = ds.adminConfigStorage.feeReceiver;
+        LibAdminConfigStorage.AdminConfigStorage storage acs = LibAdminConfigStorage.adminConfigStorage();
+        address oldReceiver = acs.feeReceiver;
         if (oldReceiver == feeReceiver) revert Errors.NoChangeRequired();
-        ds.adminConfigStorage.feeReceiver = feeReceiver;
+        acs.feeReceiver = feeReceiver;
         emit Events.FeeReceiverUpdated(oldReceiver, feeReceiver);
     }
 
@@ -123,10 +123,10 @@ contract AdminConfigFacet is IAdminConfig {
         LibDiamond.enforceIsContractOwner();
         if (bps > 10_000) revert Errors.FeeTooHigh();
 
-        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
-        uint16 oldFeeBps = ds.adminConfigStorage.resolutionFeeBps;
+        LibAdminConfigStorage.AdminConfigStorage storage acs = LibAdminConfigStorage.adminConfigStorage();
+        uint16 oldFeeBps = acs.resolutionFeeBps;
         if (oldFeeBps == bps) revert Errors.NoChangeRequired();
-        ds.adminConfigStorage.resolutionFeeBps = bps;
+        acs.resolutionFeeBps = bps;
         emit Events.ResolutionFeeUpdated(oldFeeBps, bps);
     }
 
@@ -145,9 +145,9 @@ contract AdminConfigFacet is IAdminConfig {
         LibDiamond.enforceIsContractOwner();
         if (_maxFeeRateBps > MAX_FEE_RATE_BPS_CAP) revert Errors.MaxFeeRateExceedsCeiling();
 
-        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
-        uint16 oldRate = ds.adminConfigStorage.maxFeeRateBps;
-        ds.adminConfigStorage.maxFeeRateBps = _maxFeeRateBps;
+        LibAdminConfigStorage.AdminConfigStorage storage acs = LibAdminConfigStorage.adminConfigStorage();
+        uint16 oldRate = acs.maxFeeRateBps;
+        acs.maxFeeRateBps = _maxFeeRateBps;
         emit Events.MaxFeeRateUpdated(oldRate, _maxFeeRateBps);
     }
 
@@ -156,17 +156,17 @@ contract AdminConfigFacet is IAdminConfig {
      * @return The maximum fee rate in basis points
      */
     function getMaxFeeRate() external view override returns (uint16) {
-        return LibDoefinStorage.appStorage().adminConfigStorage.maxFeeRateBps;
+        return LibAdminConfigStorage.adminConfigStorage().maxFeeRateBps;
     }
 
     function isAllowedCollateral(address token) external view override returns (bool) {
-        return LibDoefinStorage.appStorage().adminConfigStorage.isAllowed[token];
+        return LibAdminConfigStorage.adminConfigStorage().isAllowed[token];
     }
 
     function getCollateralUnit(address token) external view override returns (uint256) {
-        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
-        if (!ds.adminConfigStorage.isAllowed[token]) revert Errors.TokenNotAllowed();
-        return ds.adminConfigStorage.unitPerPair[token];
+        LibAdminConfigStorage.AdminConfigStorage storage acs = LibAdminConfigStorage.adminConfigStorage();
+        if (!acs.isAllowed[token]) revert Errors.TokenNotAllowed();
+        return acs.unitPerPair[token];
     }
 
     /**
@@ -175,7 +175,7 @@ contract AdminConfigFacet is IAdminConfig {
      * @return resolutionFeeBps Resolution fee charged on redemption, in basis points
      */
     function getFees() external view override returns (address feeReceiver, uint16 resolutionFeeBps) {
-        LibDoefinStorage.AdminConfigStorage storage cfg = LibDoefinStorage.appStorage().adminConfigStorage;
+        LibAdminConfigStorage.AdminConfigStorage storage cfg = LibAdminConfigStorage.adminConfigStorage();
         return (cfg.feeReceiver, cfg.resolutionFeeBps);
     }
 
@@ -189,8 +189,8 @@ contract AdminConfigFacet is IAdminConfig {
      * @return symbol The token symbol
      */
     function getTokenSymbol(address token) external view override returns (string memory symbol) {
-        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
-        return ds.adminConfigStorage.tokenSymbols[token];
+        LibAdminConfigStorage.AdminConfigStorage storage acs = LibAdminConfigStorage.adminConfigStorage();
+        return acs.tokenSymbols[token];
     }
 
     /**
@@ -200,12 +200,12 @@ contract AdminConfigFacet is IAdminConfig {
      */
     function setTokenSymbol(address token, string calldata symbol) external override {
         LibDiamond.enforceIsContractOwner();
-        if (!LibDoefinStorage.appStorage().adminConfigStorage.isAllowed[token]) {
+        if (!LibAdminConfigStorage.adminConfigStorage().isAllowed[token]) {
             revert Errors.TokenNotAllowed();
         }
 
-        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
-        ds.adminConfigStorage.tokenSymbols[token] = symbol;
+        LibAdminConfigStorage.AdminConfigStorage storage acs = LibAdminConfigStorage.adminConfigStorage();
+        acs.tokenSymbols[token] = symbol;
         emit Events.TokenSymbolUpdated(token, symbol);
     }
 }

@@ -4,6 +4,7 @@ pragma solidity ^0.8.6;
 import {LibDoefinOrder} from "../libraries/LibDoefinOrder.sol";
 import {LibSettlementStorage} from "../libraries/LibSettlementStorage.sol";
 import {LibDoefinStorage} from "../libraries/LibDoefinStorage.sol";
+import {LibAdminConfigStorage} from "../libraries/LibAdminConfigStorage.sol";
 import {LibCTFCondition} from "../libraries/LibCTFCondition.sol";
 import {LibERC1155} from "../libraries/LibERC1155.sol";
 import {LibReentrancyGuard} from "../libraries/LibReentrancyGuard.sol";
@@ -119,8 +120,9 @@ contract SettlementFacet is ISettlement {
         // pass them into the settle/fee helpers so they're not re-resolved per call.
         // SEC-001 is checked again inside each `_settleX` so taker/maker tokens cannot
         // diverge — if either differs, the call reverts before any transfer.
-        uint256 takerUnit = ds.adminConfigStorage.unitPerPair[takerOrder.collateralToken];
-        address feeReceiver = ds.adminConfigStorage.feeReceiver;
+        LibAdminConfigStorage.AdminConfigStorage storage acs = LibAdminConfigStorage.adminConfigStorage();
+        uint256 takerUnit = acs.unitPerPair[takerOrder.collateralToken];
+        address feeReceiver = acs.feeReceiver;
 
         // CPX-006 + GAS-006: single linear maker loop. The aggregate
         // `sum(makerFillAmounts) == takerFillAmount` consistency check that previously
@@ -247,7 +249,7 @@ contract SettlementFacet is ISettlement {
 
         // GAS-004: read `unit` once.
         // `_validateOrder` already enforces `unit != 0` and `price <= unit` (SEC-002/BIZ-004).
-        uint256 unit = LibDoefinStorage.appStorage().adminConfigStorage.unitPerPair[order.collateralToken];
+        uint256 unit = LibAdminConfigStorage.adminConfigStorage().unitPerPair[order.collateralToken];
 
         // Transfer collateral between maker and operator based on side
         _executeOperatorFill(order, fillAmount, fee, unit);
@@ -411,7 +413,7 @@ contract SettlementFacet is ISettlement {
 
         // SEC-002: enforce the collateral allow-list and a non-zero settlement unit on the
         // settlement hot path — the gate is otherwise silently skipped.
-        LibDoefinStorage.AdminConfigStorage storage cfg = LibDoefinStorage.appStorage().adminConfigStorage;
+        LibAdminConfigStorage.AdminConfigStorage storage cfg = LibAdminConfigStorage.adminConfigStorage();
         if (!cfg.isAllowed[order.collateralToken]) revert Errors.TokenNotAllowed();
         uint256 unit = cfg.unitPerPair[order.collateralToken];
         if (unit == 0) revert Errors.InvalidUnitPerPair();
@@ -746,7 +748,7 @@ contract SettlementFacet is ISettlement {
         uint128 fee,
         uint256 unit
     ) internal {
-        address feeReceiver = LibDoefinStorage.appStorage().adminConfigStorage.feeReceiver;
+        address feeReceiver = LibAdminConfigStorage.adminConfigStorage().feeReceiver;
         uint256 collateralAmount = (uint256(order.pricePerToken) * uint256(fillAmount)) / unit;
 
         // SEC-003: reject dust fills that round the collateral leg down to nothing.
@@ -802,7 +804,7 @@ contract SettlementFacet is ISettlement {
      */
     function _validateFee(uint128 fee, uint256 cashValue) internal view {
         if (fee == 0) return;
-        uint16 maxFeeRateBps = LibDoefinStorage.appStorage().adminConfigStorage.maxFeeRateBps;
+        uint16 maxFeeRateBps = LibAdminConfigStorage.adminConfigStorage().maxFeeRateBps;
         uint256 maxAllowed = (cashValue * uint256(maxFeeRateBps)) / 10000;
         if (uint256(fee) > maxAllowed) revert Errors.FeeExceedsMaxRate();
     }

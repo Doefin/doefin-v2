@@ -5,6 +5,7 @@
 pragma solidity ^0.8.6;
 
 import {LibDoefinStorage} from "../libraries/LibDoefinStorage.sol";
+import {LibAdminConfigStorage} from "../libraries/LibAdminConfigStorage.sol";
 import {LibPositionRegistry} from "../libraries/LibPositionRegistry.sol";
 import {IMarketData} from "../interfaces/IMarketData.sol";
 import {Errors} from "../libraries/Errors.sol";
@@ -209,9 +210,8 @@ contract MarketDataFacet is IMarketData {
         // Get collateral token
         address collateralToken = LibPositionRegistry.getCollateralToken(positionId);
 
-        // Get unit from admin config storage
-        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
-        return ds.adminConfigStorage.unitPerPair[collateralToken];
+        // Get unit from the admin-config namespace
+        return LibAdminConfigStorage.adminConfigStorage().unitPerPair[collateralToken];
     }
 
     /**
@@ -298,10 +298,11 @@ contract MarketDataFacet is IMarketData {
         complementId = LibPositionRegistry.getComplement(positionId);
         metadata = LibPositionRegistry.getMarketMetadata(positionId);
 
-        // Get unit from admin config storage
-        if (!ds.adminConfigStorage.isAllowed[collateralToken]) {
+        // Get unit from the admin-config namespace
+        LibAdminConfigStorage.AdminConfigStorage storage acs = LibAdminConfigStorage.adminConfigStorage();
+        if (!acs.isAllowed[collateralToken]) {
             revert Errors.TokenNotAllowed();
         }
-        unit = ds.adminConfigStorage.unitPerPair[collateralToken];
+        unit = acs.unitPerPair[collateralToken];
     }
 }

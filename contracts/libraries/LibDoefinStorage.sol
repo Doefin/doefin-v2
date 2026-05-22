@@ -2,11 +2,15 @@
 pragma solidity ^0.8.6;
 
 import {Errors} from "./Errors.sol";
+import {LibAdminConfigStorage} from "./LibAdminConfigStorage.sol";
 
 library LibDoefinStorage {
-    bytes32 constant STORAGE_POSITION = keccak256("doefin.storage");
+    /// @dev EIP-7201 namespace slot (SCRUM-229). Derivation:
+    ///      keccak256(abi.encode(uint256(keccak256("doefin.storage")) - 1)) & ~bytes32(uint256(0xff))
+    bytes32 constant STORAGE_POSITION = 0x26d752abf95a31d8b4cda72a9be2cc28c453c1753ef2a7ccea83511d861de800;
 
-    // Add initialization flag
+    // Initialization flag — a single-slot guard, not a growable namespace, so it keeps
+    // a plain keccak256 slot rather than the EIP-7201 derivation.
     bytes32 constant INITIALIZED_POSITION = keccak256("doefin.storage.initialized");
 
     // Block Header Oracle constants
@@ -115,24 +119,10 @@ library LibDoefinStorage {
         address creator;
     }
 
-    struct AccessControlStorage {
-        mapping(address => bool) marketMakers;
-        uint256[10] __gap;
-    }
-
-    struct AdminConfigStorage {
-        mapping(address => bool) isAllowed;
-        mapping(address => uint256) unitPerPair; // token => unit amount (e.g., 1e6 USDC)
-        mapping(address => string) tokenSymbols; // token => symbol (e.g., "BTC", "USDC", "USDT")
-        address feeReceiver;
-        uint16 resolutionFeeBps;
-        // SCRUM-224: admin-settable ceiling on the operator-supplied settlement fee.
-        // The operator supplies the fee amount per settlement leg; SettlementFacet
-        // enforces `fee <= (cashValue * maxFeeRateBps) / 10000`. Fail-closed: a value
-        // of 0 means no non-zero fee is permitted (NOT "unlimited").
-        uint16 maxFeeRateBps;
-        uint256[12] __gap;
-    }
+    // SCRUM-229 (ARCH-03): AccessControlStorage and AdminConfigStorage were peeled out
+    // of this monolith into their own EIP-7201 namespaces — see {LibAccessControlStorage}
+    // and {LibAdminConfigStorage}. New modules get their own namespace; do not re-embed
+    // sub-structs here.
 
     struct MarketMetadata {
         address collateralToken;
@@ -194,11 +184,16 @@ library LibDoefinStorage {
         uint256[10] __gap;
     }
 
+    /// @custom:storage-location erc7201:doefin.storage
+    /// @dev Legacy monolithic namespace. SCRUM-229 (ARCH-03) peeled the admin-config and
+    ///      access-control sub-structs out into their own EIP-7201 namespaces
+    ///      ({LibAdminConfigStorage}, {LibAccessControlStorage}); the CTF / ERC1155 /
+    ///      position-registry / reentrancy / Bitcoin-oracle sub-structs remain here as a
+    ///      grandfathered monolith. New modules get their own namespace — do not add
+    ///      sub-structs here.
     struct AppStorage {
         ConditionalTokensStorage conditionalTokens;
-        AccessControlStorage accessControl;
         ERC1155Storage erc1155Storage;
-        AdminConfigStorage adminConfigStorage;
         PositionRegistryStorage positionRegistry;
         ReentrancyStorage reentrancyStorage;
         BlockHeaderOracleStorage blockHeaderOracleStorage;
@@ -218,12 +213,12 @@ library LibDoefinStorage {
         if (isInitialized()) revert Errors.AlreadyInitialized();
 
         AppStorage storage ds = appStorage();
-
         ds.reentrancyStorage._status = 1;
 
-        // Set admin config during initialization
-        ds.adminConfigStorage.feeReceiver = feeReceiver;
-        ds.adminConfigStorage.resolutionFeeBps = resolutionFeeBps;
+        // Admin config lives in its own EIP-7201 namespace (SCRUM-229).
+        LibAdminConfigStorage.AdminConfigStorage storage acs = LibAdminConfigStorage.adminConfigStorage();
+        acs.feeReceiver = feeReceiver;
+        acs.resolutionFeeBps = resolutionFeeBps;
 
         setInitialized();
     }

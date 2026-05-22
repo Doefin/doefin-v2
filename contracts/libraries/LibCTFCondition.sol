@@ -5,6 +5,7 @@
 pragma solidity ^0.8.6;
 
 import {LibDoefinStorage} from "./LibDoefinStorage.sol";
+import {LibAdminConfigStorage} from "./LibAdminConfigStorage.sol";
 import {LibCTHelpers} from "./LibCTHelpers.sol";
 import {LibERC1155} from "./LibERC1155.sol";
 import {Errors} from "./Errors.sol";
@@ -201,12 +202,11 @@ library LibCTFCondition {
     }
 
     function _validateCollateral(address collateralToken, uint256 amount) internal view {
-        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
         if (!LibAccessControl.isCollateralTokenAllowed(collateralToken)) {
             revert Errors.TokenNotAllowed();
         }
 
-        uint256 unit = ds.adminConfigStorage.unitPerPair[collateralToken];
+        uint256 unit = LibAdminConfigStorage.adminConfigStorage().unitPerPair[collateralToken];
 
         if (amount % unit != 0) {
             revert Errors.CollateralNotAligned();

@@ -1,21 +1,14 @@
 {
-  "struct LibDoefinStorage.AccessControlStorage": [
+  "struct LibAccessControlStorage.AccessControlStorage": [
     {
       "field": "marketMakers",
       "slot": "0",
       "offset": 0,
       "type": "mapping(address => bool)",
       "bytes": "32"
-    },
-    {
-      "field": "__gap",
-      "slot": "1",
-      "offset": 0,
-      "type": "uint256[10]",
-      "bytes": "320"
     }
   ],
-  "struct LibDoefinStorage.AdminConfigStorage": [
+  "struct LibAdminConfigStorage.AdminConfigStorage": [
     {
       "field": "isAllowed",
       "slot": "0",
@@ -57,13 +50,6 @@
       "offset": 22,
       "type": "uint16",
       "bytes": "2"
-    },
-    {
-      "field": "__gap",
-      "slot": "4",
-      "offset": 0,
-      "type": "uint256[12]",
-      "bytes": "384"
     }
   ],
   "struct LibDoefinStorage.AppStorage": [
@@ -75,57 +61,43 @@
       "bytes": "1696"
     },
     {
-      "field": "accessControl",
-      "slot": "53",
-      "offset": 0,
-      "type": "struct LibDoefinStorage.AccessControlStorage",
-      "bytes": "352"
-    },
-    {
       "field": "erc1155Storage",
-      "slot": "64",
+      "slot": "53",
       "offset": 0,
       "type": "struct LibDoefinStorage.ERC1155Storage",
       "bytes": "704"
     },
     {
-      "field": "adminConfigStorage",
-      "slot": "86",
-      "offset": 0,
-      "type": "struct LibDoefinStorage.AdminConfigStorage",
-      "bytes": "512"
-    },
-    {
       "field": "positionRegistry",
-      "slot": "102",
+      "slot": "75",
       "offset": 0,
       "type": "struct LibDoefinStorage.PositionRegistryStorage",
       "bytes": "448"
     },
     {
       "field": "reentrancyStorage",
-      "slot": "116",
+      "slot": "89",
       "offset": 0,
       "type": "struct LibDoefinStorage.ReentrancyStorage",
       "bytes": "352"
     },
     {
       "field": "blockHeaderOracleStorage",
-      "slot": "127",
+      "slot": "100",
       "offset": 0,
       "type": "struct LibDoefinStorage.BlockHeaderOracleStorage",
       "bytes": "3104"
     },
     {
       "field": "oracleAdapterStorage",
-      "slot": "224",
+      "slot": "197",
       "offset": 0,
       "type": "struct LibDoefinStorage.OracleAdapterStorage",
       "bytes": "256"
     },
     {
       "field": "__gap",
-      "slot": "232",
+      "slot": "205",
       "offset": 0,
       "type": "uint256[51]",
       "bytes": "1632"

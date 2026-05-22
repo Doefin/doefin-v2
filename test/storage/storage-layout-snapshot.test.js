@@ -29,16 +29,33 @@ const SNAPSHOT_PATH = path.join(__dirname, "storage-layout.snapshot.json");
 const TRACKED_STRUCT_PREFIXES = [
   "struct LibDoefinStorage.",
   "struct LibSettlementStorage.",
+  "struct LibAdminConfigStorage.",
+  "struct LibAccessControlStorage.",
 ];
 
-// Namespace seeds whose derived storage slots must never collide. Plain keccak256
-// today; SCRUM-229 commit 3 switches the derivation to the EIP-7201 formula and
-// extends this list with the peeled AdminConfig / AccessControl namespaces.
-const STORAGE_NAMESPACE_SEEDS = [
-  "doefin.storage",
-  "doefin.storage.initialized",
-  "doefin.settlement.storage",
+// EIP-7201 namespaces (SCRUM-229). Slot derivation:
+//   keccak256(abi.encode(uint256(keccak256(id)) - 1)) & ~bytes32(uint256(0xff))
+// `getter` is the StorageLayoutProbe function exposing the on-chain STORAGE_POSITION
+// constant, so the test can prove the hardcoded slot matches the formula.
+const ERC7201_NAMESPACES = [
+  { id: "doefin.storage", getter: "appStorageSlot" },
+  { id: "doefin.settlement.storage", getter: "settlementStorageSlot" },
+  { id: "doefin.admin-config.storage", getter: "adminConfigStorageSlot" },
+  { id: "doefin.access-control.storage", getter: "accessControlStorageSlot" },
 ];
+
+// Single-slot flags keep a plain keccak256 slot — not growable namespaces.
+const PLAIN_KECCAK_SLOTS = ["doefin.storage.initialized"];
+
+function erc7201Slot(id) {
+  const seed = ethers.BigNumber.from(
+    ethers.utils.keccak256(ethers.utils.toUtf8Bytes(id))
+  );
+  const inner = ethers.utils.defaultAbiCoder.encode(["uint256"], [seed.sub(1)]);
+  const hashed = ethers.BigNumber.from(ethers.utils.keccak256(inner));
+  const mask = ethers.constants.MaxUint256.sub(255); // ~bytes32(uint256(0xff))
+  return ethers.utils.hexZeroPad(hashed.and(mask).toHexString(), 32);
+}
 
 function plainKeccakSlot(seed) {
   return ethers.utils.keccak256(ethers.utils.toUtf8Bytes(seed));
@@ -113,6 +130,12 @@ describe("Storage-layout snapshot (ARCH-05 / SCRUM-229)", function () {
     expect(snapshot).to.have.property(
       "struct LibSettlementStorage.SettlementStorage"
     );
+    expect(snapshot).to.have.property(
+      "struct LibAdminConfigStorage.AdminConfigStorage"
+    );
+    expect(snapshot).to.have.property(
+      "struct LibAccessControlStorage.AccessControlStorage"
+    );
   });
 
   it("matches the committed storage-layout snapshot", function () {
@@ -134,11 +157,26 @@ describe("Storage-layout snapshot (ARCH-05 / SCRUM-229)", function () {
     );
   });
 
+  it("the EIP-7201 slot constants match the formula", async function () {
+    const Probe = await ethers.getContractFactory("StorageLayoutProbe");
+    const probe = await Probe.deploy();
+    await probe.deployed();
+    for (const ns of ERC7201_NAMESPACES) {
+      const onchain = (await probe[ns.getter]()).toLowerCase();
+      expect(onchain).to.equal(
+        erc7201Slot(ns.id).toLowerCase(),
+        `${ns.id}: STORAGE_POSITION constant does not match the EIP-7201 formula`
+      );
+    }
+  });
+
   it("no two storage namespaces derive the same slot", function () {
-    const slots = STORAGE_NAMESPACE_SEEDS.map(plainKeccakSlot);
-    const unique = new Set(slots);
-    expect(unique.size).to.equal(
-      STORAGE_NAMESPACE_SEEDS.length,
+    const slots = [
+      ...ERC7201_NAMESPACES.map((ns) => erc7201Slot(ns.id).toLowerCase()),
+      ...PLAIN_KECCAK_SLOTS.map((s) => plainKeccakSlot(s).toLowerCase()),
+    ];
+    expect(new Set(slots).size).to.equal(
+      slots.length,
       "two storage namespaces hash to the same slot"
     );
   });

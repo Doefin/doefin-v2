@@ -5,11 +5,15 @@ pragma solidity ^0.8.6;
  * @title LibSettlementStorage
  * @author Doefin
  * @notice Storage layout for the v3 hybrid settlement system
- * @dev Uses a dedicated storage slot separate from the main AppStorage to avoid
- *      layout collisions. Follows the same keccak256 slot + assembly pattern as LibDoefinStorage.
+ * @dev Uses a dedicated EIP-7201 namespace, separate from the main AppStorage and from
+ *      every other module, so the settlement layout cannot collide with or be shifted
+ *      by another module. SCRUM-229 migrated the slot from a plain keccak256 to the
+ *      EIP-7201 formula.
  */
 library LibSettlementStorage {
-    bytes32 constant STORAGE_POSITION = keccak256("doefin.settlement.storage");
+    /// @dev EIP-7201 namespace slot (SCRUM-229). Derivation:
+    ///      keccak256(abi.encode(uint256(keccak256("doefin.settlement.storage")) - 1)) & ~bytes32(uint256(0xff))
+    bytes32 constant STORAGE_POSITION = 0x64c68d972e7973d67b3a4864d703698d4e21d9d908bc1bd1efd81958c7afd900;
 
     /// @notice Storage struct for the settlement system
     /// @dev SCRUM-89: The three former position-lookup mappings at slots 6/7/8
@@ -32,6 +36,7 @@ library LibSettlementStorage {
     ///      `__reserved_sec004_domainSeparator` preserves the slot offset so the
     ///      following `__gap` stays at the same downstream slot — important for
     ///      any future diamond-cut upgrade to a fresh-deploy v3.1 implementation.
+    /// @custom:storage-location erc7201:doefin.settlement.storage
     struct SettlementStorage {
         /// @notice The authorized operator address that can submit matched orders
         address operator;
