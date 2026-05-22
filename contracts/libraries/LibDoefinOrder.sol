@@ -61,6 +61,13 @@ library LibDoefinOrder {
         ")"
     );
 
+    /// @notice Precomputed keccak256 of the EIP-712 domain `name` and `version` (GAS-002).
+    /// @dev The protocol name/version are compile-time constants; hashing them from
+    ///      `string memory` on every `diamondDomainSeparator` call is a hot-path cost
+    ///      avoided by precomputing the hashes here.
+    bytes32 internal constant DOMAIN_NAME_HASH = keccak256("Doefin Exchange");
+    bytes32 internal constant DOMAIN_VERSION_HASH = keccak256("3");
+
     // ========================================
     // HASHING FUNCTIONS
     // ========================================
@@ -116,7 +123,17 @@ library LibDoefinOrder {
     ///      no `chainId` guard while the other two facets recomputed it on every call; a
     ///      chain fork could leave cancellations unable to match the settlement digest.
     function diamondDomainSeparator(address verifyingContract) internal view returns (bytes32) {
-        return domainSeparator("Doefin Exchange", "3", block.chainid, verifyingContract);
+        // GAS-002: build the separator from the precomputed name/version hashes rather
+        // than re-hashing the constant strings via domainSeparator(string,string,...).
+        return keccak256(
+            abi.encode(
+                DOMAIN_SEPARATOR_TYPEHASH,
+                DOMAIN_NAME_HASH,
+                DOMAIN_VERSION_HASH,
+                block.chainid,
+                verifyingContract
+            )
+        );
     }
 
     /// @notice Compute the full EIP-712 hash (\\x19\\x01 + domain + struct)
