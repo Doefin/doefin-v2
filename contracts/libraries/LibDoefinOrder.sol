@@ -72,49 +72,12 @@ library LibDoefinOrder {
     // HASHING FUNCTIONS
     // ========================================
 
-    /// @notice Compute the EIP-712 struct hash of a DoefinOrder
-    /// @param order The order to hash
-    /// @return The keccak256 struct hash
-    function hash(DoefinOrder memory order) internal pure returns (bytes32) {
-        return keccak256(
-            abi.encode(
-                DOEFIN_ORDER_TYPEHASH,
-                order.salt,
-                order.maker,
-                order.signer,
-                order.positionId,
-                order.collateralToken,
-                order.side,
-                order.amount,
-                order.pricePerToken,
-                order.expiration,
-                order.nonce
-            )
-        );
-    }
-
-    /// @notice Compute the EIP-712 domain separator
-    /// @param name The protocol name ("Doefin Exchange")
-    /// @param version The protocol version ("3")
-    /// @param chainId The chain ID
-    /// @param verifyingContract The Diamond proxy address
-    /// @return The keccak256 domain separator
-    function domainSeparator(
-        string memory name,
-        string memory version,
-        uint256 chainId,
-        address verifyingContract
-    ) internal pure returns (bytes32) {
-        return keccak256(
-            abi.encode(
-                DOMAIN_SEPARATOR_TYPEHASH,
-                keccak256(bytes(name)),
-                keccak256(bytes(version)),
-                chainId,
-                verifyingContract
-            )
-        );
-    }
+    // SCRUM-234 (dead-code A-12/13) — the `hash(memory)` and
+    // `domainSeparator(string,string,uint256,address)` helpers used to live here.
+    // Production code reaches only the `calldata` variants and `diamondDomainSeparator`
+    // below; the two memory variants were exercised only by the Hardhat / Echidna
+    // harnesses, which now inline the equivalent math directly (see
+    // `contracts/mock/DoefinOrderHarness.sol` and `contracts/audit/DoefinInvariantHarness.sol`).
 
     /// @notice Convenience helper: compute the canonical Diamond domain separator using the
     ///         current `block.chainid` and the supplied verifying contract.
@@ -136,22 +99,10 @@ library LibDoefinOrder {
         );
     }
 
-    /// @notice Compute the full EIP-712 hash (\\x19\\x01 + domain + struct)
-    /// @param order The order to hash
-    /// @param _domainSeparator The pre-computed domain separator
-    /// @return The final signable hash
-    function hashOrder(
-        DoefinOrder memory order,
-        bytes32 _domainSeparator
-    ) internal pure returns (bytes32) {
-        return keccak256(
-            abi.encodePacked(
-                "\x19\x01",
-                _domainSeparator,
-                hash(order)
-            )
-        );
-    }
+    // SCRUM-234 (dead-code A-14) — the `hashOrder(memory, bytes32)` helper used to live
+    // here. Production code calls only `hashOrderCalldata` below; the memory variant
+    // was harness-only, and the harnesses now inline the equivalent
+    // `keccak256("\x19\x01" || domainSep || structHash)` math directly.
 
     // ========================================
     // CALLDATA VARIANTS (gas optimization)

@@ -370,14 +370,15 @@ contract DoefinInvariantHarness {
     }
 
     function _marketDataCut() internal returns (IDiamondCut.FacetCut memory) {
-        bytes4[] memory s = new bytes4[](7);
+        // SCRUM-234 (dead-code B-1) — `getAllPositionIdsByCondition` selector
+        // removed alongside the facet function; array shrunk 7 -> 6.
+        bytes4[] memory s = new bytes4[](6);
         s[0] = MarketDataFacet.getMarketsByCondition.selector;
-        s[1] = MarketDataFacet.getAllPositionIdsByCondition.selector;
-        s[2] = MarketDataFacet.getMarketMetadata.selector;
-        s[3] = MarketDataFacet.getCollateralToken.selector;
-        s[4] = MarketDataFacet.getCollateralUnit.selector;
-        s[5] = MarketDataFacet.getConditionId.selector;
-        s[6] = MarketDataFacet.getComplement.selector;
+        s[1] = MarketDataFacet.getMarketMetadata.selector;
+        s[2] = MarketDataFacet.getCollateralToken.selector;
+        s[3] = MarketDataFacet.getCollateralUnit.selector;
+        s[4] = MarketDataFacet.getConditionId.selector;
+        s[5] = MarketDataFacet.getComplement.selector;
         return _cut(address(new MarketDataFacet()), s);
     }
 
@@ -544,32 +545,54 @@ contract DoefinInvariantHarness {
         });
     }
 
+    /// @dev EIP-712 struct hash for a memory `DoefinOrder` — mirrors the field list of
+    ///      `LibDoefinOrder.hashCalldata`. Inlined here (SCRUM-234 dead-code A-12/13/14)
+    ///      because the library's `memory` variants `hash` / `hashOrder` were removed:
+    ///      production code uses the calldata path exclusively, but this Echidna harness
+    ///      constructs orders in memory and cannot route them through `calldata`.
+    function _hashOrderStructMemory(LibDoefinOrder.DoefinOrder memory order)
+        internal pure returns (bytes32)
+    {
+        return keccak256(
+            abi.encode(
+                LibDoefinOrder.DOEFIN_ORDER_TYPEHASH,
+                order.salt,
+                order.maker,
+                order.signer,
+                order.positionId,
+                order.collateralToken,
+                order.side,
+                order.amount,
+                order.pricePerToken,
+                order.expiration,
+                order.nonce
+            )
+        );
+    }
+
+    /// @dev Full EIP-712 digest (`\x19\x01 || domainSep || structHash`) for a memory order.
+    function _hashOrderMemory(LibDoefinOrder.DoefinOrder memory order, bytes32 domainSep)
+        internal pure returns (bytes32)
+    {
+        return keccak256(abi.encodePacked(bytes1(0x19), bytes1(0x01), domainSep, _hashOrderStructMemory(order)));
+    }
+
     /// @dev Produce a 65-byte ECDSA signature over an order using the hevm
     ///      `sign` cheatcode. The result `ecrecover`s back to `actors[..]`.
     function _sign(uint256 pk, LibDoefinOrder.DoefinOrder memory order)
         internal
         returns (bytes memory)
     {
-        bytes32 domainSep = LibDoefinOrder.domainSeparator(
-            "Doefin Exchange",
-            "3",
-            block.chainid,
-            diamond
-        );
-        bytes32 digest = LibDoefinOrder.hashOrder(order, domainSep);
+        bytes32 domainSep = LibDoefinOrder.diamondDomainSeparator(diamond);
+        bytes32 digest = _hashOrderMemory(order, domainSep);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, digest);
         return abi.encodePacked(r, s, v);
     }
 
     /// @dev Record a submitted order hash so `echidna_no_overfill` can check it.
     function _recordOrder(LibDoefinOrder.DoefinOrder memory order) internal {
-        bytes32 domainSep = LibDoefinOrder.domainSeparator(
-            "Doefin Exchange",
-            "3",
-            block.chainid,
-            diamond
-        );
-        bytes32 h = LibDoefinOrder.hashOrder(order, domainSep);
+        bytes32 domainSep = LibDoefinOrder.diamondDomainSeparator(diamond);
+        bytes32 h = _hashOrderMemory(order, domainSep);
         if (!orderHashSeen[h]) {
             orderHashSeen[h] = true;
             submittedOrderHashes.push(h);
