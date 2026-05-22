@@ -48,28 +48,6 @@ library LibSignature {
     }
 
     /**
-     * @dev Recover the signer from a 65-byte ECDSA signature stored in memory.
-     * @param digest The 32-byte message digest that was signed.
-     * @param signature The 65-byte signature `r || s || v`.
-     * @return signer The recovered signer address, or `address(0)` on failure.
-     * @custom:reverts InvalidSignatureLength if `signature.length != 65`.
-     */
-    function recoverMemory(bytes32 digest, bytes memory signature) internal pure returns (address signer) {
-        if (signature.length != 65) revert Errors.InvalidSignatureLength();
-
-        bytes32 r;
-        bytes32 s;
-        uint8 v;
-        assembly {
-            // skip 32-byte length prefix
-            r := mload(add(signature, 32))
-            s := mload(add(signature, 64))
-            v := byte(0, mload(add(signature, 96)))
-        }
-        return _recover(digest, r, s, v);
-    }
-
-    /**
      * @dev Verify an EIP-1271 signature against a smart-contract signer.
      * @dev Uses the typed `IERC1271(signer).isValidSignature(...)` dispatch rather than a
      *      raw `staticcall`; the compiler enforces the call's success and decodes the

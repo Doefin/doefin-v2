@@ -101,9 +101,6 @@ library Errors {
     /// @notice Thrown when payout length is invalid
     error InvalidPayoutLength();
 
-    /// @notice Thrown when there are too many outcome slots
-    error TooManyOutcomeSlots();
-
     /// @notice Thrown when outcome slot count is invalid
     error InvalidOutcomeSlotCount();
 
@@ -125,10 +122,6 @@ library Errors {
 
     /// @notice Thrown when collateral amount is not aligned to unit
     error CollateralNotAligned();
-
-    // ========================================
-    // FEE MANAGEMENT ERRORS
-    // ========================================
 
     // ========================================
     // REENTRANCY ERRORS
@@ -202,19 +195,6 @@ library Errors {
     error InvalidParentCollectionId();
 
     // ========================================
-    // SIGNATURE ERRORS
-    // ========================================
-
-    /// @notice Thrown when a signed-message timestamp is invalid
-    error InvalidTimestamp();
-
-    /// @notice Thrown when signature has expired
-    error SignatureExpired();
-
-    /// @notice Thrown when signature is invalid or ecrecover fails
-    error InvalidSignature();
-
-    // ========================================
     // BLOCK HEADER ORACLE ERRORS
     // ========================================
     error BlockHeaderOracle_NewChainNotLonger();
@@ -245,9 +225,6 @@ library Errors {
     /// @notice Thrown when block is not in buffer
     error OracleAdapter_BlockNotInBuffer();
 
-    /// @notice Thrown when question already exists with same parameters
-    error OracleAdapter_QuestionAlreadyExists();
-
     /// @notice Thrown when question type is invalid
     error OracleAdapter_InvalidQuestionType();
 
@@ -269,12 +246,6 @@ library Errors {
 
     /// @notice Thrown when value is out of valid range
     error ValueOutOfRange();
-
-    /// @notice Thrown when operation would cause overflow
-    error ArithmeticOverflow();
-
-    /// @notice Thrown when operation would cause underflow
-    error ArithmeticUnderflow();
 
     // ========================================
     // INITIALIZATION ERRORS
@@ -322,19 +293,6 @@ library Errors {
     error InvalidSignatureLength();
 
     // ========================================
-    // MOCK CONTRACT ERRORS
-    // ========================================
-
-    /// @notice Thrown when caller is not owner in mock contracts
-    error NotOwner();
-
-    /// @notice Thrown when trying to set owner to invalid address
-    error InvalidAddress();
-
-    /// @notice Thrown when caller is not the pending owner
-    error NotPendingOwner();
-
-    // ========================================
     // SETTLEMENT ERRORS (v3)
     // ========================================
 
@@ -367,4 +325,7 @@ library Errors {
 
     /// @notice Thrown when an operator-supplied fee exceeds a party's payout/proceeds
     error FeeExceedsProceeds();
+
+    /// @notice Thrown when the maker fill amounts do not sum to the taker fill amount
+    error FillAmountMismatch(uint128 sumOfMakerFills, uint128 takerFillAmount);
 }

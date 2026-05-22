@@ -543,14 +543,16 @@ describe("SettlementFacet", function () {
       const takerSig = await signOrder(buyer, takerOrder);
       const makerSig = await signOrder(seller, makerOrder);
 
-      // takerFillAmount=100 but makerFillAmounts=[50] — mismatch
+      // takerFillAmount=100 but makerFillAmounts=[50] — fill-sum mismatch.
+      // CPX-008: this is a distinct failure from the array-length
+      // MismatchedInputLengths path and reverts its own FillAmountMismatch error.
       await expect(
         settlement.connect(operator).matchOrders(
           takerOrder, takerSig, 0,
           [makerOrder], [makerSig], [0],
           fillAmount, [fillAmount.div(2)], [0], [0]
         )
-      ).to.be.reverted;
+      ).to.be.revertedWith("FillAmountMismatch");
     });
   });
 

@@ -75,7 +75,7 @@ contract SettlementFacet is ISettlement {
      *      supplies a per-leg fee amount; `_validateFee` enforces the admin-set maximum
      *      rate (fail-closed: a 0 rate forbids any non-zero fee) and that the fee never
      *      exceeds the contract-derived per-party collateral.
-     * @custom:reverts TradingIsPaused, UnauthorizedOperator, MismatchedInputLengths,
+     * @custom:reverts TradingIsPaused, UnauthorizedOperator, MismatchedInputLengths, FillAmountMismatch,
      *                 InvalidOrderSignature, OrderCancelled, OrderOverfilled, InvalidMatch, ZeroAmount,
      *                 FeeExceedsMaxRate, FeeExceedsProceeds
      */
@@ -154,7 +154,7 @@ contract SettlementFacet is ISettlement {
             unchecked { ++i; }
         }
         // Router-input invariant: total maker fill equals declared taker fill.
-        if (totalMakerFill != takerFillAmount) revert Errors.MismatchedInputLengths();
+        if (totalMakerFill != takerFillAmount) revert Errors.FillAmountMismatch(totalMakerFill, takerFillAmount);
 
         // Update taker fill state
         ss.orderHashToFilledAmount[takerHash] += takerFillAmount;
@@ -839,6 +839,8 @@ contract SettlementFacet is ISettlement {
 
     /**
      * @dev Extract the index set for a positionId from the CTF position registry.
+     *      Takes a caller-resolved AppStorage pointer so the namespace is not
+     *      re-resolved per partition slot.
      * @dev positionId = keccak256(collateralToken, collectionId), where collectionId
      *      encodes the indexSet via alt-bn128 EC arithmetic — it cannot be reversed,
      *      so we look it up in the registry populated during splitPosition.
@@ -846,14 +848,6 @@ contract SettlementFacet is ISettlement {
      *      for binary markets (the only kind v3 currently routes through settlement),
      *      so the cost is bounded — but it is NOT O(1) (the pre-fix comment said so;
      *      corrected here per CPX-007).
-     */
-    function _getIndexSet(bytes32 positionId) internal view returns (uint256) {
-        return _getIndexSetIn(positionId, LibDoefinStorage.appStorage());
-    }
-
-    /**
-     * @dev Variant of {_getIndexSet} that accepts a caller-resolved AppStorage pointer
-     *      so we don't re-resolve the namespace per partition slot.
      */
     function _getIndexSetIn(
         bytes32 positionId,
