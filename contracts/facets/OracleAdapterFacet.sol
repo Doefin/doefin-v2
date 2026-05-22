@@ -37,9 +37,6 @@ contract OracleAdapterFacet {
      * @custom:block Questions indexed by Bitcoin block height for automated resolution
      * @custom:threshold Questions testing if difficulty exceeds specific numerical thresholds
      */
-    /// @notice Get all threshold difficulty questions ready at a specific block height
-    /// @param blockHeight The block height to query
-    /// @return Array of DifficultyThresholdQuestion structs
     function getThresholdQuestionsAtBlock(uint256 blockHeight) external view returns (LibDoefinStorage.DifficultyThresholdQuestion[] memory) {
         LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
         return ds.oracleAdapterStorage.blockToThresholdQuestions[blockHeight];
@@ -56,9 +53,6 @@ contract OracleAdapterFacet {
      * @custom:block Questions indexed by Bitcoin block height for automated resolution
      * @custom:range Questions testing if difficulty falls within specific min/max bounds
      */
-    /// @notice Get all range difficulty questions ready at a specific block height
-    /// @param blockHeight The block height to query
-    /// @return Array of DifficultyRangeQuestion structs
     function getRangeQuestionsAtBlock(uint256 blockHeight) external view returns (LibDoefinStorage.DifficultyRangeQuestion[] memory) {
         LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
         return ds.oracleAdapterStorage.blockToRangeQuestions[blockHeight];
@@ -75,9 +69,6 @@ contract OracleAdapterFacet {
      * @custom:block Questions indexed by Bitcoin block height for automated resolution
      * @custom:duration Questions testing mining time duration for specific block ranges
      */
-    /// @notice Get all mining duration questions ready at a specific block height
-    /// @param blockHeight The block height to query
-    /// @return Array of MiningDurationQuestion structs
     function getDurationQuestionsAtBlock(uint256 blockHeight) external view returns (LibDoefinStorage.MiningDurationQuestion[] memory) {
         LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
         return ds.oracleAdapterStorage.blockToDurationQuestions[blockHeight];
@@ -95,9 +86,6 @@ contract OracleAdapterFacet {
      * @custom:timestamp Questions indexed by timestamp with bucketing for efficient storage
      * @custom:bucketing Uses LibOracleAdapter.getTimestampBucket for timestamp normalization
      */
-    /// @notice Get all block count questions ready at a specific timestamp
-    /// @param timestamp The timestamp to query
-    /// @return Array of BlockCountQuestion structs
     function getBlockCountQuestionsAtTimestamp(uint256 timestamp) external view returns (LibDoefinStorage.BlockCountQuestion[] memory) {
         LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
         uint256 bucket = LibOracleAdapter.getTimestampBucket(timestamp);
@@ -118,8 +106,6 @@ contract OracleAdapterFacet {
      * @custom:cumulative Running total of all questions ever created
      * @custom:monitoring Essential metric for protocol usage and activity tracking
      */
-    /// @notice Get total number of questions created
-    /// @return The total count of questions created
     function getTotalQuestionsCreated() external view returns (uint256) {
         LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
         return ds.oracleAdapterStorage.totalQuestionsCreated;
@@ -135,8 +121,6 @@ contract OracleAdapterFacet {
      * @custom:cumulative Running total of all questions ever resolved
      * @custom:oracle Essential metric for oracle adapter reliability and performance
      */
-    /// @notice Get total number of questions resolved
-    /// @return The total count of questions resolved
     function getTotalQuestionsResolved() external view returns (uint256) {
         LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
         return ds.oracleAdapterStorage.totalQuestionsResolved;
@@ -157,9 +141,6 @@ contract OracleAdapterFacet {
      * @custom:conversion Essential for time-based calculations and question resolution
      * @custom:oracle Enables block-to-time conversion for oracle adapter operations
      */
-    /// @notice Get the timestamp of a block by its height
-    /// @param blockHeight The block height
-    /// @return The timestamp of the block (0 if not found)
     function getBlockTimestamp(uint256 blockHeight) external view returns (uint256) {
         LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
         return ds.oracleAdapterStorage.blockHeightToTimestamp[blockHeight];
@@ -176,9 +157,6 @@ contract OracleAdapterFacet {
      * @custom:conversion Essential for time-to-block conversion for oracle adapter operations
      * @custom:oracle Enables timestamp-based question resolution using block data
      */
-    /// @notice Get the block height closest to a given timestamp
-    /// @param timestamp The timestamp to query
-    /// @return The block height (0 if not found)
     function getTimestampBlock(uint256 timestamp) external view returns (uint256) {
         LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
         return ds.oracleAdapterStorage.timestampToBlockHeight[timestamp];
@@ -196,9 +174,6 @@ contract OracleAdapterFacet {
      * @custom:delegation Delegates to LibOracleAdapter for consistent bucketing implementation
      * @custom:storage Essential for understanding timestamp-based storage organization
      */
-    /// @notice Get the timestamp bucket for a given timestamp
-    /// @param timestamp The timestamp to bucket
-    /// @return The bucketed timestamp (rounded to TIMESTAMP_BUCKET)
     function getTimestampBucket(uint256 timestamp) external pure returns (uint256) {
         return LibOracleAdapter.getTimestampBucket(timestamp);
     }
