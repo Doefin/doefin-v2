@@ -230,13 +230,14 @@ library LibCTFCondition {
         }
 
         uint256 den = 0;
-        for (uint256 i = 0; i < outcomeSlotCount; i++) {
+        for (uint256 i = 0; i < outcomeSlotCount;) {
             uint256 num = payouts[i];
             if (numerators[i] != 0) {
                 revert Errors.PayoutAlreadySet();
             }
             numerators[i] = num;
             den += num;
+            unchecked { ++i; } // GAS-007: counter is bounded by outcomeSlotCount
         }
 
         if (den == 0) {
@@ -268,7 +269,7 @@ library LibCTFCondition {
         positionIds = new uint256[](partition.length);
         amounts = new uint256[](partition.length);
 
-        for (uint256 i = 0; i < partition.length; i++) {
+        for (uint256 i = 0; i < partition.length;) {
             uint256 indexSet = partition[i];
             if (indexSet == 0 || indexSet >= fullIndexSet) revert Errors.InvalidIndexSet();
             if ((indexSet & freeIndexSet) != indexSet) revert Errors.PartitionNotDisjoint();
@@ -276,6 +277,7 @@ library LibCTFCondition {
 
             positionIds[i] = _getPositionId(collateralToken, parentCollectionId, conditionId, indexSet);
             amounts[i] = amount;
+            unchecked { ++i; } // GAS-007: counter is bounded by partition.length
         }
     }
 

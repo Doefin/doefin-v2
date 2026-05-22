@@ -21,9 +21,10 @@ library LibERC1155 {
         }
         if (owners.length != ids.length) revert Errors.ArrayLengthMismatch();
         batchBalances = new uint256[](owners.length);
-        for (uint256 i = 0; i < owners.length; ++i) {
+        for (uint256 i = 0; i < owners.length;) {
             if (owners[i] == address(0)) revert Errors.ZeroAddressQuery();
             batchBalances[i] = LibDoefinStorage.appStorage().erc1155Storage.erc1155Balances[ids[i]][owners[i]];
+            unchecked { ++i; } // GAS-007: counter is bounded by owners.length
         }
     }
 
@@ -80,9 +81,10 @@ library LibERC1155 {
 
         if (from != operator && !ds.erc1155Storage.erc1155OperatorApprovals[from][operator]) revert Errors.NotOwnerNorApproved();
 
-        for (uint256 i = 0; i < ids.length; ++i) {
+        for (uint256 i = 0; i < ids.length;) {
             ds.erc1155Storage.erc1155Balances[ids[i]][from] -= values[i];
             ds.erc1155Storage.erc1155Balances[ids[i]][to] += values[i];
+            unchecked { ++i; } // GAS-007: counter is bounded by ids.length
         }
 
         emit Events.TransferBatch(operator, from, to, ids, values);
@@ -116,8 +118,9 @@ library LibERC1155 {
 
         LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
 
-        for (uint256 i = 0; i < ids.length; ++i) {
+        for (uint256 i = 0; i < ids.length;) {
             ds.erc1155Storage.erc1155Balances[ids[i]][to] += values[i];
+            unchecked { ++i; } // GAS-007: counter is bounded by ids.length
         }
 
         emit Events.TransferBatch(msg.sender, address(0), to, ids, values);
@@ -144,8 +147,9 @@ library LibERC1155 {
 
         LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
 
-        for (uint256 i = 0; i < ids.length; ++i) {
+        for (uint256 i = 0; i < ids.length;) {
             ds.erc1155Storage.erc1155Balances[ids[i]][from] -= values[i];
+            unchecked { ++i; } // GAS-007: counter is bounded by ids.length
         }
 
         emit Events.TransferBatch(msg.sender, from, address(0), ids, values);

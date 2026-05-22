@@ -82,7 +82,7 @@ contract NonceManagerFacet is INonceManager {
     function cancelOrders(LibDoefinOrder.DoefinOrder[] calldata orders) external {
         LibSettlementStorage.SettlementStorage storage ss = LibSettlementStorage.settlementStorage();
         bytes32 domainSep = _getDomainSeparator();
-        for (uint256 i; i < orders.length; ++i) {
+        for (uint256 i; i < orders.length;) {
             if (msg.sender != orders[i].maker) {
                 revert Errors.NotOrderMaker();
             }
@@ -92,6 +92,7 @@ contract NonceManagerFacet is INonceManager {
             }
             ss.cancelledOrders[orderHash] = true;
             emit Events.OrderCancelledOnChain(orderHash, msg.sender);
+            unchecked { ++i; } // GAS-007: counter is bounded by orders.length
         }
     }
 

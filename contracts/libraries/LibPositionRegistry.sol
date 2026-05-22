@@ -180,21 +180,23 @@ library LibPositionRegistry {
                 revert Errors.InvalidMatch();
             }
 
-            for (uint256 i = 0; i < positionIds.length; i++) {
+            for (uint256 i = 0; i < positionIds.length;) {
                 if (meta.positionIds[i] != positionIds[i] || meta.partitions[i] != partitions[i]) {
                     revert Errors.InvalidMatch();
                 }
+                unchecked { ++i; } // GAS-007: counter is bounded by positionIds.length
             }
         }
 
         // Map each positionId to both conditionId and marketKey
-        for (uint256 i = 0; i < positionIds.length; i++) {
+        for (uint256 i = 0; i < positionIds.length;) {
             bytes32 existingMarketKey = ds.positionRegistry.marketKeyByPositionId[positionIds[i]];
             if (existingMarketKey != bytes32(0) && existingMarketKey != marketKey) {
                 revert Errors.InvalidMatch();
             }
             ds.positionRegistry.marketKeyByPositionId[positionIds[i]] = marketKey;
             ds.positionRegistry.conditionIdByPositionId[positionIds[i]] = conditionId;
+            unchecked { ++i; } // GAS-007: counter is bounded by positionIds.length
         }
     }
 
@@ -212,8 +214,9 @@ library LibPositionRegistry {
         bytes32[] memory marketKeys = ds.positionRegistry.marketKeysByCondition[conditionId];
 
         LibDoefinStorage.MarketMetadata[] memory markets = new LibDoefinStorage.MarketMetadata[](marketKeys.length);
-        for (uint256 i = 0; i < marketKeys.length; i++) {
+        for (uint256 i = 0; i < marketKeys.length;) {
             markets[i] = ds.positionRegistry.marketsByKey[marketKeys[i]];
+            unchecked { ++i; } // GAS-007: counter is bounded by marketKeys.length
         }
         return markets;
     }
