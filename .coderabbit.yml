@@ -47,9 +47,12 @@ reviews:
   auto_review:
     enabled: true
     drafts: false
+    # base_branches entries are regex-matched (per the v2 schema). `.*`
+    # matches every base, so CodeRabbit reviews PRs targeting main,
+    # dev, v3/dev, future release branches, etc. Without `.*`, PR #23
+    # (which targets `dev`) was skipped.
     base_branches:
-      - "main"
-      - "v3/dev"
+      - ".*"
 
   # `@coderabbitai generate docstrings` / `generate unit tests` PR commands.
   # Enabled so reviewers can request them on demand against the diff; off by
