@@ -1,0 +1,77 @@
+name: Dead-code reachability
+
+on:
+  pull_request:
+    branches: [main, "v3/dev"]
+    paths:
+      - "contracts/**"
+      - "scripts/deploy.js"
+      - "security/scripts/deadcode-reachability.py"
+      - ".github/workflows/deadcode-reachability.yml"
+
+# Runs the SCRUM-234 Layer-2 reachability tool — call-graph closure from the
+# deploy.js facet root set — and reports the dead-function set as a job
+# summary + PR check. ADVISORY: doesn't block merge, but a growing dead set
+# is a code-smell CodeRabbit + reviewers should be able to see at a glance.
+#
+# CodeRabbit reads the check-run status; teach it via path_instructions
+# (.coderabbit.yml) to call out "the dead-set grew by N functions" when this
+# workflow's summary reports new entries.
+
+concurrency:
+  group: deadcode-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  reachability:
+    name: Layer-2 reachability (call-graph closure)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: npm ci
+      - run: pip install slither-analyzer
+      - run: npx hardhat compile
+      - name: Run dead-code reachability
+        id: deadcode
+        run: |
+          mkdir -p audit/output/deadcode
+          python3 security/scripts/deadcode-reachability.py \
+            > audit/output/deadcode/reachability.txt 2>&1 \
+            || echo "(reachability run produced no zero-exit)"
+          echo "--- reachability summary ---"
+          head -10 audit/output/deadcode/reachability.txt
+      - name: Post reachability summary to job summary
+        if: always()
+        run: |
+          {
+            echo "## Dead-code reachability"
+            echo ""
+            echo '```'
+            head -10 audit/output/deadcode/reachability.txt
+            echo '```'
+            echo ""
+            echo "<details><summary>Full report</summary>"
+            echo ""
+            echo '```'
+            cat audit/output/deadcode/reachability.txt
+            echo '```'
+            echo "</details>"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload reachability artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: deadcode-reachability
+          path: audit/output/deadcode/reachability.*
+          retention-days: 30

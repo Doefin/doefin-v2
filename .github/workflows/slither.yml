@@ -1,0 +1,65 @@
+name: Slither
+
+on:
+  pull_request:
+    branches: [main, "v3/dev"]
+    paths:
+      - "contracts/**"
+      - "hardhat.config.*"
+      - "package.json"
+      - ".github/workflows/slither.yml"
+  push:
+    branches: [main, "v3/dev"]
+    paths:
+      - "contracts/**"
+
+# Slither is ADVISORY here — it runs on every contract-touching PR, posts
+# findings as PR review comments + uploads SARIF to the GitHub Security tab,
+# and CodeRabbit picks BOTH up:
+#   - PR comments are read by CodeRabbit and folded into its summary;
+#   - SARIF annotations land on the diff lines, which CodeRabbit weights
+#     when forming inline comments.
+# `fail-on: none` keeps it from blocking merges on noisy heuristics; treat
+# its output as input to human + CodeRabbit review, not as a gate.
+
+concurrency:
+  group: slither-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    name: slither (security static analysis)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      security-events: write   # SARIF upload to GitHub Security tab
+      pull-requests: write     # post the markdown report as a PR comment
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          cache: npm
+      - run: npm ci
+      - name: Slither
+        uses: crytic/slither-action@v0.4.0
+        id: slither
+        continue-on-error: true
+        with:
+          node-version: 18
+          target: "."
+          fail-on: none
+          slither-config: "security/slither.config.json"
+          sarif: slither-results.sarif
+          slither-args: >-
+            --filter-paths "contracts/mock,contracts/audit,node_modules,@openzeppelin"
+            --exclude-informational
+            --exclude-low
+            --markdown-root ${{ github.server_url }}/${{ github.repository }}/blob/${{ github.sha }}/
+      - name: Upload SARIF to GitHub Security tab
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: ${{ steps.slither.outputs.sarif }}
+          category: slither
