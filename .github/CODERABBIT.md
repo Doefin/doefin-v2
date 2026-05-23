@@ -12,101 +12,134 @@ If you're here because a PR got a shallow review, jump to
 ## Table of contents
 
 1. [How the pieces fit](#how-the-pieces-fit)
-2. [Knowledge-base setup (dashboard)](#knowledge-base-setup-dashboard)
-3. [CI integration — what we feed CodeRabbit and why](#ci-integration)
-4. [Slither: how it gets to CodeRabbit](#slither-how-it-gets-to-coderabbit)
-5. [`@coderabbitai` PR command cheat sheet](#pr-command-cheat-sheet)
-6. [Working with the per-path instructions](#working-with-the-per-path-instructions)
-7. [Maintenance](#maintenance)
-8. [Troubleshooting](#troubleshooting)
+2. [Where to put what — the YAML-first playbook](#where-to-put-what--the-yaml-first-playbook)
+3. [Knowledge base — two options](#knowledge-base--two-options)
+4. [CI integration — what we feed CodeRabbit and why](#ci-integration)
+5. [Slither: how it gets to CodeRabbit](#slither-how-it-gets-to-coderabbit)
+6. [`@coderabbitai` PR command cheat sheet](#pr-command-cheat-sheet)
+7. [Working with the per-path instructions](#working-with-the-per-path-instructions)
+8. [Maintenance](#maintenance)
+9. [Troubleshooting](#troubleshooting)
 
 ---
 
 ## How the pieces fit
 
-CodeRabbit on this repo is **three layered inputs**:
+CodeRabbit on this repo has **three layered inputs**, but they are NOT
+peer-equal — the in-repo `.coderabbit.yml` wins:
 
 ```
-┌───────────────────────────────────────────────────────────────────┐
-│  CodeRabbit review on a PR                                        │
-│                                                                   │
-│   reads ←  in-repo .coderabbit.yml   (per-path instructions,     │
-│                                       tone, auto-review config)   │
-│                                                                   │
-│   reads ←  CodeRabbit web dashboard  (knowledge base, learnings)  │
-│                                                                   │
-│   reads ←  PR check-run statuses     (CI workflows: ci.yml,       │
-│            + SARIF annotations         slither.yml, deadcode-      │
-│            + bot comments              reachability.yml)          │
-└───────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────┐
+│  CodeRabbit review on a PR                                           │
+│                                                                      │
+│   reads (PRIMARY)  ← in-repo .coderabbit.yml — v2 schema, versioned  │
+│                      with the code. Source of truth for review       │
+│                      behaviour, per-path instructions, tone, tools.  │
+│                                                                      │
+│   reads (FALLBACK) ← dashboard "YAML editor" / "Precise" / "All      │
+│                      settings" — the SAME v2 schema, but only        │
+│                      consulted for repos with no `.coderabbit.yml`.  │
+│                      For us this is dead weight; leave it as-is.     │
+│                                                                      │
+│   reads (CONTEXT)  ← dashboard Knowledge Base + Learnings — the      │
+│                      handful of things YAML can't express, OR a      │
+│                      convenience for indexing repo docs faster than  │
+│                      re-reading them per PR. Optional for us; see    │
+│                      "Knowledge base — two options" below.           │
+│                                                                      │
+│   reads (CI)       ← PR check-run statuses + SARIF annotations +     │
+│                      other bots' PR comments (ci.yml, slither.yml,   │
+│                      deadcode-reachability.yml). Independent         │
+│                      ground-truth signals CodeRabbit folds in.       │
+└──────────────────────────────────────────────────────────────────────┘
 ```
 
-The YAML and the dashboard tell CodeRabbit **what to look for**. The CI
-workflows give CodeRabbit **independent ground-truth signals** (compile
-errors, lint failures, test pass/fail, Slither findings, dead-code growth).
-The combination is what makes the review go deep — none of the three on its
-own is enough.
+**Precedence rule (load-bearing):** when `.coderabbit.yml` exists at the
+repo root, CodeRabbit ignores the dashboard YAML. You do not need to keep
+them in sync. Edit YAML in git.
+
+CI gives CodeRabbit independent ground truth (compile errors, lint
+failures, test pass/fail, Slither findings, dead-code growth). **Adding a
+CI check is the highest-leverage single move to make CodeRabbit smarter
+about a domain.**
 
 ---
 
-## Knowledge-base setup (dashboard)
+## Where to put what — the YAML-first playbook
 
-The web UI lives at <https://app.coderabbit.ai/> → select this repo →
-**Knowledge Base**. The KB is Pro-tier and persistent — once seeded, every
-PR review on the repo benefits.
+The TL;DR: **YAML for as much as possible.** Use the dashboard only for the
+four or five things that genuinely can't be in YAML.
 
-### What to upload
+| Setting category | Where | Why |
+|---|---|---|
+| Review profile (`chill`/`assertive`), tone, auto-review on/off, base branches, drafts | **YAML** — `.coderabbit.yml` `reviews.*` | Versioned, diff-able, reviewable in PRs. |
+| Per-path review instructions (the heart of useful Solidity review) | **YAML** — `reviews.path_instructions` | Citing INV-* / SEC-* / BIZ-* IDs in YAML makes the rule travel with the code. |
+| Path filters (what gets reviewed vs ignored) | **YAML** — `reviews.path_filters` | Same. |
+| Tool toggles (solhint, semgrep, gitleaks, ast-grep, markdownlint, yamllint, shellcheck, languagetool) | **YAML** — `reviews.tools.*` | Same. |
+| Tone / persona instructions | **YAML** — `tone_instructions` | Same. |
+| `@coderabbitai generate docstrings` / `generate unit tests` toggles | **YAML** — `reviews.finishing_touches.*` | Same. |
+| Chat auto-reply, Jira/Linear chat usage flags | **YAML** — `chat.*` | Same. |
+| Knowledge base — repo files used as standing context | **YAML preferred** via `path_instructions` referencing repo files (`audit/business-logic/invariants.md`, etc.), OR **dashboard** upload if you want semantic retrieval across PRs that don't touch those files | The in-repo approach keeps everything in git. The dashboard upload is faster for whole-repo recall. See [Knowledge base — two options](#knowledge-base--two-options). |
+| Standing rules / "Learnings" | **YAML preferred** — `tone_instructions` + `path_instructions` cover ~all of it. Dashboard "Learnings" is for cumulative preferences captured from PR feedback over time. | Same — version control wins. |
+| GitHub App install, repo access, bot permissions | **Dashboard only** | GitHub App–level config; can't go in YAML. |
+| Linear / Jira / Slack / MS Teams integration auth (OAuth tokens) | **Dashboard only** | OAuth / secrets — can't go in git. |
+| API keys for external tool integrations | **Dashboard only** | Secrets. |
+| Plan / billing | **Dashboard only** | N/A for YAML. |
 
-These are the files that turn generic Solidity review into Doefin-aware
-review. Upload as documents (not links — the dashboard reads them at
-review time):
+**One-line rule of thumb:** if it isn't a secret and doesn't require OAuth,
+put it in `.coderabbit.yml` and let git track it.
 
-**Tier 1 — must upload (load-bearing context):**
+---
 
-- [`audit-exclusion-guidance.md`](../audit-exclusion-guidance.md) — tells
-  CodeRabbit which contracts are upstream / out of scope.
-- [`audit/00-scope.md`](../audit/00-scope.md) — the in-scope inventory.
-- [`audit/business-logic/invariants.md`](../audit/business-logic/invariants.md)
-   — the 22-invariant spec. This is the most valuable single document —
-   it's how CodeRabbit can say "this change violates INV-SOLV-2."
-- [`audit/business-logic/coverage.md`](../audit/business-logic/coverage.md)
-   — invariant ↔ test map.
-- [`audit/REPORT.md`](../audit/REPORT.md) — the main audit report.
-- [`audit/findings-ledger.md`](../audit/findings-ledger.md) — consolidated
-  finding IDs (BIZ-/SEC-/CPX-/GAS-) so CodeRabbit can cite them by name.
+## Knowledge base — two options
 
-**Tier 2 — strongly recommended:**
+CodeRabbit needs project-specific context (the 22 invariants, the operator
+trust model, the EIP-7201 namespacing rule, etc.) to produce reviews that
+cite IDs instead of generic best-practice advice. Two ways to give it that
+context:
 
-- [`audit/test-engineering/mutation-report.md`](../audit/test-engineering/mutation-report.md)
-   — establishes the mutation-testing convention; CodeRabbit will then call
-   out "this test would survive mutation X" patterns.
-- [`audit/phase2-review/REVIEW.md`](../audit/phase2-review/REVIEW.md) +
-  the `phase2-review/*-findings.md` files — recent complexity / gas /
-  architecture work, useful context for any refactor PR.
-- [`audit/findings/manual-review-dead-code-A2-A3to6.md`](../audit/findings/manual-review-dead-code-A2-A3to6.md)
-   — SCRUM-235 missing-invariant precedent.
-- [`audit/findings/business-logic-findings.md`](../audit/findings/business-logic-findings.md)
-   — BIZ-001..006 historical context.
-- [`audit/findings/dead-code-findings.md`](../audit/findings/dead-code-findings.md)
-   — the dead-code analysis methodology, so CodeRabbit recognises stale code.
-- [`audit/fixes/changelog.md`](../audit/fixes/changelog.md) — the
-  remediation log keyed to commits.
-- [`.claude/CLAUDE.md`](../.claude/CLAUDE.md) — the project handbook
-  (architecture, conventions, branch strategy, current task). This is the
-  same context the in-IDE AI sees; making it visible to CodeRabbit aligns
-  the two.
+### Option A — In-repo references via `path_instructions` (preferred for us)
 
-**Tier 3 — useful but optional:**
+We already do this. `.coderabbit.yml`'s `path_instructions` quote invariant
+IDs (`INV-MISC-3`, `BL-N2`, `SCRUM-235`, etc.) and reference the docs that
+define them (`audit/business-logic/invariants.md`, etc.). When CodeRabbit
+reviews a file matching the glob, it sees the instruction and can read the
+referenced docs from the same PR's repo checkout.
 
-- [`audit/triage-notes.md`](../audit/triage-notes.md)
-- [`audit/manifest.md`](../audit/manifest.md)
-- `audit/gas/report.md`
+**Pros:** zero dashboard config; versioned with the code; survives team
+rotation; the source of truth is the same file the engineers read.
 
-### Seed `Learnings`
+**Cons:** CodeRabbit re-reads the doc per review (small token cost); recall
+is scoped to PRs that touch a matching path.
 
-In the dashboard under **Learnings**, add the following short rules
-verbatim. These become the standing "what to always flag" prompts CodeRabbit
-runs against every PR:
+This is what's live. No action needed.
+
+### Option B — Dashboard upload (for cross-PR semantic recall)
+
+If you want CodeRabbit to *always* have certain docs in working memory —
+even on PRs that don't touch the relevant code paths — upload them to the
+dashboard's Knowledge Base:
+
+> CodeRabbit dashboard → this repo → look for a sidebar item named
+> **Knowledge Base** / **Documents** / **Context Files** (label varies
+> across UI versions).
+
+Upload-worthy short list:
+
+- `audit/business-logic/invariants.md` — the 22-invariant spec (single
+  highest-value doc).
+- `audit-exclusion-guidance.md` — what's out of scope.
+- `audit/business-logic/coverage.md` — invariant ↔ test map.
+- `audit/findings-ledger.md` — finding-ID dictionary.
+
+Everything else stays in-repo (Option A); CodeRabbit pulls on demand.
+
+### Optional: pre-seed standing rules in dashboard "Learnings"
+
+If your dashboard has a **Learnings** / **Memory** / **Custom Rules**
+section, paste these rules. They then apply on every PR regardless of which
+file changes (belt-and-braces — the same rules are also embedded in
+`.coderabbit.yml`'s `tone_instructions` / `path_instructions`):
 
 ```
 - The operator is trusted to MATCH orders but NOT for solvency. Any change
@@ -118,8 +151,8 @@ runs against every PR:
 - EIP-712 cross-runtime parity: any change to LibDoefinOrder typehash,
   field list, or domain version MUST be matched in doefin-backend
   (shared/scw/encoder.py + match-engine/app/utils/settlement_abi.py) and
-  doefin-frontend (contracts/doefin/v3/generated/). Flag and call out the
-  required cross-repo coordination.
+  doefin-frontend (contracts/doefin/v3/generated/). Flag the required
+  cross-repo coordination.
 
 - EIP-7201 storage namespacing: new modules MUST get their own namespace
   library (LibXxxStorage). Never embed new sub-structs in
@@ -141,17 +174,20 @@ runs against every PR:
   and the actual filesystem.
 ```
 
-### Code Generation preferences
+### Code Generation defaults
 
-If you use `@coderabbitai generate unit tests` or `generate docstrings`,
-set these defaults in the dashboard's **Code Generation** section:
+If your dashboard has a **Code Generation** section (used by
+`@coderabbitai generate unit tests` / `generate docstrings`), set:
 
 - Test framework: **Hardhat + Mocha + Chai**
 - Test fixture: reuse `test/utils/auditFixture.js` (`setupAuditFixture`)
 - Custom error assertion: `revertedWith("ErrorName(args...)")` or the
   `expectRevertWithSelector` helper for view calls
 - Comment style: every test file begins with a rationale block citing the
-  invariant / finding it pins (see `test/audit/SCRUM-235-*` for the template)
+  invariant / finding it pins (template in `test/audit/SCRUM-235-*`)
+
+Optional — these are also in our YAML `path_instructions` for the
+`test/**` globs.
 
 ---
 
@@ -339,6 +375,20 @@ Quarterly: skim CodeRabbit's published changelog
 (<https://docs.coderabbit.ai/changelog>) for new tool integrations
 (Slither native? new Solidity rules?) and update `.coderabbit.yml`.
 
+### v2 schema header — keep it on the first line
+
+`.coderabbit.yml` starts with:
+
+```yaml
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+```
+
+This is a magic comment that tells VS Code, JetBrains, vim's
+yaml-language-server, etc. to validate the file against CodeRabbit's v2
+schema — autocomplete on field names, type errors on bad values, hover
+docs on hover. If you ever see CodeRabbit complain about an unknown field,
+the schema header is the fastest way to diagnose locally before pushing.
+
 ---
 
 ## Troubleshooting
@@ -356,6 +406,20 @@ In order of likelihood:
 3. **No `path_instructions` for the file's path.** CodeRabbit will still
    review without instructions, but it leans heavily on the cheapest
    heuristics. Add a per-path entry — see above.
+
+### "The dashboard YAML editor and my `.coderabbit.yml` disagree — which wins?"
+
+The in-repo `.coderabbit.yml` wins, every time, when it's present. The
+dashboard YAML editor edits a fallback config that's only used by repos
+*without* an in-repo file. You don't need to keep them in sync; you don't
+need to copy your in-repo YAML into the dashboard. Treat the dashboard YAML
+panel as cosmetic for this repo and edit YAML in git.
+
+Diagnostic: if a change you made to `.coderabbit.yml` doesn't show up in
+the next PR review, check (a) it's actually on the PR's head commit, (b)
+its base branch is in `reviews.auto_review.base_branches`, (c) the schema
+header didn't make a validation error somewhere (the schema-validation
+panel in your editor will flag it instantly).
 
 ### "The review is shallow — no security-specific commentary"
 

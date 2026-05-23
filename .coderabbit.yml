@@ -1,10 +1,17 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
 # CodeRabbit configuration — Doefin v3
 # ============================================================================
 # Tuned for EIP-2535 Diamond + Solidity / settlement-security review.
+# v2 schema (see the schema-URL line above — editors will autocomplete + lint).
 # Docs: https://docs.coderabbit.ai/getting-started/configure-coderabbit
 #
-# Companion setup guide (knowledge-base seeding, Slither integration, PR
-# commands, troubleshooting): .github/CODERABBIT.md
+# THIS FILE IS THE SOURCE OF TRUTH for review behaviour. The CodeRabbit
+# dashboard's "YAML editor" / "Precise" / "All settings" panes edit a separate
+# fallback config that only takes effect when no in-repo `.coderabbit.yml`
+# exists. Once this file lands, the dashboard YAML becomes irrelevant.
+#
+# Companion guide (KB upload vs in-repo references, dashboard navigation,
+# Slither integration, PR commands, troubleshooting): .github/CODERABBIT.md
 # ============================================================================
 
 language: en-US
@@ -26,6 +33,7 @@ reviews:
   profile: assertive
   request_changes_workflow: false
   high_level_summary: true
+  high_level_summary_in_walkthrough: true
   poem: false
   review_status: true
   collapse_walkthrough: false
@@ -44,6 +52,16 @@ reviews:
     base_branches:
       - "main"
       - "v3/dev"
+
+  # `@coderabbitai generate docstrings` / `generate unit tests` PR commands.
+  # Enabled so reviewers can request them on demand against the diff; off by
+  # default in auto-review (we don't want CodeRabbit drive-by-generating
+  # tests, just on explicit invocation).
+  finishing_touches:
+    docstrings:
+      enabled: true
+    unit_tests:
+      enabled: true
 
   # Path filters — gitignore syntax. Strip noise so review tokens go to code.
   # NOTE: the `audit/` deliverables are included on purpose — CodeRabbit
