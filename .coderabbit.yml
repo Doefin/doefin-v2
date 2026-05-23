@@ -16,16 +16,14 @@
 
 language: en-US
 early_access: false
-tone_instructions: |
-  You are reviewing the Doefin v3 prediction-market protocol — an EIP-2535
-  Diamond on Base L2 implementing an off-chain orderbook + on-chain settlement
-  (Polymarket-style CLOB) plus a Bitcoin block-header oracle and Gnosis CTF
-  conditional tokens. Adopt a senior-security-engineer tone: terse, specific,
-  cite the exact line and the exact invariant at risk. Prefer "this violates
-  INV-X / SEC-Y / BIZ-Z" over generic best-practice advice. Cross-reference
-  the knowledge-base documents (audit/findings/, audit/business-logic/,
-  audit-exclusion-guidance.md) when relevant; don't re-derive invariants you
-  can quote.
+# Note: tone_instructions is capped at 250 chars by the v2 schema. Keep it
+# terse; the long-form review model lives in `reviews.path_instructions` and
+# in `.github/CODERABBIT.md`.
+tone_instructions: >-
+  Senior-security review of Doefin v3 (EIP-2535 Diamond, Solidity, Base L2
+  prediction market). Terse, line-specific. Cite the exact
+  INV-/SEC-/BIZ-/SCRUM- invariant at risk from
+  audit/business-logic/invariants.md, not generic best-practice advice.
 
 reviews:
   # `assertive` is materially more thorough than `chill` — worth it on a
@@ -500,14 +498,18 @@ reviews:
 
   # ──────────────────────────────────────────────────────────────────────
   # Tool integrations — CodeRabbit runs these and merges findings into the
-  # PR review. The Solidity-relevant ones are listed; check
-  # docs.coderabbit.ai/tools for the full catalog.
+  # PR review. The v2 schema's catalog is at
+  # https://coderabbit.ai/integrations/schema.v2.json (60+ tools).
+  #
+  # Notable absences vs the dev wishlist:
+  #   * Solidity linter (solhint) — NOT in v2 catalog. Runs in CI instead
+  #     (.github/workflows/ci.yml), where CodeRabbit reads its check-run
+  #     status and incorporates failures into the review summary.
+  #   * Slither — NOT in v2 catalog. Same model — runs in CI
+  #     (.github/workflows/slither.yml), posts SARIF + PR comment,
+  #     CodeRabbit reads both.
   # ──────────────────────────────────────────────────────────────────────
   tools:
-    # Solidity linter — catches style + a subset of security rules.
-    solhint:
-      enabled: true
-
     # Pattern-based security scanner — has Solidity rules in the registry.
     semgrep:
       enabled: true

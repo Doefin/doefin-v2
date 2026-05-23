@@ -75,7 +75,7 @@ four or five things that genuinely can't be in YAML.
 | Review profile (`chill`/`assertive`), tone, auto-review on/off, base branches, drafts | **YAML** — `.coderabbit.yml` `reviews.*` | Versioned, diff-able, reviewable in PRs. |
 | Per-path review instructions (the heart of useful Solidity review) | **YAML** — `reviews.path_instructions` | Citing INV-* / SEC-* / BIZ-* IDs in YAML makes the rule travel with the code. |
 | Path filters (what gets reviewed vs ignored) | **YAML** — `reviews.path_filters` | Same. |
-| Tool toggles (solhint, semgrep, gitleaks, ast-grep, markdownlint, yamllint, shellcheck, languagetool) | **YAML** — `reviews.tools.*` | Same. |
+| Tool toggles (semgrep, gitleaks, ast-grep, markdownlint, yamllint, shellcheck, languagetool — the v2 catalog has 60+) | **YAML** — `reviews.tools.*` | Same. (Solidity-specific tools — solhint, Slither — aren't in the v2 catalog; they run in CI workflows instead and CodeRabbit reads the check-run status + SARIF / comments.) |
 | Tone / persona instructions | **YAML** — `tone_instructions` | Same. |
 | `@coderabbitai generate docstrings` / `generate unit tests` toggles | **YAML** — `reviews.finishing_touches.*` | Same. |
 | Chat auto-reply, Jira/Linear chat usage flags | **YAML** — `chat.*` | Same. |
