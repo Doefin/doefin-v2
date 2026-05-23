@@ -552,14 +552,158 @@ reviews:
 chat:
   auto_reply: true
 
-# Knowledge-base configuration is per-repo and lives in the CodeRabbit web
-# dashboard (Pro tier). The list of files to upload + the recommended
-# "Learnings" seed are documented in docs/coderabbit-setup.md.
+# ────────────────────────────────────────────────────────────────────────
+# Knowledge base — the v2 schema makes this entirely YAML-able. There is
+# NO file upload mechanism in the dashboard despite what older guides
+# claim; the dashboard's KB page is just a form for the fields below.
+# Editing here in git is the same as editing there.
+# ────────────────────────────────────────────────────────────────────────
 knowledge_base:
   opt_out: false
+
+  # Web search (default true) — lets CodeRabbit pull external context
+  # (EIPs, OpenZeppelin, Solidity docs, audit-tool docs) when relevant.
+  web_search:
+    enabled: true
+
+  # Code guidelines — point CodeRabbit at in-repo guideline docs. It
+  # scans them on every review and applies their content as project-
+  # specific standards. This is the YAML/in-repo equivalent of
+  # "uploading docs to the KB" — the dashboard's KB page surfaces the
+  # SAME `filePatterns` array under a friendlier name. Patterns are
+  # case-sensitive globs.
+  code_guidelines:
+    enabled: true
+    filePatterns:
+      - "audit-exclusion-guidance.md"
+      - "audit/business-logic/invariants.md"
+      - "audit/business-logic/coverage.md"
+      - "audit/findings-ledger.md"
+      - "audit/REPORT.md"
+      - "audit/findings/manual-review-dead-code-A2-A3to6.md"
+      - "audit/test-engineering/mutation-report.md"
+      - ".claude/CLAUDE.md"
+      - ".github/CODERABBIT.md"
+
+  # Cross-repo context — CodeRabbit considers PRs / code in linked repos
+  # when reviewing this repo. The Doefin protocol is tri-repo (contracts
+  # / backend / frontend) and the EIP-712 typehash + ABI shapes MUST
+  # agree across all three; linking surfaces drift at PR time.
+  # Prerequisite: the CodeRabbit GitHub App must be installed on the
+  # linked repos.
+  linked_repositories:
+    - repository: "Doefin/doefin-backend"
+      instructions: |
+        Off-chain orderbook + match-engine + block-indexer. ABI / EIP-712
+        parity surface that mirrors v3 contracts:
+        - shared/scw/encoder.py (LibDoefinOrder EIP-712 encoder)
+        - match-engine/app/utils/settlement_abi.py (SettlementFacet ABI)
+        - match-engine/app/services/settlement_service.py (matchOrders
+          submission)
+        - block-indexer/app/utils/block_header_oracle_client.py
+          (submitNextBlock / submitBatchBlocks call sites)
+        Any v3 contract change to the LibDoefinOrder typehash / struct,
+        matchOrders/fillOrder signature, or BlockHeaderOracle surface
+        REQUIRES a matched change here. Flag PRs that drift.
+    - repository: "Doefin/doefin-frontend"
+      instructions: |
+        v3 Diamond ABI consumers live at
+        contracts/doefin/v3/generated/ (diamond.ts +
+        mergedDiamondABI.json). Any change to a v3 facet's external
+        surface (matchOrders, fillOrder, IMarketData, etc.) MUST
+        regenerate these. Flag PRs that change the facet surface
+        without a matching frontend regen.
+
   learnings:
     scope: auto
   issues:
     scope: auto
   pull_requests:
     scope: auto
+
+  # Issue-tracker integrations — these flags surface tracker tickets as
+  # KB context on PRs that reference SCRUM-* / DOE-* / etc. tickets.
+  # The actual OAuth wiring (token, account link) is the only thing
+  # that genuinely has to live in the dashboard.
+  jira:
+    usage: auto
+  linear:
+    usage: auto
+
+# ────────────────────────────────────────────────────────────────────────
+# Code generation — drives `@coderabbitai generate docstrings` and
+# `generate unit tests` PR commands. The path_instructions arrays here
+# are the same field the dashboard's "Code generation" page exposes.
+# Per-path so the docstring/test style is right for facets vs libraries
+# vs mocks vs each test layer.
+# ────────────────────────────────────────────────────────────────────────
+code_generation:
+  docstrings:
+    language: "en-US"
+    path_instructions:
+      - path: "contracts/facets/**/*.sol"
+        instructions: |
+          Solidity NatSpec for Doefin v3 facets. Required tags on every
+          external/public function:
+            @notice  — user-facing one-liner
+            @dev     — developer note (include CEI ordering / reentrancy
+                       reasoning where the function is on the
+                       settlement hot path; reference INV-* / SEC-* /
+                       BIZ-* / SCRUM-* IDs the function enforces or
+                       relies on)
+            @param <name>  — for each argument
+            @return <name> — for each return value
+            @custom:security  — for any invariant the function enforces
+                                (cite the ID — e.g. SEC-003, BL-N2,
+                                SCRUM-235)
+            @custom:audit     — for any audit finding the function
+                                resolves
+            @custom:reverts <ErrorName>, ...  — every custom error the
+                                                function can revert with
+          Internal helpers: at minimum @notice + @dev. Match the
+          existing dense style in SettlementFacet (see _validateOrder,
+          _settleX).
+      - path: "contracts/libraries/Lib*.sol"
+        instructions: |
+          NatSpec for libraries. @notice + @dev minimum. Mark which
+          facet calls the function. Libraries assume validated inputs —
+          state this in @dev where applicable. For storage-namespaced
+          libs (Lib*Storage), include the EIP-7201 storage-location
+          comment (`@custom:storage-location erc7201:<id>`).
+      - path: "contracts/mock/**"
+        instructions: |
+          Test-only contracts. NatSpec should explicitly say the
+          contract is test-only and what production behaviour it
+          simulates (e.g. "returns a non-magic ERC-1155 selector to
+          exercise LibERC1155._doSafeTransfer*AcceptanceCheck
+          rejection").
+  unit_tests:
+    path_instructions:
+      - path: "test/audit/**"
+        instructions: |
+          Audit pentest suite. Filename convention:
+          `<FINDING-ID>-<slug>.test.js` (e.g.
+          SEC-003-zero-collateral-fill.test.js, SCRUM-235-...). Every
+          file MUST:
+            (a) prove the attack is blocked with at least one explicit
+                `revertedWith("ErrorName(args...)")` assertion;
+            (b) include a CONTROL `it("CONTROL — ... settles normally")`
+                test of the legitimate case;
+            (c) start with a rationale block citing the invariant /
+                finding it pins (see
+                test/audit/SCRUM-235-*.test.js for the template);
+            (d) reuse setupAuditFixture from test/utils/auditFixture.js.
+          For view-call reverts of PARAMETERISED custom errors, use the
+          `expectRevertWithSelector` helper (waffle 3.4 limitation
+          documented in coverage.md).
+      - path: "test/unit/**"
+        instructions: |
+          Per-facet / per-library unit tests, Hardhat + Mocha + Chai.
+          Reuse test/utils/auditFixture.js (setupAuditFixture). Every
+          test exercises the negative case it claims. No soft
+          `.to.be.reverted` on known custom errors. Each describe block
+          names the line(s) of contracts/ it pins.
+      - path: "test/integration/**"
+        instructions: |
+          Integration tests against a fully-deployed Diamond fixture.
+          Don't mock production paths — drive the real facet flow.

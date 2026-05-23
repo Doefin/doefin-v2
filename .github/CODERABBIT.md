@@ -13,7 +13,7 @@ If you're here because a PR got a shallow review, jump to
 
 1. [How the pieces fit](#how-the-pieces-fit)
 2. [Where to put what — the YAML-first playbook](#where-to-put-what--the-yaml-first-playbook)
-3. [Knowledge base — two options](#knowledge-base--two-options)
+3. [Knowledge base — what the dashboard form really is](#knowledge-base--what-the-dashboard-form-really-is)
 4. [CI integration — what we feed CodeRabbit and why](#ci-integration)
 5. [Slither: how it gets to CodeRabbit](#slither-how-it-gets-to-coderabbit)
 6. [`@coderabbitai` PR command cheat sheet](#pr-command-cheat-sheet)
@@ -79,8 +79,14 @@ four or five things that genuinely can't be in YAML.
 | Tone / persona instructions | **YAML** — `tone_instructions` | Same. |
 | `@coderabbitai generate docstrings` / `generate unit tests` toggles | **YAML** — `reviews.finishing_touches.*` | Same. |
 | Chat auto-reply, Jira/Linear chat usage flags | **YAML** — `chat.*` | Same. |
-| Knowledge base — repo files used as standing context | **YAML preferred** via `path_instructions` referencing repo files (`audit/business-logic/invariants.md`, etc.), OR **dashboard** upload if you want semantic retrieval across PRs that don't touch those files | The in-repo approach keeps everything in git. The dashboard upload is faster for whole-repo recall. See [Knowledge base — two options](#knowledge-base--two-options). |
-| Standing rules / "Learnings" | **YAML preferred** — `tone_instructions` + `path_instructions` cover ~all of it. Dashboard "Learnings" is for cumulative preferences captured from PR feedback over time. | Same — version control wins. |
+| Knowledge base — in-repo guideline docs scanned every review | **YAML** — `knowledge_base.code_guidelines.{enabled, filePatterns}` | The dashboard's KB page has no file upload — its "File patterns" field IS this YAML array. Same data, different form. |
+| Knowledge base — cross-repo dependencies (catch ABI / typehash drift in doefin-backend / doefin-frontend) | **YAML** — `knowledge_base.linked_repositories[]` | The dashboard's "Linked repositories" field IS this YAML array. |
+| Knowledge base — Learnings / Issues / Pull-request scope (local / global / auto) | **YAML** — `knowledge_base.{learnings,issues,pull_requests}.scope` | The dashboard's scope dropdowns ARE these YAML enum fields. |
+| Knowledge base — Web search toggle | **YAML** — `knowledge_base.web_search.enabled` (default true) | Same. |
+| Knowledge base — Jira / Linear / MCP usage flags (NOT the OAuth) | **YAML** — `knowledge_base.{jira,linear,mcp}.usage` | The OAuth wiring stays in the dashboard; the per-repo usage flag is YAML. |
+| Code generation — docstring language + per-path docstring style | **YAML** — `code_generation.docstrings.{language, path_instructions[]}` | The dashboard's "Code generation → Docstring" page IS these YAML fields. |
+| Code generation — per-path unit-test style | **YAML** — `code_generation.unit_tests.path_instructions[]` | Same — dashboard form == YAML field. |
+| Standing review rules / `tone_instructions` (capped at 250 chars by the v2 schema) | **YAML** — `tone_instructions` + the per-path `reviews.path_instructions` carry the long-form ones | Version-controlled, diff-able. |
 | GitHub App install, repo access, bot permissions | **Dashboard only** | GitHub App–level config; can't go in YAML. |
 | Linear / Jira / Slack / MS Teams integration auth (OAuth tokens) | **Dashboard only** | OAuth / secrets — can't go in git. |
 | API keys for external tool integrations | **Dashboard only** | Secrets. |
@@ -91,55 +97,51 @@ put it in `.coderabbit.yml` and let git track it.
 
 ---
 
-## Knowledge base — two options
+## Knowledge base — what the dashboard form really is
 
-CodeRabbit needs project-specific context (the 22 invariants, the operator
-trust model, the EIP-7201 namespacing rule, etc.) to produce reviews that
-cite IDs instead of generic best-practice advice. Two ways to give it that
-context:
+Looking at the dashboard's Knowledge base page, you'll see fields like
+**Linked repositories**, **Web search**, **Code guidelines (Enabled + File
+patterns)**, **Learnings scope**, **Issues scope**, **Jira**, **Linear**.
+There is **no file upload** anywhere — older versions had one, the current
+UI does not. Every field on the page is a direct surface over the same
+`knowledge_base.*` YAML schema we already use.
 
-### Option A — In-repo references via `path_instructions` (preferred for us)
+The implication for our YAML-first approach: **everything on the dashboard
+Knowledge base page can be set in `.coderabbit.yml`**, and ours does. The
+load-bearing piece is `code_guidelines.filePatterns` — pointing CodeRabbit
+at in-repo guideline docs (the 22-invariant spec, the exclusion guidance,
+etc.). CodeRabbit scans those files on every review and applies their
+content as project-specific standards.
 
-We already do this. `.coderabbit.yml`'s `path_instructions` quote invariant
-IDs (`INV-MISC-3`, `BL-N2`, `SCRUM-235`, etc.) and reference the docs that
-define them (`audit/business-logic/invariants.md`, etc.). When CodeRabbit
-reviews a file matching the glob, it sees the instruction and can read the
-referenced docs from the same PR's repo checkout.
+What we ship in `.coderabbit.yml` `knowledge_base`:
 
-**Pros:** zero dashboard config; versioned with the code; survives team
-rotation; the source of truth is the same file the engineers read.
+| Field | Setting |
+|---|---|
+| `code_guidelines.filePatterns` | `audit-exclusion-guidance.md`, `audit/business-logic/invariants.md`, `audit/business-logic/coverage.md`, `audit/findings-ledger.md`, `audit/REPORT.md`, the dead-code manual-review, the mutation report, `.claude/CLAUDE.md`, `.github/CODERABBIT.md` |
+| `linked_repositories[]` | `Doefin/doefin-backend` + `Doefin/doefin-frontend` with cross-repo coordination instructions (catches EIP-712 typehash / ABI drift) |
+| `web_search.enabled` | `true` (default; explicit for clarity) |
+| `learnings.scope`, `issues.scope`, `pull_requests.scope` | `auto` |
+| `jira.usage`, `linear.usage` | `auto` (the OAuth wiring stays in the dashboard — set up once when needed, then forget) |
+| `mcp.usage` | (not set — default `auto`) |
 
-**Cons:** CodeRabbit re-reads the doc per review (small token cost); recall
-is scoped to PRs that touch a matching path.
+This is the entire KB surface. No upload step exists; reviewing the
+dashboard form is a sanity check, not an action item.
 
-This is what's live. No action needed.
+### Standing review rules — `tone_instructions` (capped at 250 chars)
 
-### Option B — Dashboard upload (for cross-PR semantic recall)
+The v2 schema caps `tone_instructions` at 250 characters, so the long-form
+review model can't live there. We use it for the persona+voice statement
+only ("senior-security review of Doefin v3 ... cite the INV-/SEC-/BIZ-/
+SCRUM- invariant at risk from invariants.md, not generic best-practice
+advice"). The actual invariant content + per-area review rules live in
+`reviews.path_instructions` (no length cap), and the longer-form context
+is in the `code_guidelines.filePatterns` files listed above.
 
-If you want CodeRabbit to *always* have certain docs in working memory —
-even on PRs that don't touch the relevant code paths — upload them to the
-dashboard's Knowledge Base:
-
-> CodeRabbit dashboard → this repo → look for a sidebar item named
-> **Knowledge Base** / **Documents** / **Context Files** (label varies
-> across UI versions).
-
-Upload-worthy short list:
-
-- `audit/business-logic/invariants.md` — the 22-invariant spec (single
-  highest-value doc).
-- `audit-exclusion-guidance.md` — what's out of scope.
-- `audit/business-logic/coverage.md` — invariant ↔ test map.
-- `audit/findings-ledger.md` — finding-ID dictionary.
-
-Everything else stays in-repo (Option A); CodeRabbit pulls on demand.
-
-### Optional: pre-seed standing rules in dashboard "Learnings"
-
-If your dashboard has a **Learnings** / **Memory** / **Custom Rules**
-section, paste these rules. They then apply on every PR regardless of which
-file changes (belt-and-braces — the same rules are also embedded in
-`.coderabbit.yml`'s `tone_instructions` / `path_instructions`):
+If the dashboard has a **Learnings** / **Memory** / **Custom Rules**
+text-box anywhere (separate from the scope dropdown), it's a belt-and-
+braces amplification — paste the standing rules block below. The same
+content is already embedded in our YAML `path_instructions` for the
+relevant globs, so the dashboard paste is optional:
 
 ```
 - The operator is trusted to MATCH orders but NOT for solvency. Any change
@@ -174,20 +176,33 @@ file changes (belt-and-braces — the same rules are also embedded in
   and the actual filesystem.
 ```
 
-### Code Generation defaults
+### Code Generation — per-path instructions, YAML only
 
-If your dashboard has a **Code Generation** section (used by
-`@coderabbitai generate unit tests` / `generate docstrings`), set:
+Same pattern as the KB page: the dashboard's **Code generation** page has
+no "set the default test framework" controls. What it actually exposes
+is `code_generation.docstrings.path_instructions[]` and
+`code_generation.unit_tests.path_instructions[]` — per-path style guides
+that take effect when someone runs `@coderabbitai generate docstrings`
+or `generate unit tests` on a PR.
 
-- Test framework: **Hardhat + Mocha + Chai**
-- Test fixture: reuse `test/utils/auditFixture.js` (`setupAuditFixture`)
-- Custom error assertion: `revertedWith("ErrorName(args...)")` or the
-  `expectRevertWithSelector` helper for view calls
-- Comment style: every test file begins with a rationale block citing the
-  invariant / finding it pins (template in `test/audit/SCRUM-235-*`)
+Both are set in our YAML:
 
-Optional — these are also in our YAML `path_instructions` for the
-`test/**` globs.
+- **`code_generation.docstrings`** — language `en-US`; per-path NatSpec
+  requirements for facets (every external/public fn needs `@notice`,
+  `@dev`, `@param`, `@return`, `@custom:security <ID>`, `@custom:audit`,
+  `@custom:reverts <ErrorName>`), libraries (note caller-validated-inputs
+  assumption + EIP-7201 storage-location comment for `Lib*Storage`),
+  mocks (explicit test-only NatSpec).
+- **`code_generation.unit_tests`** — per-path test conventions for
+  `test/audit/**` (finding-ID filename + attack-blocked + CONTROL test +
+  rationale-block header + `setupAuditFixture` reuse + parameterised
+  custom-error assertions), `test/unit/**` (Hardhat+Mocha+Chai, exercise
+  the negative case, no soft `.to.be.reverted`), `test/integration/**`
+  (real facet flow, no mocking production paths).
+
+To use them: comment `@coderabbitai generate docstrings` or `generate
+unit tests` on any PR. CodeRabbit generates against the diff using the
+per-path style guides above.
 
 ---
 
