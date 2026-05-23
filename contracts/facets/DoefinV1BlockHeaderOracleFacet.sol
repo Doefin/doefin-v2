@@ -140,6 +140,9 @@ contract DoefinV1BlockHeaderOracle is IDoefinBlockHeaderOracle {
     /// @inheritdoc IDoefinBlockHeaderOracle
     function medianBlockTime() public view returns (uint256) {
         LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
+        // Solidity zero-initializes fixed-size memory arrays; the loop below fills every
+        // slot deterministically before `BlockHeaderUtils.median` reads any element.
+        // slither-disable-next-line uninitialized-local
         uint256[11] memory timestamps;
         uint256 startIndex = (ds.blockHeaderOracleStorage.nextBlockIndex + LibDoefinStorage.NUM_OF_BLOCK_HEADERS - 1) %
             LibDoefinStorage.NUM_OF_BLOCK_HEADERS;

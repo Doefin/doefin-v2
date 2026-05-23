@@ -361,6 +361,11 @@ library LibOracleAdapter {
     /// @notice Calculate timestamp bucket for efficient lookup
     /// @param timestamp The timestamp to bucket
     /// @return The bucketed timestamp
+    /// @dev The `(t / BUCKET) * BUCKET` shape is an intentional bucket-floor — division
+    ///      truncates to the floor, multiplication recovers the bucket boundary. Slither's
+    ///      `divide-before-multiply` heuristic flags any expression of this shape because
+    ///      it can lose precision; here the precision loss IS the operation (flooring).
+    // slither-disable-next-line divide-before-multiply
     function getTimestampBucket(uint256 timestamp) internal pure returns (uint256) {
         return (timestamp / LibDoefinStorage.TIMESTAMP_BUCKET) * LibDoefinStorage.TIMESTAMP_BUCKET;
     }

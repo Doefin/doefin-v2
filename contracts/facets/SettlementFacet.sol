@@ -134,8 +134,10 @@ contract SettlementFacet is ISettlement {
         // ran in a separate pre-loop is now accumulated alongside the main work. Each
         // leg is independently bounded by `_checkFillAmount` (per-maker remaining
         // capacity); the aggregate is a router-input consistency invariant.
-        uint128 totalMakerFill;
-        uint128 totalTakerFee;
+        // Slither flagged these as uninitialized-local; Solidity zero-initializes
+        // value types in memory but explicit `= 0` documents intent and silences the gate.
+        uint128 totalMakerFill = 0;
+        uint128 totalTakerFee = 0;
         uint256 makerCount = makerOrders.length;
         for (uint256 i; i < makerCount;) {
             uint128 fill = makerFillAmounts[i];
@@ -541,17 +543,23 @@ contract SettlementFacet is ISettlement {
         _validateFee(sellerFee, collateralAmount, maxFeeRateBps);
         if (sellerFee > collateralAmount) revert Errors.FeeExceedsProceeds();
 
-        // Buyer pays collateral to seller
+        // Buyer pays collateral to seller.
+        // `buyerAddr` is the maker of an EIP-712 order whose signature was verified
+        // upstream in `_settleAgainstMaker` (taker) / `matchOrders` (maker). Signature
+        // authorizes the spend — same pattern as 0x, Polymarket V2, Seaport.
+        // slither-disable-next-line arbitrary-send-erc20
         IERC20(taker.collateralToken).safeTransferFrom(buyerAddr, sellerAddr, collateralAmount);
 
         // Buyer pays their own fee
         if (buyerFee > 0) {
+            // slither-disable-next-line arbitrary-send-erc20
             IERC20(taker.collateralToken).safeTransferFrom(buyerAddr, feeReceiver, buyerFee);
             emit Events.FeeCharged(feeReceiver, buyerFee);
         }
 
         // Seller pays their own fee (from proceeds)
         if (sellerFee > 0) {
+            // slither-disable-next-line arbitrary-send-erc20
             IERC20(taker.collateralToken).safeTransferFrom(sellerAddr, feeReceiver, sellerFee);
             emit Events.FeeCharged(feeReceiver, sellerFee);
         }
@@ -605,16 +613,23 @@ contract SettlementFacet is ISettlement {
         _validateFee(takerFee, takerCollateral, maxFeeRateBps);
         _validateFee(makerFee, makerCollateral, maxFeeRateBps);
 
-        // Collect collateral from both buyers to Diamond
+        // Collect collateral from both buyers to Diamond.
+        // `taker.maker` / `maker.maker` are the makers of EIP-712 orders whose
+        // signatures were verified upstream in `matchOrders` / `_settleAgainstMaker`.
+        // Signature authorizes the spend (0x / Polymarket V2 / Seaport pattern).
+        // slither-disable-next-line arbitrary-send-erc20
         IERC20(taker.collateralToken).safeTransferFrom(taker.maker, address(this), takerCollateral);
+        // slither-disable-next-line arbitrary-send-erc20
         IERC20(maker.collateralToken).safeTransferFrom(maker.maker, address(this), makerCollateral);
 
         // Collect fees
         if (takerFee > 0) {
+            // slither-disable-next-line arbitrary-send-erc20
             IERC20(taker.collateralToken).safeTransferFrom(taker.maker, feeReceiver, takerFee);
             emit Events.FeeCharged(feeReceiver, takerFee);
         }
         if (makerFee > 0) {
+            // slither-disable-next-line arbitrary-send-erc20
             IERC20(maker.collateralToken).safeTransferFrom(maker.maker, feeReceiver, makerFee);
             emit Events.FeeCharged(feeReceiver, makerFee);
         }
@@ -768,16 +783,22 @@ contract SettlementFacet is ISettlement {
         unchecked { netCollateral = collateralAmount - fee; }
 
         if (order.side == 0) {
-            // Order is a buy: maker pays collateral to operator, operator gives position tokens
+            // Order is a buy: maker pays collateral to operator, operator gives position tokens.
+            // `order.maker` is the maker of an EIP-712 order whose signature was verified
+            // upstream in `fillOrder`. Signature authorizes the spend (Polymarket V2 pattern).
+            // slither-disable-next-line arbitrary-send-erc20
             IERC20(order.collateralToken).safeTransferFrom(order.maker, msg.sender, netCollateral);
             if (fee > 0) {
+                // slither-disable-next-line arbitrary-send-erc20
                 IERC20(order.collateralToken).safeTransferFrom(order.maker, feeReceiver, fee);
                 emit Events.FeeCharged(feeReceiver, fee);
             }
             // Operator transfers position tokens to maker
             LibERC1155.safeTransferFrom(address(this), msg.sender, order.maker, uint256(order.positionId), fillAmount, "");
         } else {
-            // Order is a sell: maker gives position tokens, operator pays collateral
+            // Order is a sell: maker gives position tokens, operator pays collateral.
+            // The operator-side transfers (`msg.sender` is `from`) are not arbitrary —
+            // `msg.sender` is the authenticated operator; no suppression needed.
             LibERC1155.safeTransferFrom(address(this), order.maker, msg.sender, uint256(order.positionId), fillAmount, "");
             IERC20(order.collateralToken).safeTransferFrom(msg.sender, order.maker, netCollateral);
             if (fee > 0) {
