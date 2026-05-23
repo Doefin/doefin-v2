@@ -30,20 +30,26 @@ This note tells auditors which components to ignore when reviewing the core prot
 	- [contracts/interfaces/IDiamondLoupe.sol](contracts/interfaces/IDiamondLoupe.sol)
 	- [contracts/interfaces/IERC173.sol](contracts/interfaces/IERC173.sol)
 
-- **Mocks (test-only; exclude entire folder)**
+- **Mocks (test-only — exclude the entire `contracts/mock/` folder; all 9 files listed below)**
+	- [contracts/mock/DoefinOrderHarness.sol](contracts/mock/DoefinOrderHarness.sol)
 	- [contracts/mock/MockBlockScholesOracle.sol](contracts/mock/MockBlockScholesOracle.sol)
+	- [contracts/mock/MockERC1155.sol](contracts/mock/MockERC1155.sol)
+	- [contracts/mock/MockERC1271Wallet.sol](contracts/mock/MockERC1271Wallet.sol)
+	- [contracts/mock/MockERC20.sol](contracts/mock/MockERC20.sol)
 	- [contracts/mock/MockOracleAdapter.sol](contracts/mock/MockOracleAdapter.sol)
 	- [contracts/mock/MockOracleManager.sol](contracts/mock/MockOracleManager.sol)
-	- [contracts/mock/MockERC20.sol](contracts/mock/MockERC20.sol)
-	- [contracts/mock/MockERC1155.sol](contracts/mock/MockERC1155.sol)
 	- [contracts/mock/Test1Facet.sol](contracts/mock/Test1Facet.sol)
 	- [contracts/mock/Test2Facet.sol](contracts/mock/Test2Facet.sol)
+
+- **Audit harness (audit-only fuzzing harness; not a production contract)**
+	- [contracts/audit/DoefinInvariantHarness.sol](contracts/audit/DoefinInvariantHarness.sol)
 
 ## Rationale
 - The CTF flow is third-party (Gnosis CTF) and excluded from audit to avoid re-reviewing upstream code; exclusion is audit-only and does not imply removal from deployment artifacts.
 - Block header v1 components are superseded by newer oracle integrations and should not be part of the current audit scope.
 - Diamond base components come from the diamond-hardhat reference and are treated as upstream; exclude from this audit to focus on custom logic.
-- Mock contracts are test-only and not part of production deployments.
+- Mock contracts are test-only and not part of production deployments — the exclusion covers the entire `contracts/mock/` folder, so any mock added later is excluded by default even if not yet named above.
+- `DoefinInvariantHarness.sol` exists only to drive Echidna/Medusa property fuzzing; it is never deployed and is excluded from review consistent with `audit/00-scope.md`.
 
 ## How to Apply the Exclusions
 - Do not review or rate the excluded files for security findings.
