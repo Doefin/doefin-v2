@@ -337,6 +337,16 @@ contract SettlementFacet is ISettlement {
      *      one whole token). Reuses the SEC-002 `unitPerPair` read.
      * @custom:security BIZ-006 — `side` must be 0 (buy) or 1 (sell); a `side >= 2` order
      *      would otherwise reach the complementary path through `_determineMatchType`.
+     * @custom:security SCRUM-235 — the order's CTF condition must still be active (not
+     *      cancelled via {ConditionManagerFacet.cancelCondition}) AND not yet resolved
+     *      (`payoutDenominator == 0`). Without these gates a compromised operator could
+     *      (1) route still-validly-signed orders against a cancelled market and drain
+     *      buyers' collateral for tokens with no economic backing, or (2) settle
+     *      losers' open orders post-resolution at pre-resolution prices. The check is
+     *      skipped when the positionId is not in the registry (conditionId == 0) —
+     *      unregistered positions are rejected downstream by `_determineMatchType` /
+     *      the CTF split/merge paths, and `ConditionNotActive` would be a misnomer for
+     *      that case.
      */
     function _validateOrder(
         LibSettlementStorage.SettlementStorage storage ss,
@@ -368,6 +378,18 @@ contract SettlementFacet is ISettlement {
 
         // BIZ-004: a price above one whole token (unit) is never valid.
         if (uint256(order.pricePerToken) > unit) revert Errors.InvalidPrice();
+
+        // SCRUM-235: the order's CTF condition must still be active and unresolved.
+        // The check is gated on `conditionId != 0` to preserve the existing
+        // "unregistered position -> InvalidMatch" surface (see NatSpec above).
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
+        bytes32 conditionId = ds.positionRegistry.conditionIdByPositionId[uint256(order.positionId)];
+        if (conditionId != bytes32(0)) {
+            LibCTFCondition.enforceConditionIsActive(conditionId);
+            if (ds.conditionalTokens.payoutDenominator[conditionId] != 0) {
+                revert Errors.ConditionAlreadyResolved();
+            }
+        }
     }
 
     /**
