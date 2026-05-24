@@ -30,6 +30,7 @@ const CONTRACTS = [
 
   // Settlement (v3)
   ['SettlementFacet', 'SettlementFacet', 'facets'],
+  ['SettlementAdminFacet', 'SettlementAdminFacet', 'facets'],
   ['SignatureVerifierFacet', 'SignatureVerifierFacet', 'facets'],
   ['NonceManagerFacet', 'NonceManagerFacet', 'facets'],
 
