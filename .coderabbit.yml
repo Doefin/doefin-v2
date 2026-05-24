@@ -151,6 +151,13 @@ reviews:
         `_validateOrder` (the revert-with-reason form) — they must
         stay equivalent.
 
+        NatSpec policy (CR-triage PR #23): `@notice` + `@param` + `@return`
+        baseline; full `@custom:reverts` on EVERY external function that can
+        revert (this is load-bearing — the cancellation surface must document
+        every reason an order-cancel can fail). `@custom:security`/`@custom:audit`
+        are NOT required on the bool-returning `isOrderValid` / `getNonce` /
+        `isCancelled` views.
+
     - path: "contracts/facets/SignatureVerifierFacet.sol"
       instructions: |
         EIP-712 signature verification. Wraps LibSignature. Flag:
@@ -166,8 +173,16 @@ reviews:
         - any new admin function not behind `LibDiamond.enforceIsContractOwner`
         - any new fee-related state without a hard ceiling (mirror
           MAX_FEE_RATE_BPS_CAP = 1000)
-        - the `setFeeReceiver` / `setMaxFeeRate` no-op revert pattern
-          must be preserved (NoChangeRequired)
+        - the `setFeeReceiver` / `setMaxFeeRate` / `setResolutionFeeBps`
+          no-op revert pattern must be preserved (NoChangeRequired)
+
+        NatSpec policy (CR-triage PR #23): `@notice` + `@param` + `@return`
+        baseline; the heavy `@custom:security`/`@custom:audit` set is required
+        ONLY on owner-only setters that change a guarded invariant (the fee
+        setters above already carry the tag set). View-only getters need only
+        the baseline. The no-op revert pattern (NoChangeRequired) on ALL
+        fee-config setters is load-bearing — flag any setter that overwrites
+        without the guard.
 
     - path: "contracts/facets/AccessControlFacet.sol"
       instructions: |
@@ -182,6 +197,12 @@ reviews:
         set it MUST be reviewed against the threat model in
         audit/business-logic/invariants.md (INV-MISC-3).
 
+        NatSpec policy (CR-triage PR #23): `@notice` + `@param` + `@return`
+        baseline; `@custom:reverts` for any function that can revert (e.g.
+        owner-check path → `NotContractOwner`); `@custom:security` only when
+        the function crosses the INV-MISC-3 trust boundary. View-only getters:
+        `@notice` + `@return` is sufficient.
+
     - path: "contracts/facets/ERC1155Facet.sol"
       instructions: |
         ERC-1155 entry points for position tokens. All bodies delegate to
@@ -194,7 +215,17 @@ reviews:
         Read-only registry lookups. Most are delegated to
         LibPositionRegistry. Flag: a new function that reads the registry
         storage directly instead of through the library (broken
-        encapsulation; see A-15 dead-code finding for the historical case).
+        encapsulation; see A-15 dead-code finding for the historical case
+        and CR-3291973204 for the `getPositionInfo` repeat).
+
+        NatSpec policy (CR-triage PR #23): `@notice` + `@param` + `@return`
+        REQUIRED; `@custom:security` / `@custom:audit` are NOT required on
+        view-only functions (the audit corpus covers them via
+        `audit/business-logic/invariants.md` cross-references, not per-function
+        tags). Only flag missing tags if a function is a NEW write path or
+        directly enforces a settlement invariant. The A-15 broken-encapsulation
+        check (every read MUST go through `LibPositionRegistry`) IS
+        load-bearing.
 
     # ── Out-of-audit-scope contracts — light-touch review ──
     - path: "contracts/facets/ConditionalTokensFacet.sol"
@@ -486,6 +517,52 @@ reviews:
           drift had 3 deleted CC mocks)
         - new in-scope contracts not implicitly covered
         - new exclusions without rationale
+
+    # ── CR-triage PR #23 — recurring false-positive patterns absorbed ──
+
+    # OracleAdapterFacet — added per CR-triage PR #23 (was missing).
+    - path: "contracts/facets/OracleAdapterFacet.sol"
+      instructions: |
+        View-only adapter against the Bitcoin block-header oracle. NatSpec
+        policy: `@notice` + `@param` + `@return` baseline. The
+        `@custom:security` / `@custom:audit` blanket set is NOT required —
+        this surface is not on the v3 settlement audit gate (it is a
+        condition-resolution helper, NOT a price oracle).
+
+    # MD040 fence-language sweep — bundle, don't per-comment.
+    - path: "audit/**/*.md"
+      instructions: |
+        Markdown lint MD040 (fenced code blocks must have a language tag) is
+        accepted policy but executed as a SINGLE sweep ticket (CR-DOCS-MD040),
+        not per-finding. DO NOT raise a separate comment for each untagged
+        fence. If the policy or list of untagged blocks needs to evolve, post
+        one consolidated comment on the file naming the line ranges.
+
+        Also: this corpus is pinned to specific commits (e.g. the per-finding
+        markdown lives in `audit/findings/` at the audit-frozen SHA). Avoid
+        suggesting "rewrite in place" for stale references — the convention is
+        to APPEND a resolution footnote (see `audit/business-logic/invariants.md`
+        for the "supersedes" pattern), not edit the original assertion.
+
+    - path: "docs/**/*.md"
+      instructions: |
+        MD040 same as above — single-sweep, not per-comment.
+
+    # Absolute filesystem paths in audit/ artifacts — single janitor sweep.
+    - path: "audit/**"
+      instructions: |
+        Local-filesystem absolute paths (`/Users/...`, `/home/...`, etc.) are
+        not allowed in committed artifacts under `audit/`. If a CR comment
+        flags one, point at the CR-DOCS-ABSPATH sweep and don't apply per-file.
+
+    # GitHub Actions hardening — one bundled ticket, not per-step.
+    - path: ".github/workflows/**"
+      instructions: |
+        Hardening policy: workflow-level `permissions: { contents: read }` by
+        default; SHA-pin every `actions/*` and third-party action; add
+        `persist-credentials: false` to every `actions/checkout` step. These
+        are tracked as ONE ticket (CR-CI-HARDEN) — do not raise per-step
+        Major issues; one summary per file is enough.
 
     # ── Backend / frontend coordination ──
     - path: "**/*.sol"
