@@ -228,8 +228,12 @@ async function main() {
   ]);
 
   // 2b. setOperator(operator)
-  const settlementIface = (await ethers.getContractAt("ISettlement", diamond.address)).interface;
-  const setOpCalldata = settlementIface.encodeFunctionData("setOperator", [OPERATOR]);
+  // setOperator / pauseTrading / unpauseTrading / getOperator / isTradingPaused
+  // live on ISettlementAdmin (SCRUM-230 extracted them from SettlementFacet into
+  // SettlementAdminFacet). Encoding them via ISettlement would throw
+  // "no matching function" because that interface no longer carries them.
+  const settlementAdminIface = (await ethers.getContractAt("ISettlementAdmin", diamond.address)).interface;
+  const setOpCalldata = settlementAdminIface.encodeFunctionData("setOperator", [OPERATOR]);
 
   // 2c. addCollateralToken(collateral, unitPerPair) — one per configured collateral
   const adminIface = (await ethers.getContractAt("IAdminConfig", diamond.address)).interface;
@@ -254,7 +258,7 @@ async function main() {
       : null;
 
   // 2f. pauseTrading() — optional, default on
-  const pauseCalldata = settlementIface.encodeFunctionData("pauseTrading", []);
+  const pauseCalldata = settlementAdminIface.encodeFunctionData("pauseTrading", []);
 
   const innerTxs = [
     { to: diamond.address, data: cutCalldata, label: "diamondCut (15 facets + init)" },
@@ -310,8 +314,8 @@ async function main() {
     throw new Error(`Owner mismatch! Expected ${SAFE_ADDRESS}, got ${currentOwner}`);
   }
 
-  const settlement = await ethers.getContractAt("ISettlement", diamond.address);
-  const operatorAddr = await settlement.operator();
+  const settlementAdmin = await ethers.getContractAt("ISettlementAdmin", diamond.address);
+  const operatorAddr = await settlementAdmin.getOperator();
   console.log(`  Operator:          ${operatorAddr}`);
 
   const admin = await ethers.getContractAt("AdminConfigFacet", diamond.address);
@@ -329,7 +333,7 @@ async function main() {
     }
   }
 
-  const isPaused = await settlement.isTradingPaused();
+  const isPaused = await settlementAdmin.isTradingPaused();
   console.log(`  Trading paused:    ${isPaused}`);
 
   const verifier = await ethers.getContractAt("ISignatureVerifier", diamond.address);
@@ -355,7 +359,7 @@ async function main() {
   console.log(`  Basescan: https://${network.chainId === 84532 ? "sepolia." : ""}basescan.org/address/${diamond.address}`);
   if (START_PAUSED) {
     console.log(`\n  ⚠️  Trading is PAUSED. Unpause via a Safe tx when backend cutover is complete:`);
-    console.log(`     settlement.interface.encodeFunctionData("unpauseTrading", [])`);
+    console.log(`     settlementAdmin.interface.encodeFunctionData("unpauseTrading", [])  // ISettlementAdmin`);
   }
 
   return diamond.address;
