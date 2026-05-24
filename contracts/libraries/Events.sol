@@ -375,25 +375,16 @@ library Events {
     /// @param newOperator New operator address (never `address(0)`)
     event OperatorUpdated(address indexed oldOperator, address indexed newOperator);
 
-    /// @notice Emitted when a settlement fee is transferred to the protocol fee receiver (SCRUM-224)
-    /// @dev DEPRECATED (SCRUM-236) — see the FEE BANK EVENTS block below. This entry is
-    ///      retained only so the intermediate commit compiles; the next commit removes
-    ///      the last emit site and this declaration along with it.
-    /// @param receiver The protocol fee receiver address
-    /// @param amount The fee amount transferred
-    event FeeCharged(address indexed receiver, uint256 amount);
-
     // ========================================
     // FEE BANK EVENTS (SCRUM-236)
     // ========================================
     //
     // The pre-SCRUM-236 `FeeCharged(address indexed receiver, uint256 amount)` event
-    // is being replaced. Trading and resolution fees no longer move per-trade to the
+    // has been REMOVED. Trading and resolution fees no longer move per-trade to the
     // external feeReceiver; they accrue inside the Diamond and are swept later via
-    // `AdminConfigFacet.withdrawFees`. The two new events below replace it: the
-    // backend indexer (`match-engine/app/utils/settlement_abi.py` and any encoder
-    // listener) MUST drop the old signature and pick up these. `FeeCharged` itself is
-    // removed in a follow-up commit once all emit sites stop emitting it.
+    // `AdminConfigFacet.withdrawFees`. The backend indexer
+    // (`match-engine/app/utils/settlement_abi.py` and any encoder listener) MUST
+    // drop the old signature and pick up the two events below.
 
     /// @notice Emitted when a fee is debited from a settlement leg or redemption and
     ///         credited to the Diamond's per-token fee bank (SCRUM-236).

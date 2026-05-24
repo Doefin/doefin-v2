@@ -118,15 +118,15 @@ contract SettlementFacet is ISettlement {
         _validateOrder(ss, takerOrder, takerHash);
         _checkFillAmount(ss, takerHash, takerOrder.amount, takerFillAmount);
 
-        // GAS-004: hoist `unit` and `feeReceiver` for the taker collateral once per loop,
-        // pass them into the settle/fee helpers so they're not re-resolved per call.
-        // SEC-001 is checked again inside each `_settleX` so taker/maker tokens cannot
-        // diverge — if either differs, the call reverts before any transfer.
+        // GAS-004: hoist `unit` for the taker collateral once per loop and pass it
+        // into the settle helpers so it is not re-resolved per call. SEC-001 is checked
+        // again inside each `_settleX` so taker/maker tokens cannot diverge.
+        // SCRUM-236: `feeReceiver` is no longer hoisted — per-trade fee transfers were
+        // removed in favour of the in-Diamond pull-payment bank (`accruedFees`).
         LibAdminConfigStorage.AdminConfigStorage storage acs = LibAdminConfigStorage.adminConfigStorage();
         uint256 takerUnit = acs.unitPerPair[takerOrder.collateralToken];
-        address feeReceiver = acs.feeReceiver;
-        // GAS-003: hoist maxFeeRateBps once (same packed slot as feeReceiver — already
-        // warm) and thread it to _validateFee, which becomes a pure, storage-free check.
+        // GAS-003: hoist maxFeeRateBps once and thread it to `_validateFee`, which
+        // remains a pure, storage-free check.
         uint16 maxFeeRateBps = acs.maxFeeRateBps;
 
         // CPX-006 + GAS-006: single linear maker loop. The aggregate
@@ -153,7 +153,6 @@ contract SettlementFacet is ISettlement {
                 takerHash,
                 domainSep,
                 takerUnit,
-                feeReceiver,
                 maxFeeRateBps,
                 ss,
                 ds
@@ -190,7 +189,6 @@ contract SettlementFacet is ISettlement {
         bytes32 takerHash,
         bytes32 domainSep,
         uint256 takerUnit,
-        address feeReceiver,
         uint16 maxFeeRateBps,
         LibSettlementStorage.SettlementStorage storage ss,
         LibDoefinStorage.AppStorage storage ds
@@ -215,7 +213,6 @@ contract SettlementFacet is ISettlement {
             makerFee,
             matchType,
             takerUnit,
-            feeReceiver,
             maxFeeRateBps,
             ds
         );
@@ -287,13 +284,15 @@ contract SettlementFacet is ISettlement {
         _validateOrder(ss, order, orderHash);
         _checkFillAmount(ss, orderHash, order.amount, fillAmount);
 
-        // GAS-004: read `unit` once. GAS-003: hoist feeReceiver + maxFeeRateBps alongside it.
+        // GAS-004: read `unit` once. GAS-003: hoist `maxFeeRateBps` alongside it.
         // `_validateOrder` already enforces `unit != 0` and `price <= unit` (SEC-002/BIZ-004).
+        // SCRUM-236: `feeReceiver` no longer needed on the hot path — fees accrue in
+        // the Diamond, swept later by `AdminConfigFacet.withdrawFees`.
         LibAdminConfigStorage.AdminConfigStorage storage acs = LibAdminConfigStorage.adminConfigStorage();
         uint256 unit = acs.unitPerPair[order.collateralToken];
 
         // Transfer collateral between maker and operator based on side
-        _executeOperatorFill(order, fillAmount, fee, unit, acs.feeReceiver, acs.maxFeeRateBps);
+        _executeOperatorFill(order, fillAmount, fee, unit, acs.maxFeeRateBps);
 
         ss.orderHashToFilledAmount[orderHash] += fillAmount;
         emit Events.OrderSettled(orderHash, order.maker, fillAmount, fee);
@@ -475,29 +474,33 @@ contract SettlementFacet is ISettlement {
         uint128 makerFee,
         uint8 matchType,
         uint256 unit,
-        address feeReceiver,
         uint16 maxFeeRateBps,
         LibDoefinStorage.AppStorage storage ds
     ) internal {
         if (matchType == MATCH_COMPLEMENTARY) {
-            _settleComplementary(taker, maker, fillAmount, takerFee, makerFee, unit, feeReceiver, maxFeeRateBps);
+            _settleComplementary(taker, maker, fillAmount, takerFee, makerFee, unit, maxFeeRateBps);
         } else if (matchType == MATCH_MINT) {
-            _settleMint(taker, maker, fillAmount, takerFee, makerFee, unit, feeReceiver, maxFeeRateBps, ds);
+            _settleMint(taker, maker, fillAmount, takerFee, makerFee, unit, maxFeeRateBps, ds);
         } else if (matchType == MATCH_MERGE) {
-            _settleMerge(taker, maker, fillAmount, takerFee, makerFee, unit, feeReceiver, maxFeeRateBps, ds);
+            _settleMerge(taker, maker, fillAmount, takerFee, makerFee, unit, maxFeeRateBps, ds);
         }
     }
 
     /**
-     * @dev Complementary settlement: Buy vs Sell on same position
-     *      Buyer pays collateral to seller + buyer's own fee to feeReceiver.
-     *      Seller pays their own fee to feeReceiver from proceeds.
-     *      Seller transfers position tokens to buyer.
+     * @dev Complementary settlement: Buy vs Sell on same position.
+     *      Buyer pays collateral to seller. Each party's fee is pulled INTO the
+     *      Diamond and credited to `accruedFees[token]` (SCRUM-236 pull-payment
+     *      model — fees are swept later by the owner via
+     *      `AdminConfigFacet.withdrawFees`). Seller transfers position tokens to buyer.
      * @custom:security SEC-001 — both orders must be denominated in the same collateral
      *      token. Without this guard a compromised operator could pair a maker SELL signed
      *      in token A with a taker BUY in token B; settlement would execute wholly in token B
      *      (the maker's signed token is never read on this path). Matches the identical
      *      guard at the top of `_settleMint` and `_settleMerge`.
+     * @custom:audit SCRUM-236 — the `feeReceiver` parameter was dropped: fees no longer
+     *      transfer to it per-trade. They credit `acs.accruedFees[token]` and emit
+     *      `Events.FeeAccrued(token, fee, FEE_KIND_TRADING)`. When `fee == 0` there is
+     *      NO accrual increment and NO emission — symmetric no-op.
      */
     function _settleComplementary(
         LibDoefinOrder.DoefinOrder calldata taker,
@@ -506,7 +509,6 @@ contract SettlementFacet is ISettlement {
         uint128 takerFee,
         uint128 makerFee,
         uint256 unit,
-        address feeReceiver,
         uint16 maxFeeRateBps
     ) internal {
         if (taker.collateralToken != maker.collateralToken) revert Errors.InvalidMatch();
@@ -550,18 +552,24 @@ contract SettlementFacet is ISettlement {
         // slither-disable-next-line arbitrary-send-erc20
         IERC20(taker.collateralToken).safeTransferFrom(buyerAddr, sellerAddr, collateralAmount);
 
-        // Buyer pays their own fee
+        // SCRUM-236: per-party fees are pulled into the Diamond and credited to
+        // `accruedFees`. The `fee > 0` guard preserves the symmetric no-op for
+        // fee-zero settlements (no transfer, no SSTORE, no event — CR-3291973203
+        // regression check on the trading side).
         if (buyerFee > 0) {
+            LibAdminConfigStorage.AdminConfigStorage storage acs = LibAdminConfigStorage.adminConfigStorage();
             // slither-disable-next-line arbitrary-send-erc20
-            IERC20(taker.collateralToken).safeTransferFrom(buyerAddr, feeReceiver, buyerFee);
-            emit Events.FeeCharged(feeReceiver, buyerFee);
+            IERC20(taker.collateralToken).safeTransferFrom(buyerAddr, address(this), buyerFee);
+            acs.accruedFees[taker.collateralToken] += buyerFee;
+            emit Events.FeeAccrued(taker.collateralToken, buyerFee, LibConstants.FEE_KIND_TRADING);
         }
 
-        // Seller pays their own fee (from proceeds)
         if (sellerFee > 0) {
+            LibAdminConfigStorage.AdminConfigStorage storage acs = LibAdminConfigStorage.adminConfigStorage();
             // slither-disable-next-line arbitrary-send-erc20
-            IERC20(taker.collateralToken).safeTransferFrom(sellerAddr, feeReceiver, sellerFee);
-            emit Events.FeeCharged(feeReceiver, sellerFee);
+            IERC20(taker.collateralToken).safeTransferFrom(sellerAddr, address(this), sellerFee);
+            acs.accruedFees[taker.collateralToken] += sellerFee;
+            emit Events.FeeAccrued(taker.collateralToken, sellerFee, LibConstants.FEE_KIND_TRADING);
         }
 
         // Seller transfers position tokens to buyer
@@ -569,10 +577,14 @@ contract SettlementFacet is ISettlement {
     }
 
     /**
-     * @dev Mint settlement: Both buyers of complement positions
-     *      Both buyers' SCWs transfer collateral to Diamond
-     *      Diamond splits to mint both outcome tokens
-     *      Each buyer receives their desired position
+     * @dev Mint settlement: Both buyers of complement positions.
+     *      Both buyers' SCWs transfer collateral to Diamond, then their fees on top.
+     *      Diamond splits to mint both outcome tokens.
+     *      Each buyer receives their desired position.
+     * @custom:audit SCRUM-236 — the `feeReceiver` parameter was dropped: fees are
+     *      pulled into the Diamond (`safeTransferFrom(payer, address(this), fee)`)
+     *      and credited to `acs.accruedFees[token]`. `Events.FeeAccrued` carries
+     *      `FEE_KIND_TRADING`. Fee-zero is a no-op (no transfer, no SSTORE, no event).
      */
     function _settleMint(
         LibDoefinOrder.DoefinOrder calldata taker,
@@ -581,7 +593,6 @@ contract SettlementFacet is ISettlement {
         uint128 takerFee,
         uint128 makerFee,
         uint256 unit,
-        address feeReceiver,
         uint16 maxFeeRateBps,
         LibDoefinStorage.AppStorage storage ds
     ) internal {
@@ -622,16 +633,22 @@ contract SettlementFacet is ISettlement {
         // slither-disable-next-line arbitrary-send-erc20
         IERC20(maker.collateralToken).safeTransferFrom(maker.maker, address(this), makerCollateral);
 
-        // Collect fees
-        if (takerFee > 0) {
-            // slither-disable-next-line arbitrary-send-erc20
-            IERC20(taker.collateralToken).safeTransferFrom(taker.maker, feeReceiver, takerFee);
-            emit Events.FeeCharged(feeReceiver, takerFee);
-        }
-        if (makerFee > 0) {
-            // slither-disable-next-line arbitrary-send-erc20
-            IERC20(maker.collateralToken).safeTransferFrom(maker.maker, feeReceiver, makerFee);
-            emit Events.FeeCharged(feeReceiver, makerFee);
+        // SCRUM-236: fees from both buyers are pulled INTO the Diamond and credited
+        // to `accruedFees`. The `fee > 0` guards preserve the fee-zero symmetric no-op.
+        if (takerFee > 0 || makerFee > 0) {
+            LibAdminConfigStorage.AdminConfigStorage storage acs = LibAdminConfigStorage.adminConfigStorage();
+            if (takerFee > 0) {
+                // slither-disable-next-line arbitrary-send-erc20
+                IERC20(taker.collateralToken).safeTransferFrom(taker.maker, address(this), takerFee);
+                acs.accruedFees[taker.collateralToken] += takerFee;
+                emit Events.FeeAccrued(taker.collateralToken, takerFee, LibConstants.FEE_KIND_TRADING);
+            }
+            if (makerFee > 0) {
+                // slither-disable-next-line arbitrary-send-erc20
+                IERC20(maker.collateralToken).safeTransferFrom(maker.maker, address(this), makerFee);
+                acs.accruedFees[maker.collateralToken] += makerFee;
+                emit Events.FeeAccrued(maker.collateralToken, makerFee, LibConstants.FEE_KIND_TRADING);
+            }
         }
 
         // Split position: Diamond mints both outcome tokens to itself.
@@ -667,7 +684,6 @@ contract SettlementFacet is ISettlement {
         uint128 takerFee,
         uint128 makerFee,
         uint256 unit,
-        address feeReceiver,
         uint16 maxFeeRateBps,
         LibDoefinStorage.AppStorage storage ds
     ) internal {
@@ -735,11 +751,21 @@ contract SettlementFacet is ISettlement {
         IERC20(taker.collateralToken).safeTransfer(taker.maker, takerNet);
         IERC20(maker.collateralToken).safeTransfer(maker.maker, makerNet);
 
-        // Send fees (single recipient, single transfer)
-        uint256 totalFees = uint256(takerFee) + uint256(makerFee);
-        if (totalFees > 0) {
-            IERC20(taker.collateralToken).safeTransfer(feeReceiver, totalFees);
-            emit Events.FeeCharged(feeReceiver, totalFees);
+        // SCRUM-236: fees come out of each seller's payout; the collateral is already in
+        // the Diamond after `_mergePositionsInternal` credited it, so no external transfer
+        // is needed — the residual `totalFees` simply stays in the Diamond and gets
+        // booked into `accruedFees`. The `fee > 0` guards preserve the fee-zero no-op
+        // and also avoid a spurious zero-amount `FeeAccrued` event.
+        if (takerFee > 0 || makerFee > 0) {
+            LibAdminConfigStorage.AdminConfigStorage storage acs = LibAdminConfigStorage.adminConfigStorage();
+            if (takerFee > 0) {
+                acs.accruedFees[taker.collateralToken] += takerFee;
+                emit Events.FeeAccrued(taker.collateralToken, takerFee, LibConstants.FEE_KIND_TRADING);
+            }
+            if (makerFee > 0) {
+                acs.accruedFees[taker.collateralToken] += makerFee;
+                emit Events.FeeAccrued(taker.collateralToken, makerFee, LibConstants.FEE_KIND_TRADING);
+            }
         }
     }
 
@@ -761,7 +787,6 @@ contract SettlementFacet is ISettlement {
         uint128 fillAmount,
         uint128 fee,
         uint256 unit,
-        address feeReceiver,
         uint16 maxFeeRateBps
     ) internal {
         // GAS-006: unchecked — `pricePerToken <= unit` (BIZ-004) bounds the product.
@@ -788,10 +813,15 @@ contract SettlementFacet is ISettlement {
             // upstream in `fillOrder`. Signature authorizes the spend (Polymarket V2 pattern).
             // slither-disable-next-line arbitrary-send-erc20
             IERC20(order.collateralToken).safeTransferFrom(order.maker, msg.sender, netCollateral);
+            // SCRUM-236: the fee leg pulls collateral from the maker INTO the Diamond
+            // (NOT to the operator) and credits `accruedFees`. The operator is still
+            // never a fee sink — INV-FEE-3 strengthened.
             if (fee > 0) {
+                LibAdminConfigStorage.AdminConfigStorage storage acs = LibAdminConfigStorage.adminConfigStorage();
                 // slither-disable-next-line arbitrary-send-erc20
-                IERC20(order.collateralToken).safeTransferFrom(order.maker, feeReceiver, fee);
-                emit Events.FeeCharged(feeReceiver, fee);
+                IERC20(order.collateralToken).safeTransferFrom(order.maker, address(this), fee);
+                acs.accruedFees[order.collateralToken] += fee;
+                emit Events.FeeAccrued(order.collateralToken, fee, LibConstants.FEE_KIND_TRADING);
             }
             // Operator transfers position tokens to maker
             LibERC1155.safeTransferFrom(address(this), msg.sender, order.maker, uint256(order.positionId), fillAmount, "");
@@ -801,9 +831,13 @@ contract SettlementFacet is ISettlement {
             // `msg.sender` is the authenticated operator; no suppression needed.
             LibERC1155.safeTransferFrom(address(this), order.maker, msg.sender, uint256(order.positionId), fillAmount, "");
             IERC20(order.collateralToken).safeTransferFrom(msg.sender, order.maker, netCollateral);
+            // SCRUM-236: the operator pays the fee out of its own collateral INTO the
+            // Diamond (NOT to itself). Same fee-zero no-op semantics as the buy side.
             if (fee > 0) {
-                IERC20(order.collateralToken).safeTransferFrom(msg.sender, feeReceiver, fee);
-                emit Events.FeeCharged(feeReceiver, fee);
+                LibAdminConfigStorage.AdminConfigStorage storage acs = LibAdminConfigStorage.adminConfigStorage();
+                IERC20(order.collateralToken).safeTransferFrom(msg.sender, address(this), fee);
+                acs.accruedFees[order.collateralToken] += fee;
+                emit Events.FeeAccrued(order.collateralToken, fee, LibConstants.FEE_KIND_TRADING);
             }
         }
     }
