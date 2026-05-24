@@ -111,6 +111,24 @@ No `__gap` change — EIP-7201 namespaces are 256-slot-aligned by design.
 
 ## 5. Invariant updates
 
+### Why this matters — framing
+
+The current v3 protocol deliberately keeps fees OUT of the Diamond's ERC20
+balance. INV-SOLV-1 (mint) states "fees are transferred separately, *directly
+to `feeReceiver`*, and never enter the Diamond's collateral balance." INV-SOLV-3
+(complementary) states "the Diamond's own ERC-20 balance and its own ERC-1155
+balance are unchanged." So today the Diamond's ERC20 balance has exactly one
+job: back outstanding positions minted via `splitPosition` / `_settleMint` (the
+INV-SOLV-4 cumulative backing).
+
+**SCRUM-236 changes that.** After this redesign the Diamond's ERC20 balance
+will have two jobs: (a) back outstanding positions, and (b) hold un-withdrawn
+fees. **This is the novelty** — co-mingling is not a pre-existing condition
+being formalised; it is a new condition the redesign deliberately creates so
+that fees benefit from pull-payment semantics. INV-SOLV-4 therefore has to be
+revised and a new fee-accounting symmetry invariant added so the accounting
+distinguishes the two pools inside one balance.
+
 ### INV-SOLV-4 (crown jewel) — REVISED
 
 **Before:**
@@ -119,7 +137,17 @@ No `__gap` change — EIP-7201 namespaces are 256-slot-aligned by design.
 **After:**
 > `balanceOf(Diamond, token) + ROUNDING_TOLERANCE >= outstandingPairs[token] + accruedFees[token]`
 
-Co-mingling rule: the Diamond's ERC20 balance must cover *both* outstanding position backing *and* the un-withdrawn fee accrual. This is the load-bearing invariant of the redesign.
+This is the load-bearing invariant of the redesign — every fuzz tick must
+assert it.
+
+### INV-SOLV-1 / INV-SOLV-3 — REVISED (fee-flow clauses only)
+
+The "fees never enter the Diamond's balance" clauses in INV-SOLV-1 and
+INV-SOLV-3 are factually overturned by SCRUM-236 — they need rewording to
+"fees credit `accruedFees[token]` inside the Diamond and exit only via
+`withdrawFees`." The mint/complementary collateral-flow assertions themselves
+are unchanged; only the fee-flow sentences need updating. (`sc-business-logic`
+will produce the exact replacement text.)
 
 ### INV-FEE-NEW (new) — fee accounting symmetry
 
@@ -139,7 +167,7 @@ sum over all FeeAccrued.amount events == accruedFees[token] + sum over all FeesW
 
 ## 6. Security review checklist (for `sc-manual-reviewer`)
 
-1. **Co-mingling.** `withdrawFees(token, amount)` must NOT be able to transfer collateral that backs outstanding positions. The check `amount <= accruedFees[token]` is necessary AND sufficient — but only if every fee debit credits `accruedFees` exactly (INV-FEE-NEW). Verify across all 5 fee-debit sites.
+1. **Co-mingling (NEW concern introduced by this redesign).** Today the Diamond's ERC20 balance backs outstanding positions only — fees flow direct-to-feeReceiver and never touch the Diamond. This PR adds a second use: un-withdrawn fees. `withdrawFees(token, amount)` must NOT be able to transfer collateral that backs outstanding positions. The check `amount <= accruedFees[token]` is necessary AND sufficient — but only if every fee debit credits `accruedFees` exactly (INV-FEE-NEW). Verify across all 5 fee-debit sites. This is THE security focus of the SCRUM-236 review.
 2. **Reentrancy.** `withdrawFees` performs an external `safeTransfer`. Use the existing `LibReentrancyGuard` (`_nonReentrantBefore/After`) — same shape as `_handlePayoutTransfer`.
 3. **Access control.** `withdrawFees` must be `LibDiamond.enforceIsContractOwner()` only. No operator path. No `marketMaker` path.
 4. **Integer arithmetic.** `accruedFees[token] -= amount` happens AFTER the `<=` check — no underflow possible.
