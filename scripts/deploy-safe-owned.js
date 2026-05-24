@@ -67,23 +67,52 @@ async function main() {
   // --- Env validation ---
   const SAFE_ADDRESS = process.env.SAFE_ADDRESS;
   const OPERATOR = process.env.OPERATOR_ADDRESS;
-  const COLLATERAL = process.env.COLLATERAL_TOKEN_ADDRESS;
-  const COLLATERAL_DECIMALS = parseInt(process.env.COLLATERAL_TOKEN_DECIMALS || "6", 10);
+  // COLLATERAL_TOKEN_ADDRESS / COLLATERAL_TOKEN_DECIMALS support a comma-separated
+  // list, so multiple collaterals can be allow-listed in the single bootstrap
+  // MultiSend ceremony. A single value (no commas) preserves the prior behavior.
+  const COLLATERALS = (process.env.COLLATERAL_TOKEN_ADDRESS || "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const COLLATERAL_DECIMALS_LIST = (process.env.COLLATERAL_TOKEN_DECIMALS || "6")
+    .split(",")
+    .map((s) => parseInt(s.trim(), 10));
   const FEE_RECEIVER = process.env.FEE_RECEIVER_ADDRESS || SAFE_ADDRESS;
   const START_PAUSED = process.env.START_PAUSED !== "false";
+  // Optional: when set, the bootstrap MultiSend also calls setMaxFeeRate so the
+  // contract is not left fail-closed at maxFeeRateBps=0. Hard ceiling
+  // (MAX_FEE_RATE_BPS_CAP) on chain is 1000 (10%).
+  const MAX_FEE_RATE_BPS = process.env.MAX_FEE_RATE_BPS
+    ? parseInt(process.env.MAX_FEE_RATE_BPS, 10)
+    : null;
 
   const required = {
     SAFE_ADDRESS,
     OPERATOR_ADDRESS: OPERATOR,
-    COLLATERAL_TOKEN_ADDRESS: COLLATERAL,
+    COLLATERAL_TOKEN_ADDRESS: COLLATERALS[0],
   };
   for (const [k, v] of Object.entries(required)) {
     if (!v) throw new Error(`Missing required env: ${k}`);
   }
   if (!ethers.utils.isAddress(SAFE_ADDRESS)) throw new Error(`Invalid SAFE_ADDRESS: ${SAFE_ADDRESS}`);
   if (!ethers.utils.isAddress(OPERATOR)) throw new Error(`Invalid OPERATOR_ADDRESS: ${OPERATOR}`);
-  if (!ethers.utils.isAddress(COLLATERAL)) throw new Error(`Invalid COLLATERAL_TOKEN_ADDRESS: ${COLLATERAL}`);
+  for (const c of COLLATERALS) {
+    if (!ethers.utils.isAddress(c)) throw new Error(`Invalid COLLATERAL_TOKEN_ADDRESS entry: ${c}`);
+  }
+  if (COLLATERAL_DECIMALS_LIST.length !== COLLATERALS.length) {
+    throw new Error(
+      `COLLATERAL_TOKEN_DECIMALS list length (${COLLATERAL_DECIMALS_LIST.length}) must match COLLATERAL_TOKEN_ADDRESS list length (${COLLATERALS.length})`,
+    );
+  }
+  for (const d of COLLATERAL_DECIMALS_LIST) {
+    if (!Number.isInteger(d) || d < 0 || d > 36) {
+      throw new Error(`Invalid COLLATERAL_TOKEN_DECIMALS entry: ${d}`);
+    }
+  }
   if (!ethers.utils.isAddress(FEE_RECEIVER)) throw new Error(`Invalid FEE_RECEIVER_ADDRESS: ${FEE_RECEIVER}`);
+  if (MAX_FEE_RATE_BPS !== null && (!Number.isInteger(MAX_FEE_RATE_BPS) || MAX_FEE_RATE_BPS < 0 || MAX_FEE_RATE_BPS > 1000)) {
+    throw new Error(`Invalid MAX_FEE_RATE_BPS: ${MAX_FEE_RATE_BPS} (must be integer in [0, 1000])`);
+  }
 
   const network = await ethers.provider.getNetwork();
   const [deployer] = await ethers.getSigners();
@@ -97,8 +126,12 @@ async function main() {
   console.log(`  Deployer balance:  ${ethers.utils.formatEther(balance)} ETH`);
   console.log(`  Safe (new owner):  ${SAFE_ADDRESS}`);
   console.log(`  Operator:          ${OPERATOR}`);
-  console.log(`  Collateral token:  ${COLLATERAL} (${COLLATERAL_DECIMALS} decimals)`);
+  console.log(`  Collateral tokens:`);
+  COLLATERALS.forEach((c, i) => {
+    console.log(`    [${i}] ${c} (${COLLATERAL_DECIMALS_LIST[i]} decimals)`);
+  });
   console.log(`  Fee receiver:      ${FEE_RECEIVER}`);
+  console.log(`  Max fee rate:      ${MAX_FEE_RATE_BPS === null ? "unset (chain default 0 = fail-closed)" : MAX_FEE_RATE_BPS + " bps"}`);
   console.log(`  Start paused:      ${START_PAUSED}`);
   console.log("==========================================================\n");
 
@@ -198,26 +231,44 @@ async function main() {
   const settlementIface = (await ethers.getContractAt("ISettlement", diamond.address)).interface;
   const setOpCalldata = settlementIface.encodeFunctionData("setOperator", [OPERATOR]);
 
-  // 2c. addCollateralToken(collateral, unitPerPair)
+  // 2c. addCollateralToken(collateral, unitPerPair) — one per configured collateral
   const adminIface = (await ethers.getContractAt("IAdminConfig", diamond.address)).interface;
-  const unitPerPair = ethers.utils.parseUnits("1", COLLATERAL_DECIMALS);
-  const addCollCalldata = adminIface.encodeFunctionData("addCollateralToken", [
-    COLLATERAL,
-    unitPerPair,
-  ]);
+  const addCollInnerTxs = COLLATERALS.map((coll, i) => {
+    const decimals = COLLATERAL_DECIMALS_LIST[i];
+    const unitPerPair = ethers.utils.parseUnits("1", decimals);
+    return {
+      to: diamond.address,
+      data: adminIface.encodeFunctionData("addCollateralToken", [coll, unitPerPair]),
+      label: `addCollateralToken(${coll}, 1e${decimals})`,
+    };
+  });
 
   // 2d. setFeeReceiver(feeReceiver)
   const setFeeRecvCalldata = adminIface.encodeFunctionData("setFeeReceiver", [FEE_RECEIVER]);
 
-  // 2e. pauseTrading() — optional, default on
+  // 2e. setMaxFeeRate(bps) — optional. Without it the chain default stays 0
+  //     (fail-closed: any non-zero operator fee reverts FeeExceedsMaxRate).
+  const setMaxFeeRateCalldata =
+    MAX_FEE_RATE_BPS !== null
+      ? adminIface.encodeFunctionData("setMaxFeeRate", [MAX_FEE_RATE_BPS])
+      : null;
+
+  // 2f. pauseTrading() — optional, default on
   const pauseCalldata = settlementIface.encodeFunctionData("pauseTrading", []);
 
   const innerTxs = [
     { to: diamond.address, data: cutCalldata, label: "diamondCut (15 facets + init)" },
     { to: diamond.address, data: setOpCalldata, label: `setOperator(${OPERATOR})` },
-    { to: diamond.address, data: addCollCalldata, label: `addCollateralToken(${COLLATERAL}, 1e${COLLATERAL_DECIMALS})` },
+    ...addCollInnerTxs,
     { to: diamond.address, data: setFeeRecvCalldata, label: `setFeeReceiver(${FEE_RECEIVER})` },
   ];
+  if (setMaxFeeRateCalldata !== null) {
+    innerTxs.push({
+      to: diamond.address,
+      data: setMaxFeeRateCalldata,
+      label: `setMaxFeeRate(${MAX_FEE_RATE_BPS} bps)`,
+    });
+  }
   if (START_PAUSED) {
     innerTxs.push({ to: diamond.address, data: pauseCalldata, label: "pauseTrading()" });
   }
@@ -264,8 +315,19 @@ async function main() {
   console.log(`  Operator:          ${operatorAddr}`);
 
   const admin = await ethers.getContractAt("AdminConfigFacet", diamond.address);
-  const collAllowed = await admin.isAllowedCollateral(COLLATERAL);
-  console.log(`  Collateral whitelisted: ${collAllowed}`);
+  for (const c of COLLATERALS) {
+    const allowed = await admin.isAllowedCollateral(c);
+    console.log(`  Collateral whitelisted: ${c} -> ${allowed}`);
+    if (!allowed) throw new Error(`Collateral ${c} not whitelisted post-bootstrap`);
+  }
+
+  if (MAX_FEE_RATE_BPS !== null) {
+    const onChainMax = await admin.getMaxFeeRate();
+    console.log(`  Max fee rate:      ${onChainMax} bps (expected ${MAX_FEE_RATE_BPS})`);
+    if (Number(onChainMax) !== MAX_FEE_RATE_BPS) {
+      throw new Error(`Max fee rate mismatch: on-chain ${onChainMax}, expected ${MAX_FEE_RATE_BPS}`);
+    }
+  }
 
   const isPaused = await settlement.isTradingPaused();
   console.log(`  Trading paused:    ${isPaused}`);
