@@ -77,12 +77,20 @@ position A to the taker and `f` of position B to the maker.
 
 - **Enforced:** `SettlementFacet.sol` `_settleMint` (lines ~529-574). By construction —
   `takerCollateral` is the remainder, so the sum telescopes to `f` for *all* price inputs
-  with no rounding gap. The fees (`takerFee`, `makerFee`) are transferred separately,
-  *directly to `feeReceiver`*, and never enter the Diamond's collateral balance.
+  with no rounding gap. The fees (`takerFee`, `makerFee`) are transferred via
+  `safeTransferFrom(payer, address(this), fee)` to the Diamond and credited to
+  `LibAdminConfigStorage.adminConfigStorage().accruedFees[order.collateralToken]`
+  (SCRUM-236 pull-payment model); each accrual emits `Events.FeeAccrued(token, fee,
+  FEE_KIND_TRADING)`. Fees co-mingle with position-backing collateral in the Diamond's
+  ERC-20 balance but are kept distinguishable by the `accruedFees` accumulator
+  (INV-SOLV-4-revised, INV-FEE-NEW).
 - **Fuzz encoding:** after a fuzzed mint, assert
-  `collateralToken.balanceOf(diamond)_after - _before == f` AND
+  `collateralToken.balanceOf(diamond)_after - _before == f + takerFee + makerFee` AND
+  `acs.accruedFees[t]_after - _before == takerFee + makerFee` AND
   `erc1155.balanceOf(taker, posA)` and `erc1155.balanceOf(maker, posB)` each increased
-  by exactly `f`.
+  by exactly `f`. The collateral-flow `Δ(balanceOf(diamond)) == f + Δ(accruedFees[t])`
+  is the load-bearing accounting identity for the mint leg under the pull-payment
+  model (architect §5(d) constraint preserved).
 - **Status:** HOLDS. (Independent of the `P_t + P_m >= unit` crossing check — that check
   is order-fairness, not solvency; see INV-PRICE-1.)
 
@@ -117,34 +125,86 @@ with `makerPayout = floorDiv(P_m * f, unit)`, `takerPayout = f - makerPayout`,
   panic, no partial state).
 - **Status:** HOLDS. The BIZ-001 silent-skip is resolved by the `fee <= proceeds` guard.
 
-### INV-SOLV-3 — Complementary settlement never touches Diamond collateral
-`_settleComplementary` performs only `safeTransferFrom` *between* the two counterparties
-and the feeReceiver, plus one ERC-1155 transfer from seller to buyer. The Diamond's own
-ERC-20 balance and its own ERC-1155 balance are unchanged.
+### INV-SOLV-3 — Complementary settlement is collateral-neutral on the swap leg
+`_settleComplementary` performs `safeTransferFrom` between the two counterparties for
+the swap leg (buyer → seller), plus two `safeTransferFrom`s of the per-party fees from
+each counterparty INTO the Diamond (SCRUM-236 pull-payment model), plus one ERC-1155
+transfer from seller to buyer. The Diamond is a `to` for the two fee transfers and is
+not involved in the swap leg; its ERC-1155 balance is unchanged.
 
-- **Enforced:** `SettlementFacet.sol` `_settleComplementary` (lines ~446-501). All
-  `IERC20.safeTransferFrom` calls move funds buyer→seller, buyer→feeReceiver,
-  seller→feeReceiver; the position-token transfer is seller→buyer. The Diamond is the
-  ERC-1155 operator but not a `from`/`to`.
-- **Fuzz encoding:** assert `collateralToken.balanceOf(diamond)` unchanged and
-  `erc1155.balanceOf(diamond, posId)` unchanged across a fuzzed complementary settlement.
+- **Enforced:** `SettlementFacet.sol` `_settleComplementary` (lines ~446-501).
+  `IERC20.safeTransferFrom` calls move funds buyer→seller (swap),
+  buyer→`address(this)` (buyerFee), seller→`address(this)` (sellerFee); each fee
+  transfer is followed by `acs.accruedFees[token] += fee` and `emit
+  Events.FeeAccrued(token, fee, FEE_KIND_TRADING)`. The position-token transfer is
+  seller→buyer; the Diamond is the ERC-1155 operator but not a `from`/`to` on that leg.
+- **Fuzz encoding:** for a fuzzed complementary settlement assert
+  `collateralToken.balanceOf(diamond)_after - _before == buyerFee + sellerFee` AND
+  `acs.accruedFees[token]_after - _before == buyerFee + sellerFee` AND
+  `erc1155.balanceOf(diamond, posId)` unchanged. The buyer→seller swap flow is
+  preserved as `collateralToken.balanceOf(seller)_after - _before == collateralAmount -
+  sellerFee` AND `collateralToken.balanceOf(buyer)_before - _after == collateralAmount +
+  buyerFee`.
 - **Status:** HOLDS.
 
-### INV-SOLV-4 — Aggregate position-token backing
-For any condition/collateral market, the total ERC-1155 supply of the two outcome tokens
-in circulation is fully backed: every outcome-token pair corresponds to `unit` collateral
-deposited via `splitPosition` / `_settleMint` and not yet removed via
-`mergePositions` / `_settleMerge` / `redeemPositions`.
+### INV-SOLV-4 — Aggregate position-token backing AND fee-bank co-solvency (SCRUM-236)
+
+**Precondition (load-bearing — architect §5(b), business-logic review §1).** Collateral
+tokens added via `AdminConfigFacet.addCollateralToken` are assumed to be **standard
+ERC-20** — no fee-on-transfer, no rebasing, no callback hooks. INV-SOLV-4 (revised)
+holds only under this precondition: a fee-on-transfer collateral makes
+`balanceOf(Diamond, t)` grow by `fee - tax` while `accruedFees[t]` grows by `fee`,
+violating the inequality with no SC bug. Enforcement is by governance (the owner-only
+allow-list), not by code. (Same posture as Polymarket V2.) See the code comment on
+`LibAdminConfigStorage.AdminConfigStorage.isAllowed` referencing INV-SOLV-4-revised.
+
+For any condition/collateral market, the Diamond's ERC-20 balance must cover BOTH the
+outstanding position-token backing AND the un-withdrawn fee bank. SCRUM-236 introduced
+fee co-mingling: under the pull-payment model fees accrue inside the Diamond's
+collateral balance, so the same balance now plays two roles. The accumulator
+`acs.accruedFees[t]` keeps the two pools distinguishable in the accounting.
 
 - **Why it holds:** follows from INV-SOLV-1 (mint deposits `f`, issues `f`+`f`),
-  INV-SOLV-2 (merge burns `f`+`f`, withdraws `f`), and the CTF split/merge accounting in
-  `LibCTFCondition`. Settlement never mints or burns position tokens outside the
-  `_splitPositionInternal` / `_mergePositionsInternal` calls — every other ERC-1155 op on
-  the settlement paths is a *transfer* (conserves supply).
-- **Fuzz encoding:** global property — track cumulative `splitDeposited - mergeWithdrawn`
-  and assert `collateralToken.balanceOf(diamond) >= cumulativeUnredeemedBacking` after
-  every call. This is the master `echidna_diamond_solvent` property.
-- **Status:** HOLDS (derived).
+  INV-SOLV-2 (merge burns `f`+`f`, withdraws `f` net of fees that stay banked),
+  INV-SOLV-3 (complementary swap leg + per-party fee accrual), the CTF split/merge
+  accounting in `LibCTFCondition`, and INV-FEE-NEW (every fee debit credits
+  `accruedFees` by exactly the same amount; the only decrement path is
+  `AdminConfigFacet.withdrawFees`). Settlement never mints or burns position tokens
+  outside the `_splitPositionInternal` / `_mergePositionsInternal` calls — every other
+  ERC-1155 op on the settlement paths is a *transfer* (conserves supply).
+- **META-CHECK (architect §6.1; SCRUM-236):** every `safeTransfer` /
+  `safeTransferFrom` where the Diamond is `from` must symmetrically decrease
+  `outstandingPairs[t]` (CTF backing) or `accruedFees[t]` (fee bank). All 5 current
+  sites preserve this (business-logic review §7): `_settleMerge` payouts,
+  `_handlePayoutTransfer` redemption, `_executeOperatorFill` sell-side, user-facing
+  `_mergePositions`, and the new `AdminConfigFacet.withdrawFees`. Any new facet
+  adding a Diamond-as-`from` transfer MUST be re-walked.
+- **Fuzz encoding:** global property — for every collateral token `t` configured via
+  `AdminConfigFacet.addCollateralToken`,
+
+  ```
+  collateralToken.balanceOf(diamond) + ROUNDING_TOLERANCE
+      >= outstandingPairs[t] + acs.accruedFees[t]
+  ```
+
+  where `outstandingPairs[t]` is the cumulative `splitDeposited - mergeWithdrawn -
+  redeemedAmount` for `t`, measured in collateral base units (per-wei, NOT
+  floored to whole `unit`s — the harness must NOT apply `(outstandingPairs / UNIT) * UNIT`).
+  `acs.accruedFees[t]` is the exact accumulator from `LibAdminConfigStorage`
+  (SCRUM-236) — every settlement / redemption leg increments it by exactly the per-leg
+  `fee` (no division, no rounding). This is the master `echidna_diamond_solvent`
+  property.
+- **Tolerance attribution (SCRUM-236):** `ROUNDING_TOLERANCE = 1_000` wei stays.
+  After the redesign the right-hand side gains `accruedFees[t]`, which is **exact**
+  — every accrual is a direct `acs.accruedFees[t] += fee` SSTORE with no division.
+  The tolerance is now attributable **entirely** to position-backing rounding (the
+  1-wei surplus per `floorDiv(P*f, unit)` integer division documented in
+  INV-PRICE-1/2); fee accounting contributes no slack.
+- **Floor-removal pin (CR-3291973200 subsumption, SCRUM-236):** the harness must
+  NOT pre-floor `outstandingPairs` to `(outstandingPairs / UNIT) * UNIT` before
+  comparing — that mask used to hide sub-`UNIT` under-collateralisation and is
+  explicitly removed in `contracts/audit/DoefinInvariantHarness.sol::echidna_diamond_solvent`.
+- **Status:** HOLDS (derived, post-SCRUM-236).
 
 ---
 
@@ -303,19 +363,30 @@ On every path where a fee is paid *out of* a party's collateral, the contract en
   `FeeExceedsProceeds` revert with no state change and no underflow panic.
 - **Status:** HOLDS.
 
-### INV-FEE-3 — feeReceiver is the only fee sink
-All fees route to `adminConfigStorage().feeReceiver`. The operator (`msg.sender` of
-`matchOrders`/`fillOrder`) is **never** a fee recipient — on `fillOrder` the operator is
-the trade counterparty and receives/pays *collateral*, but the `fee` leg always goes to
-`feeReceiver`.
+### INV-FEE-3 — `accruedFees[token]` is the sole fee sink at settlement; `feeReceiver` is the sole withdraw destination (SCRUM-236)
+All settlement / redemption fees credit `LibAdminConfigStorage.adminConfigStorage().accruedFees[token]`
+on accrual. The operator (`msg.sender` of `matchOrders` / `fillOrder`) is **never** a fee
+recipient; on `fillOrder` the operator is the trade counterparty and receives/pays
+*collateral* (`netCollateral`), but the `fee` leg always credits `accruedFees`. On
+`withdrawFees(token, amount)` the Diamond debits `accruedFees[token]` and `safeTransfer`s
+the amount to `acs.feeReceiver` (the sole withdraw destination).
 
-- **Enforced:** `_settleComplementary` (buyer/seller fee → `feeReceiver`), `_settleMint`
-  (taker/maker fee → `feeReceiver`), `_settleMerge` (`totalFees` → `feeReceiver`),
-  `_executeOperatorFill` (`fee` → `feeReceiver`). Each emits `Events.FeeCharged(feeReceiver, amount)`.
-- **Fuzz encoding:** assert the `feeReceiver` ERC-20 balance delta equals the sum of all
-  per-leg fees, and the operator's collateral balance delta excludes any fee component.
-- **Status:** HOLDS. (The `.claude/CLAUDE.md` text is consistent — the operator is the
-  authorized `msg.sender`, not a fee sink.)
+- **Enforced:** `SettlementFacet._settleComplementary` (buyer/seller fee →
+  `accruedFees[token]`), `_settleMint` (taker/maker fee → `accruedFees[token]`),
+  `_settleMerge` (`takerFee` + `makerFee` → `accruedFees[token]`),
+  `_executeOperatorFill` (`fee` → `accruedFees[token]`). Each accrual emits
+  `Events.FeeAccrued(token, fee, FEE_KIND_TRADING)`.
+  `ConditionalTokensFacet._handlePayoutTransfer` accrues `feeAmount` →
+  `accruedFees[token]` and emits `Events.FeeAccrued(token, feeAmount,
+  FEE_KIND_RESOLUTION)`. The only decrement path is `AdminConfigFacet.withdrawFees`,
+  which transfers to `acs.feeReceiver` and emits `Events.FeesWithdrawn`.
+- **Fuzz encoding:** assert the Diamond's per-token `accruedFees` delta plus the
+  `feeReceiver`'s ERC-20 balance delta equals the sum of all per-leg fees, and the
+  operator's collateral balance delta excludes any fee component. The harness's
+  `echidna_fee_receiver_plus_accrued_only_grows` is the ratchet form of this property.
+- **Status:** HOLDS (strengthened — pre-SCRUM-236 the sink was `feeReceiver` directly;
+  post-SCRUM-236 the sink at settlement time is the Diamond-internal `accruedFees`
+  accumulator, which then flows to `feeReceiver` only on the owner-only `withdrawFees`).
 
 ### INV-FEE-4 — Taker fee on `matchOrders` is the sum of per-leg operator inputs
 On `matchOrders`, the `OrderSettled` event for the taker reports
@@ -337,11 +408,64 @@ exceeds `MAX_FEE_RATE_BPS_CAP = 1000` (10%). Therefore at settlement
 `maxFeeRateBps ∈ [0, 1000]` always, and the effective fee on any leg is at most 10% of
 that leg's `cashValue`.
 
-- **Enforced:** `AdminConfigFacet.sol` `setMaxFeeRate` line ~147.
+- **Enforced:** `AdminConfigFacet.sol` `setMaxFeeRate` line ~147. Under SCRUM-236 the
+  setter additionally reverts `NoChangeRequired` when the new rate equals the current
+  rate (CR-3291973202 folded into SCRUM-236) — matches the existing `setFeeReceiver`
+  / `setResolutionFeeBps` no-op guards.
 - **Fuzz encoding:** assert `setMaxFeeRate(r)` reverts for any `r > 1000` and succeeds for
   `r <= 1000`; combined with INV-FEE-1, assert no settled leg's fee exceeds
   `floorDiv(cashValue * 1000, 10000)`.
 - **Status:** HOLDS.
+
+### INV-FEE-NEW — Fee-accounting symmetry (SCRUM-236)
+
+For every settlement / redemption leg that debits a payer's collateral by `fee` wei,
+`acs.accruedFees[token]` MUST be credited by *exactly* `fee` wei. **Per-token
+quantified** across the full collateral allow-list:
+
+```
+∀ token ∈ {ever-allow-listed-collaterals ∪ currently-allow-listed-collaterals}:
+    sumFeeAccrued[token] == acs.accruedFees[token] + sumFeesWithdrawn[token]
+```
+
+where `sumFeeAccrued[token]` is the cumulative sum of all `Events.FeeAccrued(token,
+amount, kind).amount` for that token since deploy (equivalently: the cumulative sum
+of all per-leg `fee` *increments* against `accruedFees[token]`, since every accrual
+increments the accumulator by exactly the emitted event's `amount`), and
+`sumFeesWithdrawn[token]` is the cumulative sum of all `Events.FeesWithdrawn(token,
+feeReceiver, amount).amount`. The "ever-allow-listed" union covers the delisting
+case — a token delisted between accrual and withdraw still satisfies the equation
+(both sides keep tracking it).
+
+- **Enforced:** every fee transfer site — `_settleComplementary`,
+  `_settleMint`, `_settleMerge`, `_executeOperatorFill`, `_handlePayoutTransfer` —
+  executes `safeTransferFrom(payer, address(this), fee)` (or, for `_handlePayoutTransfer`
+  and `_settleMerge` where the collateral is already in the Diamond, NO extra transfer)
+  followed atomically by `acs.accruedFees[token] += fee` and `emit
+  Events.FeeAccrued(token, fee, kind)`. The only decrement path is `withdrawFees`,
+  which performs `acs.accruedFees[token] -= w` and emits `Events.FeesWithdrawn`.
+- **`fee == 0` case:** no accrual increment AND no `FeeAccrued` emission. Symmetry
+  holds trivially (both sides increment by 0); preserves the CR-3291973203 regression
+  check (no spurious zero-amount event).
+- **Fuzz encoding:** the harness maintains test-only counters
+  `mapping(address => uint256) sumFeeAccrued` and `mapping(address => uint256)
+  sumFeesWithdrawn`. Each `fuzz_*` wrapper increments `sumFeeAccrued[t]` by the
+  per-leg fee on a successful `matchOrders`/`fillOrder`/`redeemPositions` call (and
+  by the `feeAmount` computed from `resolutionFeeBps` on the redemption path), and
+  the new `fuzz_withdrawFees` driver increments `sumFeesWithdrawn[t]` by `w` on a
+  successful `withdrawFees(t, amount)` call. `echidna_fee_accounting_symmetry`
+  asserts the per-token equation for every allow-listed token AFTER every fuzz tick.
+- **Reset:** both `sumFeeAccrued` and `sumFeesWithdrawn` start at 0 at constructor
+  exit (no fees can be accrued during constructor — the seed split is fee-free).
+- **Conflict check against INV-FEE-3 / INV-FEE-5 (business-logic review §5/§6):**
+  INV-FEE-NEW strengthens INV-FEE-3 (the sink is `accruedFees`, not `feeReceiver`
+  directly) and is orthogonal to INV-FEE-5 (which bounds the *rate*).
+- **Resolution-fee rounding pin (business-logic review §10(A)):** the redemption path
+  computes `feeAmount = (amount * feeBps) / BPS_DENOMINATOR` (floor). Both
+  `accruedFees[t]` and `sumFeeAccrued[t]` track the SAME truncated value, so
+  symmetry holds exactly. The harness MUST compute `sumFeeAccrued` increments using
+  the same truncated arithmetic the contract uses — not full-precision arithmetic.
+- **Status:** HOLDS (post-SCRUM-236).
 
 ---
 
@@ -585,12 +709,15 @@ unfair-but-in-bounds pairings (price slack within `[0, unit]`) and can halt live
 
 | Invariant | Status | Finding |
 |---|---|---|
-| INV-SOLV-1 | HOLDS | — |
+| INV-SOLV-1 | HOLDS (post-SCRUM-236 fee-flow rewrite) | — |
 | INV-SOLV-2 | HOLDS | — (old BIZ-001 resolved by `fee <= proceeds`) |
-| INV-SOLV-3 / 4 | HOLDS | — |
+| INV-SOLV-3 | HOLDS (post-SCRUM-236 fee-flow rewrite) | — |
+| INV-SOLV-4 | HOLDS (revised post-SCRUM-236; CR-3291973200 floor subsumed) | — |
 | INV-PRICE-1 / 2 / 3 / 4 | HOLDS | — |
 | INV-PRICE-5 | HOLDS (solvency + signed bound) | BL-N1 (INFO — slack observability) |
-| INV-FEE-1 / 2 / 3 / 4 / 5 | HOLDS | — |
+| INV-FEE-1 / 2 / 4 / 5 | HOLDS | — |
+| INV-FEE-3 | HOLDS (strengthened post-SCRUM-236) | — |
+| INV-FEE-NEW | HOLDS (added by SCRUM-236) | — |
 | INV-FILL-1 / 2 / 3 / 4 / 5 | HOLDS | — |
 | INV-NONCE-1 / 2 | HOLDS | — |
 | INV-MATCH-1 / 2 / 3 / 4 | HOLDS | — (old INV-MATCH-2 AT-RISK resolved by BIZ-006) |
@@ -616,22 +743,24 @@ non-blocking — BL-N2 has since been RESOLVED.
 ## Master fuzz properties (for `DoefinInvariantHarness.sol`)
 
 ```
-echidna_diamond_collateral_solvent()   // INV-SOLV-4: balanceOf(diamond) >= unredeemedBacking
-echidna_mint_conserves()               // INV-SOLV-1: collateral in == f, minted == f each side
-echidna_merge_conserves()              // INV-SOLV-2: takerNet + makerNet + totalFees == f, diamond net-zero
-echidna_complementary_no_diamond_touch // INV-SOLV-3: diamond ERC-20 + ERC-1155 unchanged
-echidna_no_overfill()                  // INV-FILL-1: getFilledAmount(h) <= amount  (fuzz duplicate maker legs)
-echidna_fill_sum_matches()             // INV-FILL-3: Σ makerFills != takerFill => FillAmountMismatch
-echidna_fee_within_max_rate()          // INV-FEE-1: fee <= floorDiv(cashValue*maxFeeRateBps,1e4)
-echidna_fee_within_proceeds()          // INV-FEE-2: fee > proceeds => FeeExceedsProceeds (complementary/merge/fill)
-echidna_fee_sink_is_feeReceiver()      // INV-FEE-3: operator balance excludes fee; feeReceiver delta == Σ fees
-echidna_taker_not_overcharged_mint()   // INV-PRICE-1: takerPaid == f - floor(P_m*f/unit) <= floor(P_t*f/unit)+1
-echidna_taker_floor_merge()            // INV-PRICE-2: takerReceived >= floor(P_t*f/unit)
-echidna_price_le_unit()                // INV-PRICE-4: pricePerToken > unit => InvalidPrice
-echidna_side_domain()                  // INV-MATCH-2: side > 1 => InvalidMatch
-echidna_nonce_monotonic()              // INV-NONCE-1
-echidna_invalid_order_never_settles()  // INV-NONCE-2: cancelled/stale/expired => revert
-echidna_eip712_parity()                // INV-SIG-1: Solidity struct hash == Python encoder struct hash
+echidna_diamond_solvent()                     // INV-SOLV-4 (revised SCRUM-236): balanceOf(diamond) >= outstandingPairs + accruedFees
+echidna_mint_conserves()                      // INV-SOLV-1: collateral in == f + takerFee + makerFee, minted == f each side
+echidna_merge_conserves()                     // INV-SOLV-2: takerNet + makerNet + totalFees == f, diamond gains totalFees (banked)
+echidna_complementary_collateral_neutral_swap // INV-SOLV-3 (revised SCRUM-236): swap-leg b->s preserved; diamond gains buyerFee+sellerFee (banked)
+echidna_fee_accounting_symmetry               // INV-FEE-NEW (SCRUM-236): sumFeeAccrued[t] == accruedFees[t] + sumFeesWithdrawn[t]
+echidna_fee_receiver_plus_accrued_only_grows  // SCRUM-236 ratchet: (FEE_RECEIVER + accruedFees) is monotonic up
+echidna_no_overfill()                         // INV-FILL-1: getFilledAmount(h) <= amount  (fuzz duplicate maker legs)
+echidna_fill_sum_matches()                    // INV-FILL-3: Σ makerFills != takerFill => FillAmountMismatch
+echidna_fee_within_max_rate()                 // INV-FEE-1: fee <= floorDiv(cashValue*maxFeeRateBps,1e4)
+echidna_fee_within_proceeds()                 // INV-FEE-2: fee > proceeds => FeeExceedsProceeds (complementary/merge/fill)
+echidna_fee_sink_is_accruedFees()             // INV-FEE-3 (strengthened SCRUM-236): operator excludes fee; accruedFees+FEE_RECEIVER deltas account for full Σ fees
+echidna_taker_not_overcharged_mint()          // INV-PRICE-1: takerPaid == f - floor(P_m*f/unit) <= floor(P_t*f/unit)+1
+echidna_taker_floor_merge()                   // INV-PRICE-2: takerReceived >= floor(P_t*f/unit)
+echidna_price_le_unit()                       // INV-PRICE-4: pricePerToken > unit => InvalidPrice
+echidna_side_domain()                         // INV-MATCH-2: side > 1 => InvalidMatch
+echidna_nonce_monotonic()                     // INV-NONCE-1
+echidna_invalid_order_never_settles()         // INV-NONCE-2: cancelled/stale/expired => revert
+echidna_eip712_parity()                       // INV-SIG-1: Solidity struct hash == Python encoder struct hash
 ```
 
 ## Newly-derived business-logic findings (this regeneration)
