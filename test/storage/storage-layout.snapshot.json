@@ -50,6 +50,13 @@
       "offset": 22,
       "type": "uint16",
       "bytes": "2"
+    },
+    {
+      "field": "accruedFees",
+      "slot": "4",
+      "offset": 0,
+      "type": "mapping(address => uint256)",
+      "bytes": "32"
     }
   ],
   "struct LibDoefinStorage.AppStorage": [
