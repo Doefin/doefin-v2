@@ -667,33 +667,39 @@ describe("ConditionalTokensFacet Advanced", function () {
     });
 
     it("should handle fee deduction correctly", async () => {
-      const [feeReceiver, resolutionFeeBps] = await adminConfigFacet.getFees();
+      const [, resolutionFeeBps] = await adminConfigFacet.getFees();
       const indexSets = [1]; // YES position
       const expectedPayout = ethers.utils.parseEther("10");
       const expectedFee = expectedPayout.mul(resolutionFeeBps).div(10000);
       const expectedNet = expectedPayout.sub(expectedFee);
 
       const initialUserBalance = await mockToken.balanceOf(user1.address);
-      const initialFeeReceiverBalance = await mockToken.balanceOf(feeReceiver);
+      // SCRUM-236: the resolution fee now accrues into the in-Diamond bank
+      // instead of moving to feeReceiver per-trade. PayoutRedemptionFeePaid
+      // is still emitted for off-chain redemption analytics; we ALSO assert
+      // FeeAccrued(token, fee, FEE_KIND_RESOLUTION) and the accruedFees ratchet.
+      const initialAccrued = await adminConfigFacet.getAccruedFees(mockToken.address);
 
-      await expect(
-        conditionalTokensFacet
-          .connect(user1)
-          .redeemPositions(
-            mockToken.address,
-            ethers.constants.HashZero,
-            testConditionId,
-            indexSets
-          )
-      ).to.emit(conditionalTokensFacet, "PayoutRedemptionFeePaid");
+      const tx = conditionalTokensFacet
+        .connect(user1)
+        .redeemPositions(
+          mockToken.address,
+          ethers.constants.HashZero,
+          testConditionId,
+          indexSets
+        );
+
+      await expect(tx).to.emit(conditionalTokensFacet, "PayoutRedemptionFeePaid");
+      // FEE_KIND_RESOLUTION = 1 (LibConstants.FEE_KIND_RESOLUTION).
+      await expect(tx)
+        .to.emit(conditionalTokensFacet, "FeeAccrued")
+        .withArgs(mockToken.address, expectedFee, 1);
 
       const finalUserBalance = await mockToken.balanceOf(user1.address);
-      const finalFeeReceiverBalance = await mockToken.balanceOf(feeReceiver);
+      const finalAccrued = await adminConfigFacet.getAccruedFees(mockToken.address);
 
       expect(finalUserBalance.sub(initialUserBalance)).to.equal(expectedNet);
-      expect(finalFeeReceiverBalance.sub(initialFeeReceiverBalance)).to.equal(
-        expectedFee
-      );
+      expect(finalAccrued.sub(initialAccrued)).to.equal(expectedFee);
     });
 
     it("should handle redemption with invalid index sets", async () => {

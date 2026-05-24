@@ -12,8 +12,12 @@
 // SCRUM-224 removed the maker-signed `feeRateBps` entirely. The operator now
 // supplies the fee amount at settlement, and the contract enforces an
 // admin-settable maximum rate (`maxFeeRateBps`) plus a `fee <= proceeds` bound.
-// This pentest now asserts the post-fix on-chain truth:
-//   - fees still flow to `feeReceiver`, never the operator;
+// SCRUM-236 pivoted further: fees no longer transfer to `feeReceiver` per-trade
+// — they accrue in `acs.accruedFees[token]` and are swept later via
+// `AdminConfigFacet.withdrawFees`. This pentest now asserts the post-SCRUM-236
+// on-chain truth:
+//   - fees flow into the in-Diamond fee bank (NOT the operator, NOT
+//     feeReceiver per-trade);
 //   - an operator fee within the admin cap settles;
 //   - an operator fee above the admin cap reverts FeeExceedsMaxRate.
 
@@ -28,9 +32,9 @@ describe("PENTEST · SEC-006 (MED) — fee recipient and operator fee cap", func
     ctx = await setupAuditFixture();
   });
 
-  it("DEMONSTRATES (a) — fees go to feeReceiver, NOT the operator", async function () {
-    const { settlement, collateral } = ctx.contracts;
-    const { buyer, seller, operator, feeReceiver } = ctx.signers;
+  it("DEMONSTRATES (a) — fees go to the in-Diamond bank (SCRUM-236), NOT the operator", async function () {
+    const { settlement, adminConfig, collateral } = ctx.contracts;
+    const { buyer, seller, operator } = ctx.signers;
     const { positionIdA } = ctx.market;
     const { UNIT } = ctx.constants;
     const { makeOrder, signOrder, legFee } = ctx.helpers;
@@ -46,7 +50,7 @@ describe("PENTEST · SEC-006 (MED) — fee recipient and operator fee cap", func
     // Operator-supplied per-leg fee, sized within the admin cap.
     const fee = legFee(price, fillAmount);
 
-    const feeRcvBefore = await collateral.balanceOf(feeReceiver.address);
+    const accruedBefore = await adminConfig.getAccruedFees(collateral.address);
     const operatorColBefore = await collateral.balanceOf(operator.address);
 
     await settlement.connect(operator).matchOrders(
@@ -56,8 +60,8 @@ describe("PENTEST · SEC-006 (MED) — fee recipient and operator fee cap", func
     );
 
     // Complementary settlement charges BOTH the buyer's and the seller's fee
-    // — `feeReceiver` receives `2 * fee`.
-    expect((await collateral.balanceOf(feeReceiver.address)).sub(feeRcvBefore))
+    // — accruedFees[collateral] grows by 2 * fee.
+    expect((await adminConfig.getAccruedFees(collateral.address)).sub(accruedBefore))
       .to.equal(fee.mul(2));
 
     // The operator's collateral balance must NOT have grown by any fee.
@@ -65,8 +69,8 @@ describe("PENTEST · SEC-006 (MED) — fee recipient and operator fee cap", func
   });
 
   it("CAP — an operator fee within `maxFeeRateBps` settles", async function () {
-    const { settlement, collateral } = ctx.contracts;
-    const { buyer, seller, operator, feeReceiver } = ctx.signers;
+    const { settlement, adminConfig, collateral } = ctx.contracts;
+    const { buyer, seller, operator } = ctx.signers;
     const { positionIdA } = ctx.market;
     const { UNIT, MAX_FEE_RATE_BPS } = ctx.constants;
     const { makeOrder, signOrder } = ctx.helpers;
@@ -81,7 +85,8 @@ describe("PENTEST · SEC-006 (MED) — fee recipient and operator fee cap", func
     const takerSig = await signOrder(buyer,  takerOrder);
     const makerSig = await signOrder(seller, makerOrder);
 
-    const feeRcvBefore = await collateral.balanceOf(feeReceiver.address);
+    // SCRUM-236: accruedFees, not feeReceiver per-trade.
+    const accruedBefore = await adminConfig.getAccruedFees(collateral.address);
 
     await settlement.connect(operator).matchOrders(
       takerOrder, takerSig, 0,
@@ -89,7 +94,7 @@ describe("PENTEST · SEC-006 (MED) — fee recipient and operator fee cap", func
       fillAmount, [fillAmount], [feeAtCap], [feeAtCap],
     );
 
-    expect((await collateral.balanceOf(feeReceiver.address)).sub(feeRcvBefore))
+    expect((await adminConfig.getAccruedFees(collateral.address)).sub(accruedBefore))
       .to.equal(feeAtCap.mul(2));
   });
 

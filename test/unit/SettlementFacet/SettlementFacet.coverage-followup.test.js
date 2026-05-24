@@ -184,14 +184,17 @@ describe("SettlementFacet — coverage follow-up", function () {
   });
 
   // ──────────────────────────────────────────────────────────────────────
-  // _executeOperatorFill L729-731 — the SELL-side `if (fee > 0)` branch.
-  // The SEC-003 sell-side test fills with fee 0; this drives a live fee so
-  // the operator-pays-feeReceiver leg and its FeeCharged event are exercised.
+  // _executeOperatorFill — the SELL-side `if (fee > 0)` branch (SCRUM-236
+  // migrated). The SEC-003 sell-side test fills with fee 0; this drives a
+  // live fee so the operator-pays-bank leg and its FeeAccrued event are
+  // exercised. Pre-SCRUM-236 this asserted `FeeCharged(feeReceiver, fee)` and
+  // direct feeReceiver balance growth; post-SCRUM-236 fees credit the
+  // in-Diamond bank and the FEE_KIND_TRADING discriminator is part of the event.
   // ──────────────────────────────────────────────────────────────────────
-  describe("_executeOperatorFill — SELL-side fillOrder with a live fee (L729-731)", function () {
-    it("routes the operator-supplied fee to feeReceiver on a sell-side fill", async function () {
-      const { settlement, collateral, erc1155Facet } = ctx.contracts;
-      const { seller, operator, feeReceiver } = ctx.signers;
+  describe("_executeOperatorFill — SELL-side fillOrder with a live fee", function () {
+    it("credits the operator-supplied fee to accruedFees on a sell-side fill (SCRUM-236)", async function () {
+      const { settlement, collateral, erc1155Facet, adminConfig } = ctx.contracts;
+      const { seller, operator } = ctx.signers;
       const { positionIdA } = ctx.market;
       const { UNIT } = ctx.constants;
       const { makeOrder, signOrder, legFee } = ctx.helpers;
@@ -208,19 +211,20 @@ describe("SettlementFacet — coverage follow-up", function () {
 
       const sellerCollBefore = await collateral.balanceOf(seller.address);
       const opCollBefore = await collateral.balanceOf(operator.address);
-      const feeRcvBefore = await collateral.balanceOf(feeReceiver.address);
+      const accruedBefore = await adminConfig.getAccruedFees(collateral.address);
       const sellerPosBefore = await erc1155Facet.balanceOf(seller.address, positionIdA);
       const opPosBefore = await erc1155Facet.balanceOf(operator.address, positionIdA);
 
+      // FEE_KIND_TRADING = 0 (LibConstants.FEE_KIND_TRADING).
       await expect(settlement.connect(operator).fillOrder(order, sig, 0, fill, fee))
-        .to.emit(settlement, "FeeCharged")
-        .withArgs(feeReceiver.address, fee);
+        .to.emit(settlement, "FeeAccrued")
+        .withArgs(collateral.address, fee, 0);
 
       // Seller is paid the net (collateral minus fee); operator pays the full
-      // collateral (net to seller + fee to feeReceiver); feeReceiver gets fee.
+      // collateral (net to seller + fee INTO Diamond). accruedFees grows by fee.
       expect((await collateral.balanceOf(seller.address)).sub(sellerCollBefore)).to.equal(netCollateral);
       expect(opCollBefore.sub(await collateral.balanceOf(operator.address))).to.equal(collateralAmount);
-      expect((await collateral.balanceOf(feeReceiver.address)).sub(feeRcvBefore)).to.equal(fee);
+      expect((await adminConfig.getAccruedFees(collateral.address)).sub(accruedBefore)).to.equal(fee);
 
       // Position tokens move seller -> operator.
       expect(sellerPosBefore.sub(await erc1155Facet.balanceOf(seller.address, positionIdA))).to.equal(fill);
