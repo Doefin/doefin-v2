@@ -376,7 +376,46 @@ library Events {
     event OperatorUpdated(address indexed oldOperator, address indexed newOperator);
 
     /// @notice Emitted when a settlement fee is transferred to the protocol fee receiver (SCRUM-224)
+    /// @dev DEPRECATED (SCRUM-236) — see the FEE BANK EVENTS block below. This entry is
+    ///      retained only so the intermediate commit compiles; the next commit removes
+    ///      the last emit site and this declaration along with it.
     /// @param receiver The protocol fee receiver address
     /// @param amount The fee amount transferred
     event FeeCharged(address indexed receiver, uint256 amount);
+
+    // ========================================
+    // FEE BANK EVENTS (SCRUM-236)
+    // ========================================
+    //
+    // The pre-SCRUM-236 `FeeCharged(address indexed receiver, uint256 amount)` event
+    // is being replaced. Trading and resolution fees no longer move per-trade to the
+    // external feeReceiver; they accrue inside the Diamond and are swept later via
+    // `AdminConfigFacet.withdrawFees`. The two new events below replace it: the
+    // backend indexer (`match-engine/app/utils/settlement_abi.py` and any encoder
+    // listener) MUST drop the old signature and pick up these. `FeeCharged` itself is
+    // removed in a follow-up commit once all emit sites stop emitting it.
+
+    /// @notice Emitted when a fee is debited from a settlement leg or redemption and
+    ///         credited to the Diamond's per-token fee bank (SCRUM-236).
+    /// @dev Emitted from `SettlementFacet._settleComplementary` / `_settleMint` /
+    ///      `_settleMerge` / `_executeOperatorFill` (kind = FEE_KIND_TRADING) and from
+    ///      `ConditionalTokensFacet._handlePayoutTransfer` (kind = FEE_KIND_RESOLUTION).
+    ///      The `kind` discriminator is provided so off-chain analytics can split
+    ///      trading vs resolution revenue without re-deriving it from call context.
+    /// @param token The collateral token the fee accrued in
+    /// @param amount The fee amount credited to `accruedFees[token]`
+    /// @param kind Fee category — see `LibConstants.FEE_KIND_TRADING` / `FEE_KIND_RESOLUTION`
+    event FeeAccrued(address indexed token, uint256 amount, uint8 kind);
+
+    /// @notice Emitted when the owner sweeps fees out of the Diamond fee bank (SCRUM-236).
+    /// @dev Emitted from `AdminConfigFacet.withdrawFees`. Per-token, per-call — no
+    ///      batching. `kind` is intentionally absent: by withdraw time fees are fungible
+    ///      and the per-leg `FeeAccrued` events already record the trading/resolution
+    ///      split. Ordering inside `withdrawFees` is: decrement → transfer → emit, all
+    ///      inside the reentrancy guard.
+    /// @param token The collateral token swept
+    /// @param feeReceiver The destination address (snapshot of `acs.feeReceiver` at the
+    ///                    time of the sweep)
+    /// @param amount The amount transferred out of the Diamond
+    event FeesWithdrawn(address indexed token, address indexed feeReceiver, uint256 amount);
 }
