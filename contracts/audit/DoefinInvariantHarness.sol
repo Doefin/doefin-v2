@@ -497,6 +497,12 @@ contract DoefinInvariantHarness {
         // validated. Without this, `maxFeeRateBps == 0` would fail-closed and any
         // non-zero fee the harness passes would revert.
         IAdminConfig(diamond).setMaxFeeRate(MAX_FEE_RATE_BPS);
+        // SCRUM-236 manual-review FIND-1: seed a non-zero resolution fee so the
+        // `fuzz_redeem` driver actually exercises the `FEE_KIND_RESOLUTION`
+        // branch of INV-FEE-NEW (with `resolutionFeeBps == 0` the redemption
+        // path always credits `accruedFees` by 0 and the symmetry assertion
+        // holds structurally but vacuously on the resolution side).
+        IAdminConfig(diamond).setResolutionFeeBps(100);
         settlementAdmin.setOperator(address(this));
         IAccessControl(diamond).addMarketMaker(address(this));
     }
