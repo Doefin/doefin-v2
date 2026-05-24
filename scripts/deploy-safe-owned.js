@@ -163,6 +163,7 @@ async function main() {
     "SignatureVerifierFacet",
     "NonceManagerFacet",
     "SettlementFacet",
+    "SettlementAdminFacet",
   ];
 
   const facets = {};
@@ -212,7 +213,7 @@ async function main() {
   const pauseCalldata = settlementIface.encodeFunctionData("pauseTrading", []);
 
   const innerTxs = [
-    { to: diamond.address, data: cutCalldata, label: "diamondCut (14 facets + init)" },
+    { to: diamond.address, data: cutCalldata, label: "diamondCut (15 facets + init)" },
     { to: diamond.address, data: setOpCalldata, label: `setOperator(${OPERATOR})` },
     { to: diamond.address, data: addCollCalldata, label: `addCollateralToken(${COLLATERAL}, 1e${COLLATERAL_DECIMALS})` },
     { to: diamond.address, data: setFeeRecvCalldata, label: `setFeeReceiver(${FEE_RECEIVER})` },
