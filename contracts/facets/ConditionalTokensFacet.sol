@@ -5,11 +5,13 @@
 pragma solidity ^0.8.6;
 
 import {LibDoefinStorage} from "../libraries/LibDoefinStorage.sol";
+import {LibAdminConfigStorage} from "../libraries/LibAdminConfigStorage.sol";
+import {LibConstants} from "../libraries/LibConstants.sol";
 import {LibCTHelpers} from "../libraries/LibCTHelpers.sol";
 import {LibERC1155} from "../libraries/LibERC1155.sol";
 import {IConditionalTokens} from "../interfaces/IConditionalTokens.sol";
 import {LibCTFCondition} from "../libraries/LibCTFCondition.sol";
-import {LibAccessControl} from "../libraries/LibAccessControl.sol";
+import {LibDiamond} from "../libraries/LibDiamond.sol";
 import {LibReentrancyGuard} from "../libraries/LibReentrancyGuard.sol";
 import {Errors} from "../libraries/Errors.sol";
 import {Events} from "../libraries/Events.sol";
@@ -35,14 +37,12 @@ contract ConditionalTokensFacet is IConditionalTokens {
      * @param questionId Unique identifier for the question being asked
      * @param outcomeSlotCount Number of possible outcomes (must be >= 2)
      * @custom:emits ConditionPreparation with condition details
-     * @custom:reverts NotAuthorized if caller is not contract owner
+     * @custom:reverts NotContractOwner if caller is not contract owner
      * @custom:security Owner-only access prevents spam conditions
      * @custom:note Condition must be resolved by the specified oracle to enable redemptions
      */
     function prepareCondition(address oracle, bytes32 questionId, uint8 outcomeSlotCount) external override {
-        if (!LibAccessControl.isOwner(msg.sender)) {
-            revert Errors.NotAuthorized();
-        }
+        LibDiamond.enforceIsContractOwner();
         bytes32 conditionId = LibCTFCondition.prepareCondition(oracle, questionId, outcomeSlotCount);
 
         emit Events.ConditionPreparation(conditionId, oracle, questionId, outcomeSlotCount);
@@ -56,7 +56,7 @@ contract ConditionalTokensFacet is IConditionalTokens {
      * @param questionId The unique identifier for the question being resolved
      * @param payouts Array of payout numerators for each outcome (denominator is sum of all)
      * @custom:emits PayoutReported (via LibCTFCondition implementation)
-     * @custom:reverts NotAuthorized if caller is not the designated oracle
+     * @custom:reverts if msg.sender is not the oracle the condition was prepared for
      * @custom:reverts InvalidPayouts if payout array doesn't match expected format
      * @custom:security Oracle-only access ensures trusted resolution
      * @custom:note Payouts are normalized: winning outcome = 1, losing outcomes = 0 for binary markets
@@ -201,43 +201,64 @@ contract ConditionalTokensFacet is IConditionalTokens {
     }
 
     /**
-     * @notice Handles payout transfers with resolution fee deduction
-     * @dev Internal function managing fee calculation and distribution during redemption
-     * @dev Applies resolution fee if configured and transfers remainder to recipient
-     * @dev Uses reentrancy protection for external token transfers
+     * @notice Handles payout transfers with resolution-fee accrual into the in-Diamond fee bank.
+     * @dev SCRUM-236 — the pre-bank flow checked `feeReceiver != 0` *before* the zero-fee
+     *      short-circuit, which bricked `redeemPositions` on a fresh-deploy default
+     *      (`feeReceiver == address(0) && resolutionFeeBps == 0`) — the original
+     *      CR-3291973203 finding. Under the pull-payment model the resolution fee no
+     *      longer requires a `feeReceiver` at redemption time: it accrues to
+     *      `acs.accruedFees[token]` and is swept later by `AdminConfigFacet.withdrawFees`.
+     *      That eliminates the bypass-DoS class entirely: the `feeReceiver` check moves
+     *      to `withdrawFees`. The fee-zero case is now a true no-op (no SSTORE, no event).
+     * @dev Uses the existing reentrancy guard for the external user transfer. The
+     *      accrual is a single SSTORE before the transfer (CEI ordering); no external
+     *      call to `feeReceiver` happens on this path.
      * @param collateralToken The ERC20 token being transferred
      * @param recipient The address receiving the payout
      * @param amount The gross payout amount before fees
-     * @custom:emits PayoutRedemptionFeePaid if fees are applied
-     * @custom:reverts InvalidFeeReceiver if fee receiver not configured but fees enabled
-     * @custom:security Protected against reentrancy attacks during transfers
-     * @custom:note Zero fee configuration bypasses fee deduction entirely
+     * @custom:emits PayoutRedemptionFeePaid if a fee is accrued.
+     * @custom:emits FeeAccrued (kind = FEE_KIND_RESOLUTION) if a fee is accrued.
+     * @custom:security Protected against reentrancy on the user payout transfer.
+     * @custom:audit CR-3291973203 — zero-fee + zero-feeReceiver no longer reverts.
      */
     function _handlePayoutTransfer(address collateralToken, address recipient, uint256 amount) internal {
-        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
+        LibAdminConfigStorage.AdminConfigStorage storage acs = LibAdminConfigStorage.adminConfigStorage();
+        uint16 feeBps = acs.resolutionFeeBps;
 
-        address feeReceiver = ds.adminConfigStorage.feeReceiver;
-        uint16 feeBps = ds.adminConfigStorage.resolutionFeeBps;
-
-        if (feeReceiver == address(0)) revert Errors.InvalidFeeReceiver();
-
+        // SCRUM-236: fee-zero is a true symmetric no-op. No SSTORE on `accruedFees`,
+        // no `FeeAccrued` emission — required for INV-FEE-NEW symmetry under fee == 0
+        // AND for the CR-3291973203 regression check (a zero-fee redeem must not revert
+        // and must not emit a spurious zero-amount event).
         if (feeBps == 0) {
             LibReentrancyGuard._nonReentrantBefore();
             IERC20(collateralToken).safeTransfer(recipient, amount);
             LibReentrancyGuard._nonReentrantAfter();
-
             return;
         }
 
-        uint256 feeAmount = (amount * feeBps) / 10_000;
+        uint256 feeAmount = (amount * feeBps) / LibConstants.BPS_DENOMINATOR;
         uint256 userAmount = amount - feeAmount;
 
+        // SCRUM-236: the resolution fee already sits in the Diamond's ERC20 balance
+        // (the redeemed payout was internal); just book it into `accruedFees` and
+        // pay the user their net. The `feeAmount > 0` guard prevents a spurious
+        // FeeAccrued for the extreme rounding case where `amount * feeBps` truncates
+        // to zero (e.g. a 1-wei payout with feeBps < BPS_DENOMINATOR).
+        if (feeAmount > 0) {
+            acs.accruedFees[collateralToken] += feeAmount;
+            emit Events.FeeAccrued(collateralToken, feeAmount, LibConstants.FEE_KIND_RESOLUTION);
+        }
+
+        // Keep the existing PayoutRedemptionFeePaid event so off-chain redemption
+        // analytics still see the per-redeem fee attribution. The address passed as
+        // `feeReceiver` is the current `acs.feeReceiver` snapshot; if it is zero
+        // the event simply carries the zero address (the funds are safely in the bank
+        // and the owner can set a receiver before the next `withdrawFees`).
         LibReentrancyGuard._nonReentrantBefore();
-        IERC20(collateralToken).safeTransfer(feeReceiver, feeAmount);
         IERC20(collateralToken).safeTransfer(recipient, userAmount);
         LibReentrancyGuard._nonReentrantAfter();
 
-        emit Events.PayoutRedemptionFeePaid(recipient, feeReceiver, feeAmount, userAmount);
+        emit Events.PayoutRedemptionFeePaid(recipient, acs.feeReceiver, feeAmount, userAmount);
     }
 
     /**

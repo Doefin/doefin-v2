@@ -4,3 +4,14 @@ node_modules
 cache
 artifacts
 .env
+.DS_Store
+.claude
+docs/
+
+# Audit artifacts — raw tool dumps (the curated audit/*.md docs stay tracked)
+audit/output/
+coverage/
+coverage.json
+gasReporterOutput.json
+# crytic-compile / Slither / Echidna / Medusa per-run export (regenerated each run)
+crytic-export/

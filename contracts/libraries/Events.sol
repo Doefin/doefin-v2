@@ -2,7 +2,7 @@
 // Based on Diamond Standard by Nick Mudge: https://github.com/mudgen/diamond-3-hardhat
 // Uses shared logic from Gnosis Conditional Tokens Framework: https://github.com/gnosis/conditional-tokens-contracts
 
-pragma solidity ^0.8.6;
+pragma solidity ^0.8.20;
 
 import {LibDoefinStorage} from "./LibDoefinStorage.sol";
 
@@ -30,17 +30,6 @@ library Events {
     /// @param symbol New symbol for the token
     event TokenSymbolUpdated(address indexed token, string symbol);
 
-    /// @notice Emitted when a conversion path is set between two tokens
-    /// @param fromToken Source token address
-    /// @param toToken Target token address
-    /// @param assetIds Array of oracle asset IDs representing the conversion path
-    event ConversionPathSet(address indexed fromToken, address indexed toToken, bytes32[] assetIds);
-
-    /// @notice Emitted when a conversion path is removed
-    /// @param fromToken Source token address
-    /// @param toToken Target token address
-    event ConversionPathRemoved(address indexed fromToken, address indexed toToken);
-
     /// @notice Emitted when the fee receiver address is updated
     /// @param oldReceiver Previous fee receiver address
     /// @param newReceiver New fee receiver address
@@ -51,12 +40,10 @@ library Events {
     /// @param newFeeBps New fee in basis points
     event ResolutionFeeUpdated(uint16 oldFeeBps, uint16 newFeeBps);
 
-    /// @notice Emitted when trading fees are updated
-    /// @param oldMakerBps Previous maker fee in basis points
-    /// @param oldTakerBps Previous taker fee in basis points
-    /// @param newMakerBps New maker fee in basis points
-    /// @param newTakerBps New taker fee in basis points
-    event TradingFeesUpdated(uint16 oldMakerBps, uint16 oldTakerBps, uint16 newMakerBps, uint16 newTakerBps);
+    /// @notice Emitted when the admin updates the maximum settlement fee rate (SCRUM-224)
+    /// @param oldRate Previous maximum fee rate in basis points
+    /// @param newRate New maximum fee rate in basis points
+    event MaxFeeRateUpdated(uint16 oldRate, uint16 newRate);
 
     // ========================================
     // ACCESS CONTROL EVENTS
@@ -194,293 +181,10 @@ library Events {
     );
 
     // ========================================
-    // ORDERBOOK EVENTS
+    // FEE EVENTS
     // ========================================
-
-    /// @notice Emitted when a new order is created
-    /// @param orderId Unique identifier for the order
-    /// @param maker Address that created the order
-    /// @param positionId Position token identifier
-    /// @param collateralToken Address of the collateral token
-    /// @param amount Total order amount
-    /// @param pricePerToken Price per token
-    /// @param minFillAmount Minimum fill amount
-    /// @param expiry Order expiry timestamp (0 for no expiry)
-    /// @param direction Order direction (Buy/Sell)
-    /// @param executionType Order execution type (Limit/Market)
-    /// @param fillOrKill Whether order must be filled completely or cancelled
-    /// @param makerFeeBps Maker fee in basis points
-    /// @param takerFeeBps Taker fee in basis points
-    /// @param orderType Type of order (Standard or CrossCurrency)
-    /// @param quoteCurrencyToken Quote currency token address (only for CrossCurrency orders)
-    /// @param exchangeRate Exchange rate (interpretation depends on exchangeRateType)
-    event OrderCreated(
-        uint256 indexed orderId,
-        address indexed maker,
-        uint256 indexed positionId,
-        address collateralToken,
-        uint256 amount,
-        uint256 pricePerToken,
-        uint256 minFillAmount,
-        uint256 expiry,
-        LibDoefinStorage.OrderDirection direction,
-        LibDoefinStorage.ExecutionType executionType,
-        bool fillOrKill,
-        uint16 makerFeeBps,
-        uint16 takerFeeBps,
-        LibDoefinStorage.OrderType orderType,
-        address quoteCurrencyToken,
-        uint256 exchangeRate
-    );
-
-    /// @notice Emitted when an order is cancelled
-    /// @param orderId Unique identifier for the order
-    /// @param maker Address that owned the order
-    /// @param remainingAmount Amount that was remaining
-    event OrderCancelled(uint256 indexed orderId, address indexed maker, uint256 remainingAmount);
-
-    /// @notice Emitted when an order is modified
-    /// @param orderId Unique identifier for the order
-    /// @param maker Address that owns the order
-    /// @param oldAmount Previous order amount
-    /// @param newAmount New order amount
-    /// @param oldPrice Previous price per token
-    /// @param newPrice New price per token
-    /// @param oldMinFill Previous minimum fill amount
-    /// @param newMinFill New minimum fill amount
-    /// @param oldExpiry Previous expiry timestamp
-    /// @param newExpiry New expiry timestamp
-    event OrderModified(
-        uint256 indexed orderId,
-        address indexed maker,
-        uint256 oldAmount,
-        uint256 newAmount,
-        uint256 oldPrice,
-        uint256 newPrice,
-        uint256 oldMinFill,
-        uint256 newMinFill,
-        uint256 oldExpiry,
-        uint256 newExpiry
-    );
-
-    /// @notice Emitted when two orders are matched and filled
-    /// @param makerOrderId ID of the maker order being filled
-    /// @param takerOrderId ID of the taker order (0 for market orders via fillMarketOrderWithRoute)
-    /// @param maker Address of the maker
-    /// @param taker Address of the taker
-    /// @param takerPositionId Position ID the taker is trading
-    /// @param makerPositionId Position ID the maker is trading (same as takerPositionId for Complementary)
-    /// @param collateralToken Collateral token used
-    /// @param fillAmount Amount of tokens traded (same for both sides)
-    /// @param makerPrice Price from maker's perspective (what maker receives/pays per token)
-    /// @param takerPrice Price from taker's perspective (what taker pays/receives per token, includes fees)
-    /// @param matchType Type of match (Complementary/Mint/Merge)
-    /// @param makerRemainingAmount Maker's remaining amount after fill
-    /// @param takerRemainingAmount Taker's remaining amount after fill
-    /// @param makerOrderComplete Whether maker order is completely filled
-    /// @param takerOrderComplete Whether taker order is completely filled
-    /// @param timestamp Block timestamp
-    event TradeFilled(
-        uint256 indexed makerOrderId,
-        uint256 indexed takerOrderId,
-        address indexed maker,
-        address taker,
-        uint256 takerPositionId,
-        uint256 makerPositionId,
-        address collateralToken,
-        uint256 fillAmount,
-        uint256 makerPrice,
-        uint256 takerPrice,
-        LibDoefinStorage.MatchType matchType,
-        uint256 makerRemainingAmount,
-        uint256 takerRemainingAmount,
-        bool makerOrderComplete,
-        bool takerOrderComplete,
-        uint256 timestamp
-    );
-
-    // ========================================
-    // ESCROW EVENTS
-    // ========================================
-
-    /// @notice Emitted when ERC20 collateral is locked in escrow
-    /// @param user Address of the user
-    /// @param token Address of the token
-    /// @param amount Amount locked
-    /// @param totalBalance New total balance for user
-    event ERC20CollateralLocked(address indexed user, address indexed token, uint256 amount, uint256 totalBalance);
-
-    /// @notice Emitted when ERC20 collateral is released from escrow
-    /// @param user Address of the user
-    /// @param token Address of the token
-    /// @param amount Amount released
-    /// @param totalBalance New total balance for user
-    event ERC20CollateralReleased(address indexed user, address indexed token, uint256 amount, uint256 totalBalance);
-
-    /// @notice Emitted when ERC1155 tokens are locked in escrow
-    /// @param user Address of the user
-    /// @param positionId Position token ID
-    /// @param amount Amount locked
-    /// @param totalBalance New total balance for user
-    event ERC1155CollateralLocked(address indexed user, uint256 indexed positionId, uint256 amount, uint256 totalBalance);
-
-    /// @notice Emitted when ERC1155 tokens are released from escrow
-    /// @param user Address of the user
-    /// @param positionId Position token ID
-    /// @param amount Amount released
-    /// @param totalBalance New total balance for user
-    event ERC1155CollateralReleased(address indexed user, uint256 indexed positionId, uint256 amount, uint256 totalBalance);
-
-    /// @notice Emitted when protocol fees are accrued
-    /// @param token The token in which fees are collected
-    /// @param makerOrderId ID of the maker order
-    /// @param takerOrderId ID of the taker order (0 for market orders)
-    /// @param maker Address of the maker
-    /// @param taker Address of the taker
-    /// @param fillAmount Amount filled in this trade
-    /// @param pricePerToken Price used for the trade
-    /// @param makerFeeAmount Fee paid by maker
-    /// @param takerFeeAmount Fee paid by taker
-    /// @param totalFeesAccrued Total fees from this trade
-    /// @param cumulativeProtocolFees Cumulative protocol fees for this token
-    event ProtocolFeesAccrued(
-        address indexed token,
-        uint256 indexed makerOrderId,
-        uint256 indexed takerOrderId,
-        address maker,
-        address taker,
-        uint256 fillAmount,
-        uint256 pricePerToken,
-        uint256 makerFeeAmount,
-        uint256 takerFeeAmount,
-        uint256 totalFeesAccrued,
-        uint256 cumulativeProtocolFees
-    );
-
-    /// @notice Emitted when a refund is issued for surplus funds
-    /// @param user Address of the user
-    /// @param collateralToken Address of the collateral token
-    /// @param refundAmount Amount being refunded
-    /// @param takerPaidPerToken Amount paid by the taker per token
-    /// @param tradeEffectivePrice Effective price of the trade
-    event RefundSurplus(
-        address indexed user,
-        address indexed collateralToken,
-        uint256 refundAmount,
-        uint256 takerPaidPerToken,
-        uint256 tradeEffectivePrice
-    );
-
-    /// @notice Emitted when protocol fees are withdrawn by admin
-    /// @param token Address of the token
-    /// @param recipient Address receiving the fees
-    /// @param amount Amount withdrawn
-    /// @param remainingFees Remaining fees after withdrawal
-    event ProtocolFeesWithdrawn(address indexed token, address indexed recipient, uint256 amount, uint256 remainingFees);
-
-    // ========================================
-    // ORACLE MANAGEMENT EVENTS
-    // ========================================
-
-    /// @notice Emitted when a new oracle adapter is registered
-    /// @param adapterId Unique identifier for the adapter
-    /// @param adapterAddress Contract address of the adapter
-    /// @param maxStaleness Maximum staleness time for this adapter
-    event AdapterRegistered(bytes32 indexed adapterId, address adapterAddress, uint256 maxStaleness);
-
-    /// @notice Emitted when an oracle adapter configuration is updated
-    /// @param adapterId Adapter identifier
-    /// @param config New adapter configuration
-    event AdapterConfigUpdated(bytes32 indexed adapterId, LibDoefinStorage.AdapterConfig config);
-
-    /// @notice Emitted when an oracle adapter is removed
-    /// @param adapterId Adapter identifier
-    event AdapterRemoved(bytes32 indexed adapterId);
-
-    /// @notice Emitted when an asset's oracle configuration is set
-    /// @param assetId Asset identifier
-    /// @param adapterPriority Array of adapter IDs in priority order
-    /// @param maxStaleness Maximum staleness time for this asset
-    event AssetConfigured(bytes32 indexed assetId, bytes32[] adapterPriority, uint256 maxStaleness);
-
-    /// @notice Emitted when an asset's adapter priority is updated
-    /// @param assetId Asset identifier
-    /// @param newPriority New priority order
-    event AssetAdapterPriorityUpdated(bytes32 indexed assetId, bytes32[] newPriority);
-
-    /// @notice Emitted when a price is successfully updated
-    /// @param assetId Asset identifier
-    /// @param price New price
-    /// @param timestamp Price timestamp
-    /// @param adapterId Adapter that provided the price
-    event PriceUpdated(bytes32 indexed assetId, uint256 price, uint256 timestamp, bytes32 adapterId);
-
-    /// @notice Emitted when an oracle adapter fails to provide a price
-    /// @param adapterId Adapter identifier that failed
-    /// @param assetId Asset identifier
-    /// @param failureCount Total failure count for this adapter
-    event AdapterFailed(bytes32 indexed adapterId, bytes32 indexed assetId, uint256 failureCount);
-
-    /// @notice Event emitted when a cross-currency order is settled
-    /// @param taker The address of the taker
-    /// @param maker The address of the maker
-    /// @param orderId The maker order ID
-    /// @param quoteCurrencyToken The quote currency token used
-    /// @param fillAmount The amount of position tokens traded
-    /// @param exchangeRate The exchange rate used (1e18 scale)
-    /// @param totalFees The total fees paid in quote currency
-    event CrossCurrencySettlement(
-        address indexed taker,
-        address indexed maker,
-        uint256 indexed orderId,
-        address quoteCurrencyToken,
-        uint256 fillAmount,
-        uint256 exchangeRate,
-        uint256 totalFees
-    );
-
-    /// @notice Emitted when all configured adapters fail for an asset
-    /// @param assetId Asset identifier
-    /// @param attemptedAdapters Array of adapter IDs that were attempted
-    event AllAdaptersFailed(bytes32 indexed assetId, bytes32[] attemptedAdapters);
-
-    /// @notice Emitted when a price becomes stale
-    /// @param assetId Asset identifier
-    /// @param lastUpdateTimestamp When the price was last updated
-    /// @param currentTimestamp Current block timestamp
-    event PriceStale(bytes32 indexed assetId, uint256 lastUpdateTimestamp, uint256 currentTimestamp);
-
-    /// @notice Emitted when trading is paused due to oracle issues
-    /// @param assetId Asset identifier
-    event TradingPaused(bytes32 indexed assetId);
-
-    /// @notice Emitted when trading is resumed after price update
-    /// @param assetId Asset identifier
-    /// @param newPrice Price that resumed trading
-    /// @param timestamp Price timestamp
-    event TradingResumed(bytes32 indexed assetId, uint256 newPrice, uint256 timestamp);
-
-    /// @notice Emitted when a price is manually updated with signature
-    /// @param assetId Asset identifier
-    /// @param price Manually set price
-    /// @param timestamp Price timestamp
-    /// @param signer Address that signed the price data
-    event ManualPriceUpdate(bytes32 indexed assetId, uint256 price, uint256 timestamp, address signer);
-
-    /// @notice Emitted when an emergency price update is performed
-    /// @param assetId Asset identifier
-    /// @param price Emergency price
-    /// @param justification Human-readable justification for the emergency update
-    event EmergencyPriceUpdate(bytes32 indexed assetId, uint256 price, string justification);
-
-    /// @notice Emitted when the authorized signer for manual price updates is changed
-    /// @param oldSigner Previous authorized signer address
-    /// @param newSigner New authorized signer address
-    event AuthorizedSignerUpdated(address indexed oldSigner, address indexed newSigner);
-
-    /// @notice Emitted when max manual update age is configured
-    /// @param maxAge Maximum age in seconds for manual price updates
-    event MaxManualUpdateAgeSet(uint256 maxAge);
+    // (SEC-012) `ProtocolFeesWithdrawn` was removed — dead since LibFeeManager was
+    // deleted in v3 cleanup; zero emit sites remained in the codebase.
 
     // ========================================
     // POSITION REGISTRY EVENTS
@@ -617,4 +321,92 @@ library Events {
     /// @param operator Address of the operator
     /// @param approved Whether operator is approved
     event ApprovalForAll(address indexed owner, address indexed operator, bool approved);
+
+    // ========================================
+    // SETTLEMENT EVENTS (v3)
+    // ========================================
+
+    /// @notice Emitted when an individual order is settled (partially or fully filled)
+    /// @param orderHash The EIP-712 hash of the settled order
+    /// @param maker The maker (SCW) address
+    /// @param filledAmount The amount filled in this settlement
+    /// @param fee The fee charged for this fill
+    event OrderSettled(bytes32 indexed orderHash, address indexed maker, uint128 filledAmount, uint128 fee);
+
+    /// @notice Emitted when two orders are matched and settled against each other
+    /// @param takerHash The EIP-712 hash of the taker order
+    /// @param makerHash The EIP-712 hash of the maker order
+    /// @param matchType The settlement path used (1 = Complementary, 2 = Mint, 3 = Merge)
+    /// @param amount The amount matched
+    event OrdersMatched(bytes32 indexed takerHash, bytes32 indexed makerHash, uint8 matchType, uint128 amount);
+
+    /// @notice Emitted when an order is cancelled on-chain by its maker
+    /// @param orderHash The EIP-712 hash of the cancelled order
+    /// @param maker The maker address that cancelled
+    event OrderCancelledOnChain(bytes32 indexed orderHash, address indexed maker);
+
+    /// @notice Emitted when a maker bumps their nonce, invalidating all prior orders
+    /// @param maker The maker address
+    /// @param newNonce The new nonce value
+    event NonceBumped(address indexed maker, uint256 newNonce);
+
+    /// @notice Emitted when the admin pauses settlement trading
+    /// @param admin The admin address that paused
+    event SettlementTradingPaused(address indexed admin);
+
+    /// @notice Emitted when the admin unpauses settlement trading
+    /// @param admin The admin address that unpaused
+    event SettlementTradingUnpaused(address indexed admin);
+
+    /// @notice Emitted when a SCW registers or unregisters an authorized order signer
+    /// @param scw The smart contract wallet address
+    /// @param signer The EOA signer address
+    /// @param allowed Whether the signer is authorized
+    event OrderSignerRegistered(address indexed scw, address indexed signer, bool allowed);
+
+    /// @notice Emitted when a maker sets a minimum valid salt for a position, cancelling all orders with lower salt
+    /// @param maker The maker address
+    /// @param positionId The position ID
+    /// @param minValidSalt The new minimum valid salt
+    event PositionOrdersCancelled(address indexed maker, bytes32 indexed positionId, uint256 minValidSalt);
+
+    /// @notice Emitted when the authorized settlement operator is changed (SEC-011)
+    /// @param oldOperator Previous operator address (may be `address(0)` on first-set)
+    /// @param newOperator New operator address (never `address(0)`)
+    event OperatorUpdated(address indexed oldOperator, address indexed newOperator);
+
+    // ========================================
+    // FEE BANK EVENTS (SCRUM-236)
+    // ========================================
+    //
+    // The pre-SCRUM-236 `FeeCharged(address indexed receiver, uint256 amount)` event
+    // has been REMOVED. Trading and resolution fees no longer move per-trade to the
+    // external feeReceiver; they accrue inside the Diamond and are swept later via
+    // `AdminConfigFacet.withdrawFees`. The backend indexer
+    // (`match-engine/app/utils/settlement_abi.py` and any encoder listener) MUST
+    // drop the old signature and pick up the two events below.
+
+    /// @notice Emitted when a fee is debited from a settlement leg or redemption and
+    ///         credited to the Diamond's per-token fee bank (SCRUM-236).
+    /// @dev Emitted from `SettlementFacet._settleComplementary` / `_settleMint` /
+    ///      `_settleMerge` / `_executeOperatorFill` (kind = FEE_KIND_TRADING) and from
+    ///      `ConditionalTokensFacet._handlePayoutTransfer` (kind = FEE_KIND_RESOLUTION).
+    ///      The `kind` discriminator is provided so off-chain analytics can split
+    ///      trading vs resolution revenue without re-deriving it from call context.
+    /// @param token The collateral token the fee accrued in
+    /// @param amount The fee amount credited to `accruedFees[token]`
+    /// @param kind Fee category — see `LibConstants.FEE_KIND_TRADING` / `FEE_KIND_RESOLUTION`
+    event FeeAccrued(address indexed token, uint256 amount, uint8 kind);
+
+    /// @notice Emitted when the owner sweeps fees out of the Diamond fee bank (SCRUM-236).
+    /// @dev Emitted from `AdminConfigFacet.withdrawFees`. Per-token, per-call — no
+    ///      batching. `kind` is intentionally absent: by withdraw time fees are fungible
+    ///      and the per-leg `FeeAccrued` events already record the trading/resolution
+    ///      split. Ordering inside `withdrawFees` is: decrement → transfer → emit, all
+    ///      inside the reentrancy guard.
+    /// @param token The collateral token swept
+    /// @param feeReceiver The destination address (snapshot of `acs.feeReceiver` at the
+    ///                    time of the sweep)
+    /// @param amount The amount transferred out of the Diamond
+    event FeesWithdrawn(address indexed token, address indexed feeReceiver, uint256 amount);
 }

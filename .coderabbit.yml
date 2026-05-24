@@ -1,0 +1,794 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+# CodeRabbit configuration — Doefin v3
+# ============================================================================
+# Tuned for EIP-2535 Diamond + Solidity / settlement-security review.
+# v2 schema (see the schema-URL line above — editors will autocomplete + lint).
+# Docs: https://docs.coderabbit.ai/getting-started/configure-coderabbit
+#
+# THIS FILE IS THE SOURCE OF TRUTH for review behaviour. The CodeRabbit
+# dashboard's "YAML editor" / "Precise" / "All settings" panes edit a separate
+# fallback config that only takes effect when no in-repo `.coderabbit.yml`
+# exists. Once this file lands, the dashboard YAML becomes irrelevant.
+#
+# Companion guide (KB upload vs in-repo references, dashboard navigation,
+# Slither integration, PR commands, troubleshooting): .github/CODERABBIT.md
+# ============================================================================
+
+language: en-US
+early_access: false
+# Note: tone_instructions is capped at 250 chars by the v2 schema. Keep it
+# terse; the long-form review model lives in `reviews.path_instructions` and
+# in `.github/CODERABBIT.md`.
+tone_instructions: >-
+  Senior-security review of Doefin v3 (EIP-2535 Diamond, Solidity, Base L2
+  prediction market). Terse, line-specific. Cite the exact
+  INV-/SEC-/BIZ-/SCRUM- invariant at risk from
+  audit/business-logic/invariants.md, not generic best-practice advice.
+
+reviews:
+  # `assertive` is materially more thorough than `chill` — worth it on a
+  # Solidity repo where the cost of a missed finding is real.
+  profile: assertive
+  request_changes_workflow: false
+  high_level_summary: true
+  high_level_summary_in_walkthrough: true
+  poem: false
+  review_status: true
+  collapse_walkthrough: false
+  changed_files_summary: true
+  sequence_diagrams: true
+  assess_linked_issues: true
+  related_issues: true
+  related_prs: true
+  suggested_labels: true
+  auto_apply_labels: false
+  suggested_reviewers: true
+
+  auto_review:
+    enabled: true
+    # SCRUM-212: drafts:true so CodeRabbit reviews WIP PRs too. PR #24
+    # (SCRUM-236) was opened as a draft (CI headroom) and CR skipped it
+    # with "Review skipped — Draft detected." We want CR's automated pass
+    # on every PR including drafts so audit-readiness signal is continuous,
+    # not gated on a manual "mark ready" flip.
+    drafts: true
+    # base_branches entries are regex-matched (per the v2 schema). `.*`
+    # matches every base, so CodeRabbit reviews PRs targeting main,
+    # dev, v3/dev, future release branches, etc. Without `.*`, PR #23
+    # (which targets `dev`) was skipped.
+    base_branches:
+      - ".*"
+
+  # `@coderabbitai generate docstrings` / `generate unit tests` PR commands.
+  # Enabled so reviewers can request them on demand against the diff; off by
+  # default in auto-review (we don't want CodeRabbit drive-by-generating
+  # tests, just on explicit invocation).
+  finishing_touches:
+    docstrings:
+      enabled: true
+    unit_tests:
+      enabled: true
+
+  # Path filters — gitignore syntax. Strip noise so review tokens go to code.
+  # NOTE: the `audit/` deliverables are included on purpose — CodeRabbit
+  # cross-references them against the diff (e.g. "this change weakens
+  # invariant INV-SOLV-2 from audit/business-logic/invariants.md").
+  path_filters:
+    - "!audit/output/**"
+    - "!coverage/**"
+    - "!artifacts/**"
+    - "!cache/**"
+    - "!node_modules/**"
+    - "!**/*.lock"
+    - "!**/package-lock.json"
+    - "!**/yarn.lock"
+    - "!**/*.png"
+    - "!**/*.jpg"
+    - "!**/*.svg"
+
+  # ──────────────────────────────────────────────────────────────────────
+  # Per-path review instructions — the highest-leverage knob in this file.
+  # CodeRabbit weights these heavily and they're how you tell it *what to
+  # look for* per area, not just *to look*.
+  # ──────────────────────────────────────────────────────────────────────
+  path_instructions:
+
+    # ── SettlementFacet — the crown jewel; review with paranoia ──
+    - path: "contracts/facets/SettlementFacet.sol"
+      instructions: |
+        DOEFIN v3 SETTLEMENT CORE — security-critical. Reviewer model:
+
+        1. Operator trust boundary (INV-MISC-3). The operator is trusted to
+           pair orders correctly but NOT for solvency. Every leg must
+           independently enforce: signature validity (LibSignature), order
+           validity in `_validateOrder` (cancel/nonce/salt/expiry/side/
+           collateral allow-list / unit / price <= unit / SCRUM-235 condition
+           active+unresolved gate), fee max-rate (`_validateFee`,
+           INV-FEE-1), fee <= proceeds (INV-FEE-2), no zero-collateral leg
+           (BL-N2, all three `_settleX` + `_executeOperatorFill`). FLAG
+           any change that weakens or skips one of these.
+
+        2. EIP-712 / cross-runtime parity (INV-SIG-1). Domain version "3",
+           10-field DoefinOrder struct. Any modification to the typehash,
+           the field list, or the domain separator MUST be matched in
+           `doefin-backend/shared/scw/encoder.py` and
+           `doefin-frontend/contracts/doefin/v3/generated/`. FLAG drift.
+
+        3. Reentrancy. `matchOrders` / `fillOrder` are `nonReentrant` via
+           LibReentrancyGuard. Any new external call (ERC20, ERC1155,
+           CTF) inside them creates a new reentrancy surface; flag and
+           require either ordering-after-state-update or a test that
+           drives a malicious receiver / token / operator.
+
+        4. Checks-Effects-Interactions. `_settleMerge` was reordered for
+           this (BIZ-002). New code in `_settleX` MUST follow the same
+           pattern — compute amounts + run guards BEFORE the CTF burn /
+           split / token transfer.
+
+        5. `unchecked` arithmetic. Only allowed when the bound is
+           documented in a comment AND demonstrably enforced upstream;
+           look for the `GAS-006` / `GAS-007` markers. New `unchecked`
+           blocks without a marker = flag.
+
+        6. Settlement paths. Complementary / Mint / Merge are routed
+           per-maker via `_determineMatchType` and a single `matchOrders`
+           can settle a taker across a mix. Any new path needs full test
+           coverage in `test/unit/SettlementFacet/`.
+
+        7. `fillOrder` vs `matchOrders`. `fillOrder` is the operator-as-
+           counterparty (market-maker) primitive — see the NatSpec on the
+           function. Both go through `_validateOrder`, so guards added
+           there protect both. FLAG: a new check added to one path but
+           not the shared `_validateOrder`.
+
+        8. Match-type per-leg shadowing. The `_settleX` helpers receive
+           a `maxFeeRateBps` hoisted once per `matchOrders` — flag any
+           reintroduction of per-leg storage reads on the hot path.
+
+    # ── Diamond settlement-adjacent facets ──
+    - path: "contracts/facets/NonceManagerFacet.sol"
+      instructions: |
+        On-chain order cancellation + nonce management. Cross-reference
+        any cancel-path change against SettlementFacet._validateOrder —
+        the two MUST agree on what makes an order invalid (cancelled
+        hash, stale nonce, low salt, expired). The off-chain orderbook
+        uses `isOrderValid` (the bool view); the settlement path uses
+        `_validateOrder` (the revert-with-reason form) — they must
+        stay equivalent.
+
+        NatSpec policy (CR-triage PR #23): `@notice` + `@param` + `@return`
+        baseline; full `@custom:reverts` on EVERY external function that can
+        revert (this is load-bearing — the cancellation surface must document
+        every reason an order-cancel can fail). `@custom:security`/`@custom:audit`
+        are NOT required on the bool-returning `isOrderValid` / `getNonce` /
+        `isCancelled` views.
+
+    - path: "contracts/facets/SignatureVerifierFacet.sol"
+      instructions: |
+        EIP-712 signature verification. Wraps LibSignature. Flag:
+        - any change to `verifyOrderSignature` that diverges from
+          LibSignature.recoverCalldata + the EIP-1271 dispatch
+        - registered-signer logic (`registeredOrderSigners`) must
+          remain SCW-only — flag any new caller pattern
+        - malleability: high-`s` rejection must stay (SEC-005)
+
+    - path: "contracts/facets/AdminConfigFacet.sol"
+      instructions: |
+        Protocol admin / governance. Flag:
+        - any new admin function not behind `LibDiamond.enforceIsContractOwner`
+        - any new fee-related state without a hard ceiling (mirror
+          MAX_FEE_RATE_BPS_CAP = 1000)
+        - the `setFeeReceiver` / `setMaxFeeRate` / `setResolutionFeeBps`
+          no-op revert pattern must be preserved (NoChangeRequired)
+
+        NatSpec policy (CR-triage PR #23): `@notice` + `@param` + `@return`
+        baseline; the heavy `@custom:security`/`@custom:audit` set is required
+        ONLY on owner-only setters that change a guarded invariant (the fee
+        setters above already carry the tag set). View-only getters need only
+        the baseline. The no-op revert pattern (NoChangeRequired) on ALL
+        fee-config setters is load-bearing — flag any setter that overwrites
+        without the guard.
+
+    - path: "contracts/facets/AccessControlFacet.sol"
+      instructions: |
+        Market-maker / operator roles. Flag: granting privilege without
+        a role/owner check, dual-grant patterns that could re-enable a
+        removed role.
+
+    - path: "contracts/facets/SettlementAdminFacet.sol"
+      instructions: |
+        Operator + trading-pause admin. The `tradingPaused` flag is read
+        by SettlementFacet's `notPaused` modifier — any change to who can
+        set it MUST be reviewed against the threat model in
+        audit/business-logic/invariants.md (INV-MISC-3).
+
+        NatSpec policy (CR-triage PR #23): `@notice` + `@param` + `@return`
+        baseline; `@custom:reverts` for any function that can revert (e.g.
+        owner-check path → `NotContractOwner`); `@custom:security` only when
+        the function crosses the INV-MISC-3 trust boundary. View-only getters:
+        `@notice` + `@return` is sufficient.
+
+    - path: "contracts/facets/ERC1155Facet.sol"
+      instructions: |
+        ERC-1155 entry points for position tokens. All bodies delegate to
+        LibERC1155. Flag: any new body that does NOT delegate (the
+        single-source-of-truth pattern is load-bearing for SEC-014 fix —
+        no duplicate event emissions).
+
+    - path: "contracts/facets/MarketDataFacet.sol"
+      instructions: |
+        Read-only registry lookups. Most are delegated to
+        LibPositionRegistry. Flag: a new function that reads the registry
+        storage directly instead of through the library (broken
+        encapsulation; see A-15 dead-code finding for the historical case
+        and CR-3291973204 for the `getPositionInfo` repeat).
+
+        NatSpec policy (CR-triage PR #23): `@notice` + `@param` + `@return`
+        REQUIRED; `@custom:security` / `@custom:audit` are NOT required on
+        view-only functions (the audit corpus covers them via
+        `audit/business-logic/invariants.md` cross-references, not per-function
+        tags). Only flag missing tags if a function is a NEW write path or
+        directly enforces a settlement invariant. The A-15 broken-encapsulation
+        check (every read MUST go through `LibPositionRegistry`) IS
+        load-bearing.
+
+    # ── Out-of-audit-scope contracts — light-touch review ──
+    - path: "contracts/facets/ConditionalTokensFacet.sol"
+      instructions: |
+        CTF from Gnosis — excluded from audit per
+        audit-exclusion-guidance.md. Review only for:
+        - changes to the public surface that affect SettlementFacet's
+          mint / merge / redeem paths
+        - reentrancy guards around `_handlePayoutTransfer` (the only
+          place this facet sets `_ENTERED`)
+
+    - path: "contracts/facets/ConditionManagerFacet.sol"
+      instructions: |
+        Condition lifecycle (prepare / cancel / resolve). Excluded from
+        deep CTF review per audit-exclusion-guidance.md, but flag:
+        - changes to `cancelCondition` (interacts with SCRUM-235 gate)
+        - changes to authorization (creator-or-owner pattern)
+        - any new mutator that affects `Condition.active` without
+          notifying the settlement path
+
+    - path: "contracts/facets/DoefinV1BlockHeaderOracleFacet.sol"
+      instructions: |
+        Bitcoin block-header oracle. Excluded from deep review per
+        audit-exclusion-guidance.md, but flag:
+        - changes to block-header validation (PoW, hash-chaining, median
+          timestamp) — these are consensus-shaped
+        - the ring-buffer arithmetic in `_applyChain` and any view
+          function that reads it (we already routed the views through
+          LibDoefinBlockHeaderOracle — flag if a new direct-read appears)
+
+    - path: "contracts/facets/DiamondCutFacet.sol"
+      instructions: |
+        Diamond standard. Upstream reference code per
+        audit-exclusion-guidance.md; review only changes to it. Flag any
+        modification.
+
+    - path: "contracts/facets/DiamondLoupeFacet.sol"
+      instructions: |
+        Diamond standard. Upstream reference code per
+        audit-exclusion-guidance.md; flag any modification.
+
+    - path: "contracts/facets/OwnershipFacet.sol"
+      instructions: |
+        Diamond standard. Upstream reference; flag any modification.
+
+    # ── Libraries ──
+    - path: "contracts/libraries/LibDoefinStorage.sol"
+      instructions: |
+        EIP-7201 namespaced storage layout (SCRUM-229). Flag:
+        - any new sub-struct INSIDE the legacy `AppStorage` (new modules
+          MUST get their own namespace library — see LibSettlementStorage
+          for the pattern)
+        - any change to an existing namespaced struct that isn't an
+          append (storage-layout drift is a hard-fail in CI via
+          test/storage/storage-layout-snapshot.test.js)
+        - missing `@custom:storage-location erc7201:<id>` annotation
+        - missing `& ~bytes32(uint256(0xff))` mask in slot derivation
+
+    - path: "contracts/libraries/LibDoefinOrder.sol"
+      instructions: |
+        EIP-712 typehash + order-hash math. Single source of truth for
+        cross-runtime parity (INV-SIG-1). Flag:
+        - any modification to DOEFIN_ORDER_TYPEHASH or the field list
+          of `hashCalldata` (must be matched in backend `encoder.py`
+          AND frontend generated ABI — call this out explicitly)
+        - any re-introduction of memory variants (they were removed in
+          SCRUM-234 A-12/13/14; production code uses calldata only)
+        - any change to `diamondDomainSeparator` (the SEC-004 fix
+          removed a cached separator — don't bring caching back)
+
+    - path: "contracts/libraries/LibSignature.sol"
+      instructions: |
+        ECDSA + EIP-1271 primitives. SEC-005 hardening:
+        - high-`s` malleability rejection MUST stay
+        - `v` normalization (0/1 → 27/28) MUST stay
+        - the `try IERC1271(...).isValidSignature` MUST stay typed (no
+          raw staticcall — see the SEC-005 rationale in NatSpec)
+
+    - path: "contracts/libraries/LibReentrancyGuard.sol"
+      instructions: |
+        Diamond-wide reentrancy guard. Flag any change. The
+        `_NOT_ENTERED`/`_ENTERED` sentinel values and the storage
+        location are load-bearing.
+
+    - path: "contracts/libraries/LibConstants.sol"
+      instructions: |
+        Shared constants. Only `BPS_DENOMINATOR` lives here today. Flag
+        new constants that are domain-specific — those belong with the
+        owning module (see SCRUM-234 INFO-3 reasoning).
+
+    - path: "contracts/libraries/LibCTFCondition.sol"
+      instructions: |
+        CTF library — excluded from audit per audit-exclusion-guidance.md.
+        Flag only: new public surface that affects settlement, changes to
+        `prepareCondition` or `_reportPayouts` (interacts with SCRUM-235).
+
+    - path: "contracts/libraries/LibCT*.sol"
+      instructions: |
+        CTF helpers from Gnosis. Excluded per audit-exclusion-guidance.md.
+        Flag only deviations from the upstream Gnosis CTF reference.
+
+    - path: "contracts/libraries/LibConditionMetadata.sol"
+      instructions: |
+        Question-metadata codec. Encoding is OFF-CHAIN by design (see
+        SCRUM-234 A-3..6 — the on-chain encoders were removed). Flag any
+        re-introduction of on-chain encoders.
+
+    - path: "contracts/libraries/LibPositionRegistry.sol"
+      instructions: |
+        CTF position registry. Flag:
+        - any new function that ISN'T routed through `validatePositionId`
+          before reading storage
+        - any change to `registerPositionPairs` consistency checks (L153,
+          L174, L179, L184, L194 are documented in
+          audit/test-engineering/mutation-report.md)
+        - re-introduction of the deleted functions (retrieveConditionId,
+          validateComplement, getMarketCount) without a real caller
+
+    - path: "contracts/libraries/LibDoefinBlockHeaderOracle.sol"
+      instructions: |
+        Block-header oracle reads. The 5 view functions are the single
+        source of truth — the facet routes through them. Flag any
+        re-introduction of inline duplicates in the facet.
+
+    - path: "contracts/libraries/LibOracleAdapter.sol"
+      instructions: |
+        Bitcoin-condition resolution. `settleCondition()` is called on
+        every block submission. Flag: changes to resolution math
+        (`_findBucketIndex`, payouts vector construction), changes to
+        ring-buffer access (`_getBlockHeaderByNumber`).
+
+    - path: "contracts/libraries/LibERC1155.sol"
+      instructions: |
+        ERC-1155 implementation. Flag:
+        - any new external state mutation that bypasses the
+          `_doSafeTransferAcceptanceCheck`
+        - any change to the operator-approval logic
+        - re-introduction of the duplicate `ApprovalForAll` emission
+          (SEC-014 — single source of truth in setApprovalForAll)
+
+    - path: "contracts/libraries/LibOrderValidity.sol"
+      instructions: |
+        Shared order-validity predicate. Mirrors `_validateOrder` but
+        returns bool. Flag drift between the two — they MUST agree on
+        which orders are valid.
+
+    - path: "contracts/libraries/Errors.sol"
+      instructions: |
+        Central custom-errors catalog. Flag duplicate errors, errors
+        defined but never used (dead code — run the SCRUM-234 reachability
+        toolchain to verify), or revert-string-style errors anywhere in
+        contracts/ (the repo is custom-errors-only).
+
+    - path: "contracts/libraries/Events.sol"
+      instructions: |
+        Central events catalog. Flag events defined but never emitted,
+        emissions outside this central catalog, or event-signature
+        changes that would break indexers.
+
+    - path: "contracts/libraries/BlockHeaderUtils.sol"
+      instructions: |
+        Bitcoin block-header math (PoW, hash, median). Excluded from
+        deep review per audit-exclusion-guidance.md, but flag any
+        change to the difficulty / hash-chain logic.
+
+    # ── Mocks + audit harness — test-only ──
+    - path: "contracts/mock/**"
+      instructions: |
+        Test-only contracts — per audit-exclusion-guidance.md the whole
+        folder is excluded from audit scope. Skip security review. Flag
+        only:
+        - accidental import from a production contract
+        - misleading naming (a "Mock*" that's actually production-shaped)
+        - missing test-only NatSpec
+        - new mocks that should be added to audit-exclusion-guidance.md's
+          named list
+
+    - path: "contracts/audit/DoefinInvariantHarness.sol"
+      instructions: |
+        Echidna / Medusa fuzzing harness. Test-only — not deployed. Skip
+        production-security review. Flag only echidna_*-prefixed
+        properties that look incorrect (e.g., assert `true` regardless
+        of state, miss a known invariant from audit/business-logic/
+        invariants.md).
+
+    - path: "contracts/upgradeInitializers/DiamondInit.sol"
+      instructions: |
+        Diamond initializer — runs ONCE on deploy. Review for:
+        - re-callability (`_init` MUST be idempotent or guarded)
+        - storage migration safety (any new field MUST be appended to
+          existing namespaced structs, never inserted; existing fields
+          MUST keep their slot)
+        - EIP-7201 namespace initialization order (no namespace read
+          before its initializer runs)
+
+    # ── Tests ──
+    - path: "test/audit/**"
+      instructions: |
+        Audit pentest suite. Filename convention: `<FINDING-ID>-<slug>.test.js`
+        (e.g. SEC-003-zero-collateral-fill.test.js, BIZ-001-merge-fee-
+        solvency.test.js). Each file proves an ATTACK is blocked AND
+        that the matching CONTROL settles. Flag:
+        - tests that assert `to.be.reverted` without `revertedWith(...)`
+          for known custom errors (waffle 3.4 limitation noted in the
+          codebase: parameterised custom errors on view calls use the
+          `expectRevertWithSelector` helper instead)
+        - missing CONTROL test
+        - tests that don't bind to a finding ID
+
+    - path: "test/integration/**"
+      instructions: |
+        Integration tests against a fully-deployed Diamond fixture. Flag
+        tests that mock production paths instead of exercising the real
+        facet flow.
+
+    - path: "test/unit/SettlementFacet/**"
+      instructions: |
+        Settlement-core unit tests. The fixture `test/utils/auditFixture.js`
+        is the canonical setup — flag tests that reimplement the fixture.
+        Coverage gaps are tracked in audit/business-logic/coverage.md.
+
+    - path: "test/unit/**"
+      instructions: |
+        Per-facet / per-library unit tests, Hardhat + Mocha + Chai. Flag:
+        - soft assertions on parameterised custom errors
+        - tests that don't exercise the negative case they claim
+        - duplicated fixture setup (should reuse test/utils/auditFixture.js)
+        - tests missing the file-header rationale comment block
+
+    - path: "test/storage/**"
+      instructions: |
+        EIP-7201 storage-layout CI gate (SCRUM-229). Flag: any change to
+        the recorded snapshot that doesn't come with a corresponding
+        intentional storage change. The snapshot regen is gated by the
+        env var UPDATE_STORAGE_SNAPSHOT=true.
+
+    - path: "test/utils/**"
+      instructions: |
+        Shared test helpers. Flag any change that breaks the public
+        contract of `auditFixture.js` (the `ctx` shape — contracts,
+        signers, market, constants, helpers).
+
+    # ── Scripts ──
+    - path: "scripts/deploy.js"
+      instructions: |
+        Diamond deploy script. Defines the `FacetNames` root set that the
+        Layer-2 dead-code reachability uses as its live-functions seed.
+        Adding / removing a facet here MUST be paired with:
+        - the corresponding facet in contracts/facets/
+        - an `addFacet` call here with the right selector list
+        - audit/00-scope.md update if the facet is in audit scope
+        - audit-exclusion-guidance.md update if the facet is OUT of scope
+
+    - path: "scripts/admin-scripts/**"
+      instructions: |
+        Operational admin scripts. Flag:
+        - hardcoded mainnet addresses without an env-var override
+        - missing `--dry-run` / confirmation step on destructive ops
+        - missing assertion that the executing signer is the owner
+
+    # ── Audit docs — flag drift, recommend not re-deriving ──
+    - path: "audit/findings/**"
+      instructions: |
+        Audit findings. Each finding should have: status (RESOLVED /
+        ACCEPTED / IN-FLIGHT / DOCUMENTED), severity, repro / attack
+        model, fix link (commit SHA). Flag:
+        - findings unfixed AND classified CRITICAL/HIGH
+        - finding status changed without a corresponding code commit
+        - new finding without a SCRUM ticket reference
+
+    - path: "audit/business-logic/**"
+      instructions: |
+        Domain-3 business-logic deliverables (invariants + coverage). The
+        22 invariants drive the test suite. Flag:
+        - invariant status change without a corresponding test commit
+        - new invariant without a `coverage.md` row
+        - coverage % regression without an explanation
+
+    - path: "audit/test-engineering/mutation-report.md"
+      instructions: |
+        Mutation-testing log. Flag: new mutant marked SURVIVED without a
+        stated reason (layered guard, dead-defensive, etc.).
+
+    - path: "audit-exclusion-guidance.md"
+      instructions: |
+        Tells external auditors which contracts to skip during review.
+        Flag:
+        - listed files missing from the filesystem (linkrot — last
+          drift had 3 deleted CC mocks)
+        - new in-scope contracts not implicitly covered
+        - new exclusions without rationale
+
+    # ── CR-triage PR #23 — recurring false-positive patterns absorbed ──
+
+    # OracleAdapterFacet — added per CR-triage PR #23 (was missing).
+    - path: "contracts/facets/OracleAdapterFacet.sol"
+      instructions: |
+        View-only adapter against the Bitcoin block-header oracle. NatSpec
+        policy: `@notice` + `@param` + `@return` baseline. The
+        `@custom:security` / `@custom:audit` blanket set is NOT required —
+        this surface is not on the v3 settlement audit gate (it is a
+        condition-resolution helper, NOT a price oracle).
+
+    # MD040 fence-language sweep — bundle, don't per-comment.
+    - path: "audit/**/*.md"
+      instructions: |
+        Markdown lint MD040 (fenced code blocks must have a language tag) is
+        accepted policy but executed as a SINGLE sweep ticket (CR-DOCS-MD040),
+        not per-finding. DO NOT raise a separate comment for each untagged
+        fence. If the policy or list of untagged blocks needs to evolve, post
+        one consolidated comment on the file naming the line ranges.
+
+        Also: this corpus is pinned to specific commits (e.g. the per-finding
+        markdown lives in `audit/findings/` at the audit-frozen SHA). Avoid
+        suggesting "rewrite in place" for stale references — the convention is
+        to APPEND a resolution footnote (see `audit/business-logic/invariants.md`
+        for the "supersedes" pattern), not edit the original assertion.
+
+    - path: "docs/**/*.md"
+      instructions: |
+        MD040 same as above — single-sweep, not per-comment.
+
+    # Absolute filesystem paths in audit/ artifacts — single janitor sweep.
+    - path: "audit/**"
+      instructions: |
+        Local-filesystem absolute paths (`/Users/...`, `/home/...`, etc.) are
+        not allowed in committed artifacts under `audit/`. If a CR comment
+        flags one, point at the CR-DOCS-ABSPATH sweep and don't apply per-file.
+
+    # GitHub Actions hardening — one bundled ticket, not per-step.
+    - path: ".github/workflows/**"
+      instructions: |
+        Hardening policy: workflow-level `permissions: { contents: read }` by
+        default; SHA-pin every `actions/*` and third-party action; add
+        `persist-credentials: false` to every `actions/checkout` step. These
+        are tracked as ONE ticket (CR-CI-HARDEN) — do not raise per-step
+        Major issues; one summary per file is enough.
+
+    # ── Backend / frontend coordination ──
+    - path: "**/*.sol"
+      instructions: |
+        Cross-repo coordination. ANY change to:
+        - LibDoefinOrder (EIP-712 typehash, field list, domain version)
+        - SettlementFacet external surface (matchOrders / fillOrder
+          signatures, OrderSettled / OrdersMatched event signatures)
+        - IMarketData interface
+        REQUIRES a matched change in doefin-backend (`shared/scw/encoder.py`,
+        `match-engine/app/utils/settlement_abi.py`) and/or doefin-frontend
+        (`contracts/doefin/v3/generated/`). FLAG this in the review.
+
+  # ──────────────────────────────────────────────────────────────────────
+  # Tool integrations — CodeRabbit runs these and merges findings into the
+  # PR review. The v2 schema's catalog is at
+  # https://coderabbit.ai/integrations/schema.v2.json (60+ tools).
+  #
+  # Notable absences vs the dev wishlist:
+  #   * Solidity linter (solhint) — NOT in v2 catalog. Runs in CI instead
+  #     (.github/workflows/ci.yml), where CodeRabbit reads its check-run
+  #     status and incorporates failures into the review summary.
+  #   * Slither — NOT in v2 catalog. Same model — runs in CI
+  #     (.github/workflows/slither.yml), posts SARIF + PR comment,
+  #     CodeRabbit reads both.
+  # ──────────────────────────────────────────────────────────────────────
+  tools:
+    # Pattern-based security scanner — has Solidity rules in the registry.
+    semgrep:
+      enabled: true
+
+    # Secrets scan — public repo, mandatory.
+    gitleaks:
+      enabled: true
+
+    # AST-grep for custom Solidity patterns; see security/ast-grep/ if added.
+    ast-grep:
+      enabled: true
+
+    # Docs hygiene — keeps the audit/ markdown clean.
+    markdownlint:
+      enabled: true
+
+    # Light grammar / prose check; only Markdown for now.
+    languagetool:
+      enabled: true
+      enabled_only: false
+
+    # YAML hygiene (this file, CI workflows, audit configs).
+    yamllint:
+      enabled: true
+
+    # Shell scripts (security/scripts/, scripts/).
+    shellcheck:
+      enabled: true
+
+    # Slither is NOT a first-class CodeRabbit tool today; it runs in
+    # `.github/workflows/slither.yml` and posts SARIF + a PR comment.
+    # CodeRabbit reads existing PR comments and incorporates them into
+    # the review, so the integration is implicit. See
+    # .github/CODERABBIT.md for the rationale and rollout steps.
+
+# ──────────────────────────────────────────────────────────────────────
+# Chat — `@coderabbitai` mentions in PR comments. Cheat sheet lives in
+# .github/CODERABBIT.md.
+# ──────────────────────────────────────────────────────────────────────
+chat:
+  auto_reply: true
+
+# ────────────────────────────────────────────────────────────────────────
+# Knowledge base — the v2 schema makes this entirely YAML-able. There is
+# NO file upload mechanism in the dashboard despite what older guides
+# claim; the dashboard's KB page is just a form for the fields below.
+# Editing here in git is the same as editing there.
+# ────────────────────────────────────────────────────────────────────────
+knowledge_base:
+  opt_out: false
+
+  # Web search (default true) — lets CodeRabbit pull external context
+  # (EIPs, OpenZeppelin, Solidity docs, audit-tool docs) when relevant.
+  web_search:
+    enabled: true
+
+  # Code guidelines — point CodeRabbit at in-repo guideline docs. It
+  # scans them on every review and applies their content as project-
+  # specific standards. This is the YAML/in-repo equivalent of
+  # "uploading docs to the KB" — the dashboard's KB page surfaces the
+  # SAME `filePatterns` array under a friendlier name. Patterns are
+  # case-sensitive globs.
+  code_guidelines:
+    enabled: true
+    filePatterns:
+      - "audit-exclusion-guidance.md"
+      - "audit/business-logic/invariants.md"
+      - "audit/business-logic/coverage.md"
+      - "audit/findings-ledger.md"
+      - "audit/REPORT.md"
+      - "audit/findings/manual-review-dead-code-A2-A3to6.md"
+      - "audit/test-engineering/mutation-report.md"
+      - ".claude/CLAUDE.md"
+      - ".github/CODERABBIT.md"
+
+  # Cross-repo context — CodeRabbit considers PRs / code in linked repos
+  # when reviewing this repo. The Doefin protocol is tri-repo (contracts
+  # / backend / frontend) and the EIP-712 typehash + ABI shapes MUST
+  # agree across all three; linking surfaces drift at PR time.
+  # Prerequisite: the CodeRabbit GitHub App must be installed on the
+  # linked repos.
+  linked_repositories:
+    - repository: "Doefin/doefin-backend"
+      instructions: |
+        Off-chain orderbook + match-engine + block-indexer. ABI / EIP-712
+        parity surface that mirrors v3 contracts:
+        - shared/scw/encoder.py (LibDoefinOrder EIP-712 encoder)
+        - match-engine/app/utils/settlement_abi.py (SettlementFacet ABI)
+        - match-engine/app/services/settlement_service.py (matchOrders
+          submission)
+        - block-indexer/app/utils/block_header_oracle_client.py
+          (submitNextBlock / submitBatchBlocks call sites)
+        Any v3 contract change to the LibDoefinOrder typehash / struct,
+        matchOrders/fillOrder signature, or BlockHeaderOracle surface
+        REQUIRES a matched change here. Flag PRs that drift.
+    - repository: "Doefin/doefin-frontend"
+      instructions: |
+        v3 Diamond ABI consumers live at
+        contracts/doefin/v3/generated/ (diamond.ts +
+        mergedDiamondABI.json). Any change to a v3 facet's external
+        surface (matchOrders, fillOrder, IMarketData, etc.) MUST
+        regenerate these. Flag PRs that change the facet surface
+        without a matching frontend regen.
+
+  learnings:
+    scope: auto
+  issues:
+    scope: auto
+  pull_requests:
+    scope: auto
+
+  # Issue-tracker integrations — these flags surface tracker tickets as
+  # KB context on PRs that reference SCRUM-* / DOE-* / etc. tickets.
+  # The actual OAuth wiring (token, account link) is the only thing
+  # that genuinely has to live in the dashboard.
+  jira:
+    usage: auto
+  linear:
+    usage: auto
+
+# ────────────────────────────────────────────────────────────────────────
+# Code generation — drives `@coderabbitai generate docstrings` and
+# `generate unit tests` PR commands. The path_instructions arrays here
+# are the same field the dashboard's "Code generation" page exposes.
+# Per-path so the docstring/test style is right for facets vs libraries
+# vs mocks vs each test layer.
+# ────────────────────────────────────────────────────────────────────────
+code_generation:
+  docstrings:
+    language: "en-US"
+    path_instructions:
+      - path: "contracts/facets/**/*.sol"
+        instructions: |
+          Solidity NatSpec for Doefin v3 facets. Required tags on every
+          external/public function:
+            @notice  — user-facing one-liner
+            @dev     — developer note (include CEI ordering / reentrancy
+                       reasoning where the function is on the
+                       settlement hot path; reference INV-* / SEC-* /
+                       BIZ-* / SCRUM-* IDs the function enforces or
+                       relies on)
+            @param <name>  — for each argument
+            @return <name> — for each return value
+            @custom:security  — for any invariant the function enforces
+                                (cite the ID — e.g. SEC-003, BL-N2,
+                                SCRUM-235)
+            @custom:audit     — for any audit finding the function
+                                resolves
+            @custom:reverts <ErrorName>, ...  — every custom error the
+                                                function can revert with
+          Internal helpers: at minimum @notice + @dev. Match the
+          existing dense style in SettlementFacet (see _validateOrder,
+          _settleX).
+      - path: "contracts/libraries/Lib*.sol"
+        instructions: |
+          NatSpec for libraries. @notice + @dev minimum. Mark which
+          facet calls the function. Libraries assume validated inputs —
+          state this in @dev where applicable. For storage-namespaced
+          libs (Lib*Storage), include the EIP-7201 storage-location
+          comment (`@custom:storage-location erc7201:<id>`).
+      - path: "contracts/mock/**"
+        instructions: |
+          Test-only contracts. NatSpec should explicitly say the
+          contract is test-only and what production behaviour it
+          simulates (e.g. "returns a non-magic ERC-1155 selector to
+          exercise LibERC1155._doSafeTransfer*AcceptanceCheck
+          rejection").
+  unit_tests:
+    path_instructions:
+      - path: "test/audit/**"
+        instructions: |
+          Audit pentest suite. Filename convention:
+          `<FINDING-ID>-<slug>.test.js` (e.g.
+          SEC-003-zero-collateral-fill.test.js, SCRUM-235-...). Every
+          file MUST:
+            (a) prove the attack is blocked with at least one explicit
+                `revertedWith("ErrorName(args...)")` assertion;
+            (b) include a CONTROL `it("CONTROL — ... settles normally")`
+                test of the legitimate case;
+            (c) start with a rationale block citing the invariant /
+                finding it pins (see
+                test/audit/SCRUM-235-*.test.js for the template);
+            (d) reuse setupAuditFixture from test/utils/auditFixture.js.
+          For view-call reverts of PARAMETERISED custom errors, use the
+          `expectRevertWithSelector` helper (waffle 3.4 limitation
+          documented in coverage.md).
+      - path: "test/unit/**"
+        instructions: |
+          Per-facet / per-library unit tests, Hardhat + Mocha + Chai.
+          Reuse test/utils/auditFixture.js (setupAuditFixture). Every
+          test exercises the negative case it claims. No soft
+          `.to.be.reverted` on known custom errors. Each describe block
+          names the line(s) of contracts/ it pins.
+      - path: "test/integration/**"
+        instructions: |
+          Integration tests against a fully-deployed Diamond fixture.
+          Don't mock production paths — drive the real facet flow.

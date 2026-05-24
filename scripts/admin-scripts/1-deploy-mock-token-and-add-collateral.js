@@ -1,215 +1,95 @@
 const { ethers } = require("hardhat");
 require("dotenv").config();
 
+async function deployOrAttach(name, symbol, decimals, existingAddress, provider) {
+    if (existingAddress) {
+        try {
+            const token = await ethers.getContractAt("MockERC20", existingAddress);
+            const onChainSymbol = await token.symbol();
+            const onChainDecimals = await token.decimals();
+            console.log(`   ✅ Reusing ${onChainSymbol} (${onChainDecimals} dec) at ${existingAddress}`);
+            return { token, address: existingAddress, deployed: false };
+        } catch {
+            console.log(`   ⚠️  Could not connect to ${existingAddress}, deploying new ${symbol}`);
+        }
+    }
+
+    console.log(`   Deploying ${name} (${symbol}, ${decimals} decimals)...`);
+    const MockERC20 = await ethers.getContractFactory("MockERC20");
+    const token = await MockERC20.deploy(name, symbol, decimals);
+    await token.deployed();
+    await token.deployTransaction.wait(2);
+    console.log(`   ✅ ${symbol} deployed at ${token.address}`);
+    return { token, address: token.address, deployed: true };
+}
+
+async function registerCollateral(diamond, tokenAddress, decimals, symbol) {
+    let isAlready = false;
+    try {
+        isAlready = await diamond.isAllowedCollateral(tokenAddress);
+    } catch {}
+
+    if (isAlready) {
+        console.log(`   ✅ ${symbol} already registered as collateral`);
+        return;
+    }
+
+    const unitPerPair = ethers.utils.parseUnits("1", decimals);
+    const tx = await diamond.addCollateralToken(tokenAddress, unitPerPair, { gasLimit: 500000 });
+    await tx.wait();
+    console.log(`   ✅ ${symbol} registered as collateral (unit: 1e${decimals})`);
+}
+
 async function main() {
-    console.log("🚀 Starting collateral token setup and registration...");
-    
+    console.log("🚀 Deploying mock tokens and registering as collateral...");
+
     const [deployer] = await ethers.getSigners();
-    console.log("📝 Operating with account:", deployer.address);
-    console.log("💰 Account balance:", ethers.utils.formatEther(await deployer.getBalance()), "ETH");
-    
-    // Get Diamond address from environment
+    console.log("📝 Account:", deployer.address);
+    console.log("💰 Balance:", ethers.utils.formatEther(await deployer.getBalance()), "ETH");
+
     const DIAMOND_ADDRESS = process.env.DIAMOND_ADDRESS;
-    if (!DIAMOND_ADDRESS) {
-        throw new Error("❌ Please set DIAMOND_ADDRESS in .env file");
+    if (!DIAMOND_ADDRESS) throw new Error("❌ DIAMOND_ADDRESS not set in .env");
+    console.log("💎 Diamond:", DIAMOND_ADDRESS);
+
+    // ── Deploy tokens ────────────────────────────────────────────────────────
+    console.log("\n1️⃣  mWBTC (8 decimals)");
+    const { token: wbtc, address: wbtcAddress, deployed: wbtcNew } =
+        await deployOrAttach("Mock Wrapped Bitcoin", "mWBTC", 8, process.env.MWBTC_TOKEN_ADDRESS);
+
+    console.log("\n2️⃣  mUSDT (6 decimals)");
+    const { token: usdt, address: usdtAddress, deployed: usdtNew } =
+        await deployOrAttach("Mock Tether USD", "mUSDT", 6, process.env.MUSDT_TOKEN_ADDRESS);
+
+    // ── Mint initial supply to deployer ──────────────────────────────────────
+    if (wbtcNew) {
+        const supply = ethers.utils.parseUnits("1000000", 8); // 1 M mWBTC
+        await (await wbtc.mint(deployer.address, supply)).wait();
+        console.log("\n   Minted 1,000,000 mWBTC to deployer");
     }
-    console.log("💎 Diamond Address:", DIAMOND_ADDRESS);
-
-    let mockTokenAddress;
-    let shouldDeployNew = true;
-
-    // Check if we already have a collateral token address in .env
-    if (process.env.COLLATERAL_TOKEN_ADDRESS) {
-        console.log("\n📋 Found existing collateral token in .env:", process.env.COLLATERAL_TOKEN_ADDRESS);
-        
-        // Try to connect to existing token
-        try {
-            const existingToken = await ethers.getContractAt("MockERC20", process.env.COLLATERAL_TOKEN_ADDRESS);
-            const name = await existingToken.name();
-            const symbol = await existingToken.symbol();
-            const decimals = await existingToken.decimals();
-            
-            console.log(`✅ Connected to existing token: ${name} (${symbol}) with ${decimals} decimals`);
-            mockTokenAddress = process.env.COLLATERAL_TOKEN_ADDRESS;
-            shouldDeployNew = false;
-            
-        } catch (error) {
-            console.log("⚠️ Cannot connect to existing token, will deploy new one");
-            console.log("Error:", error.message);
-        }
+    if (usdtNew) {
+        const supply = ethers.utils.parseUnits("1000000000", 6); // 1 B mUSDT
+        await (await usdt.mint(deployer.address, supply)).wait();
+        console.log("   Minted 1,000,000,000 mUSDT to deployer");
     }
 
-    if (shouldDeployNew) {
-        // Deploy MockBTC Token
-        console.log("\n1️⃣ Deploying new MockBTC Token...");
-        const MockERC20 = await ethers.getContractFactory("MockERC20");
-        const mockToken = await MockERC20.deploy(
-            "MockBTC",
-            "mBTC",
-            18  // 18 decimals (using 18 for testing, real BTC has 8)
-        );
-        
-        await mockToken.deployed();
-        mockTokenAddress = mockToken.address;
-        console.log("✅ MockBTC deployed at:", mockTokenAddress);
-        
-        // Wait for deployment to be fully confirmed
-        console.log("⏳ Waiting for deployment confirmation...");
-        await mockToken.deployTransaction.wait(2); // Wait for 2 confirmations
-        console.log("✅ Deployment confirmed");
-        
-        // Mint initial supply to deployer
-        console.log("\n📈 Minting initial supply...");
-        const initialSupply = ethers.utils.parseEther("1000000"); // 1M tokens
-        try {
-            const mintTx = await mockToken.mint(deployer.address, initialSupply);
-            await mintTx.wait();
-            console.log("✅ Minted", ethers.utils.formatEther(initialSupply), "tokens to deployer");
-        } catch (mintError) {
-            console.error("❌ Mint failed:", mintError.message);
-            throw mintError;
-        }
-        
-        console.log("💡 Update your .env file with:");
-        console.log(`COLLATERAL_TOKEN_ADDRESS=${mockTokenAddress}`);
-    }
-
-    // Get token contract instance
-    const mockToken = await ethers.getContractAt("MockERC20", mockTokenAddress);
-    const tokenName = await mockToken.name();
-    const tokenSymbol = await mockToken.symbol();
-    const tokenDecimals = await mockToken.decimals();
-    
-    console.log(`\n📊 Token Info: ${tokenName} (${tokenSymbol}) - ${tokenDecimals} decimals`);
-    
-    // Check token balance
-    const balance = await mockToken.balanceOf(deployer.address);
-    console.log(`💰 Your balance: ${ethers.utils.formatUnits(balance, tokenDecimals)} ${tokenSymbol}`);
-    
-    // Get Diamond contract interface
-    console.log("\n2️⃣ Connecting to Diamond contract...");
+    // ── Register both as collateral ──────────────────────────────────────────
+    console.log("\n3️⃣  Registering collateral tokens...");
     const AdminConfigFacet = await ethers.getContractFactory("AdminConfigFacet");
     const diamond = AdminConfigFacet.attach(DIAMOND_ADDRESS);
-    
-    // Check if token is already registered as collateral
-    console.log("\n3️⃣ Checking collateral registration status...");
-    let isAlreadyCollateral = false;
-    try {
-        isAlreadyCollateral = await diamond.isAllowedCollateral(mockTokenAddress);
-        console.log(`📋 Is ${tokenSymbol} already registered as collateral:`, isAlreadyCollateral);
-    } catch (error) {
-        console.log("⚠️ Cannot check collateral status:", error.message);
-    }
-    
-    if (!isAlreadyCollateral) {
-        // Add collateral token with proper unit
-        console.log(`\n4️⃣ Registering ${tokenSymbol} as collateral...`);
-        const unitPerPair = ethers.utils.parseUnits("1", tokenDecimals); // 1 token unit
-        console.log("🔧 Setting unit per pair to:", ethers.utils.formatUnits(unitPerPair, tokenDecimals), tokenSymbol);
-        
-        try {
-            const addCollateralTx = await diamond.addCollateralToken(mockTokenAddress, unitPerPair, {
-                gasLimit: 500000 // Sufficient gas limit
-            });
-            console.log("📤 Transaction sent:", addCollateralTx.hash);
-            
-            // Wait for confirmation
-            const receipt = await addCollateralTx.wait();
-            console.log("✅ Transaction confirmed in block:", receipt.blockNumber);
-            
-            // Parse events
-            const collateralAddedEvent = receipt.logs.find(log => {
-                try {
-                    const parsed = diamond.interface.parseLog(log);
-                    return parsed.name === "CollateralTokenAdded";
-                } catch {
-                    return false;
-                }
-            });
-            
-            if (collateralAddedEvent) {
-                const parsed = diamond.interface.parseLog(collateralAddedEvent);
-                console.log("🎉 CollateralTokenAdded event emitted:", {
-                    token: parsed.args.token,
-                    unitPerPair: ethers.utils.formatUnits(parsed.args.unitPerPair, tokenDecimals)
-                });
-            }
-        } catch (error) {
-            console.error("❌ Failed to add collateral token:", error.message);
-            throw error;
-        }
-    } else {
-        console.log(`✅ ${tokenSymbol} is already registered as collateral`);
-    }
-    
-    
-    // Verify collateral registration
-    console.log("\n5️⃣ Verifying collateral registration...");
-    await new Promise(resolve => setTimeout(resolve, 2000)); // Wait for state update
-    
-    try {
-        const isCollateral = await diamond.isAllowedCollateral(mockTokenAddress);
-        console.log(`✅ ${tokenSymbol} is allowed as collateral:`, isCollateral);
-        
-        if (isCollateral) {
-            const collateralUnit = await diamond.getCollateralUnit(mockTokenAddress);
-            console.log(`✅ Collateral unit per pair: ${ethers.utils.formatUnits(collateralUnit, tokenDecimals)} ${tokenSymbol}`);
-        }
-        
-    } catch (error) {
-        console.log("⚠️ Verification check failed:", error.message);
-        console.log("(This is often normal due to timing, collateral should still be registered)");
-    }
-    
-    // Check token balance and approve diamond
-    console.log("\n6️⃣ Setting up token approvals...");
-    const currentBalance = await mockToken.balanceOf(deployer.address);
-    if (currentBalance.gt(0)) {
-        console.log(`💰 Current ${tokenSymbol} balance: ${ethers.utils.formatUnits(currentBalance, tokenDecimals)}`);
-        
-        // Approve Diamond to spend tokens
-        const approveAmount = currentBalance.div(2); // Approve half of balance
-        console.log(`🔓 Approving Diamond to spend ${ethers.utils.formatUnits(approveAmount, tokenDecimals)} ${tokenSymbol}...`);
-        
-        try {
-            const approveTx = await mockToken.approve(DIAMOND_ADDRESS, approveAmount);
-            await approveTx.wait();
-            console.log("✅ Approval successful");
-            
-            // Verify allowance
-            const allowance = await mockToken.allowance(deployer.address, DIAMOND_ADDRESS);
-            console.log(`✅ Diamond allowance: ${ethers.utils.formatUnits(allowance, tokenDecimals)} ${tokenSymbol}`);
-            
-        } catch (error) {
-            console.error("❌ Approval failed:", error.message);
-        }
-    } else {
-        console.log("⚠️ No token balance to approve");
-    }
-    
-    console.log("\n🎉 Collateral token setup complete!");
-    console.log("\n📋 Summary:");
-    console.log(`   Token: ${tokenName} (${tokenSymbol})`);
-    console.log(`   Address: ${mockTokenAddress}`);
-    console.log(`   Diamond: ${DIAMOND_ADDRESS}`);
-    console.log(`   Collateral Status: ✅ Registered`);
-    
-    console.log("\n💡 Environment Variables for .env:");
-    console.log(`COLLATERAL_TOKEN_ADDRESS=${mockTokenAddress}`);
-    if (!process.env.COLLATERAL_TOKEN_ADDRESS || process.env.COLLATERAL_TOKEN_ADDRESS !== mockTokenAddress) {
-        console.log("⚠️  Please update your .env file with the above address");
-    }
-    
-    console.log("\n🔄 Next Steps:");
-    console.log("   1. Run script 2: Add market maker");
-    console.log("   2. Run script 3: Mint and approve more tokens");
-    console.log("   3. Run script 4: Create prediction condition");
-    console.log("\n   Command: npx hardhat run scripts/admin-scripts/2-add-market-maker.js --network baseSepolia");
+
+    await registerCollateral(diamond, wbtcAddress, 8, "mWBTC");
+    await registerCollateral(diamond, usdtAddress, 6, "mUSDT");
+
+    // ── Summary ──────────────────────────────────────────────────────────────
+    console.log("\n🎉 Done!");
+    console.log("\n📋 Add to .env:");
+    console.log(`MWBTC_TOKEN_ADDRESS=${wbtcAddress}`);
+    console.log(`MUSDT_TOKEN_ADDRESS=${usdtAddress}`);
+    console.log(`COLLATERAL_TOKEN_ADDRESS=${wbtcAddress}   # backward-compat alias → mWBTC`);
+
+    console.log("\n🔄 Next: run script 2 (add market maker), then script 3 (mint & approve)");
 }
 
 main()
     .then(() => process.exit(0))
-    .catch((error) => {
-        console.error("❌ Error:", error);
-        process.exit(1);
-    });
+    .catch((err) => { console.error("❌", err); process.exit(1); });

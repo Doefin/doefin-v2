@@ -1,12 +1,16 @@
 // SPDX-License-Identifier: AGPL-3.0
-pragma solidity ^0.8.6;
+pragma solidity ^0.8.20;
 
 import {Errors} from "./Errors.sol";
+import {LibAdminConfigStorage} from "./LibAdminConfigStorage.sol";
 
 library LibDoefinStorage {
-    bytes32 constant STORAGE_POSITION = keccak256("doefin.storage");
+    /// @dev EIP-7201 namespace slot (SCRUM-229). Derivation:
+    ///      keccak256(abi.encode(uint256(keccak256("doefin.storage")) - 1)) & ~bytes32(uint256(0xff))
+    bytes32 constant STORAGE_POSITION = 0x26d752abf95a31d8b4cda72a9be2cc28c453c1753ef2a7ccea83511d861de800;
 
-    // Add initialization flag
+    // Initialization flag — a single-slot guard, not a growable namespace, so it keeps
+    // a plain keccak256 slot rather than the EIP-7201 derivation.
     bytes32 constant INITIALIZED_POSITION = keccak256("doefin.storage.initialized");
 
     // Block Header Oracle constants
@@ -115,194 +119,10 @@ library LibDoefinStorage {
         address creator;
     }
 
-    struct AccessControlStorage {
-        mapping(address => bool) marketMakers;
-        uint256[10] __gap;
-    }
-
-    struct AdminConfigStorage {
-        mapping(address => bool) isAllowed;
-        mapping(address => uint256) unitPerPair; // token => unit amount (e.g., 1e6 USDC)
-        mapping(address => string) tokenSymbols; // token => symbol (e.g., "BTC", "USDC", "USDT")
-        mapping(bytes32 => bytes32[]) conversionPaths; // keccak256(abi.encodePacked(fromToken, toToken)) => oracle asset IDs
-        address feeReceiver;
-        uint16 resolutionFeeBps;
-        uint16 makerTradingFeeBps;
-        uint16 takerTradingFeeBps;
-        uint256[10] __gap;
-    }
-
-    /// @notice Enum representing whether an order is a Buy or a Sell
-    enum OrderDirection {
-        Buy,
-        Sell
-    }
-
-    enum ExecutionType {
-        Market,
-        Limit
-    }
-
-    enum OrderType {
-        Standard, // Regular buy/sell in collateral token
-        Fixed, // Orders that use quote currency for pricing/settlement
-        Dynamic // Orders that use dynamic exchange rates from oracles, priced in collateral token
-    }
-
-    struct OrderFeeConfig {
-        uint16 makerFeeBps;
-        uint16 takerFeeBps;
-    }
-
-    struct CrossCurrencyData {
-        /// @notice Quote currency token address (e.g., ETH, BTC, WETH)
-        address quoteCurrencyToken;
-        /// @notice Floor exchange rate to use for pricing
-        /// @dev For Fixed: It's always 0, since the price is in Quote Currency
-        /// @dev For Dynamic Buy it's the max rate (worst case for buyer)
-        /// @dev For Dynamic Sell it's the min rate (worst case for seller)
-        uint64 floorRate;
-    }
-
-    struct SettlementExecutionContext {
-        uint256 fillableAmount;
-        Order takerOrder;
-        Order makerOrder;
-        MatchType matchType;
-        ExecutionType executionType;
-    }
-
-    struct ModifyCollateralContext {
-        uint256 positionId;
-        uint256 oldAmount;
-        uint256 newAmount;
-        uint256 oldPrice;
-        uint256 newPrice;
-        address maker;
-        uint16 makerFeeBps;
-        address collateralToken;
-        OrderDirection direction;
-    }
-
-    struct SimulationContext {
-        uint256[] complementaryOrders;
-        uint256[] mintOrMergeOrders;
-        MatchType siblingMatchType;
-        OrderDirection direction;
-        uint256 collateralUnit;
-        uint256 sharesOrBudgetAmount;
-        uint256 matchCount;
-        OrderType orderType;
-    }
-
-    struct Match {
-        uint256 matchedOrderId;
-        uint256 amount;
-        uint256 effectivePrice;
-        MatchType matchType;
-    }
-
-    struct MatchOrderRoute {
-        Match[] matches;
-        uint256 totalInputAmount;
-        uint256 totalOutputAmount;
-    }
-
-    enum MatchType {
-        None,
-        Complementary,
-        Mint, // Via split (matching against sibling Buy)
-        Merge, // Via merge (matching against sibling Sell)
-        CrossCurrency // Cross-currency matches
-    }
-
-    /// @notice Struct representing a single limit or market order
-    /// @dev Each order maps to a specific ERC1155 position token and can be either a buy or a sell
-    /// @notice Struct representing a single limit or market order
-    /// @dev Optimized storage packing: 7 slots (224 bytes), saves 96 bytes per order
-    /// @dev Slot layout ensures efficient gas usage through careful field ordering and size selection
-    struct Order {
-        /// @notice Position ID of the outcome token being traded
-        /// @dev Maps to ERC1155 token ID in the Conditional Tokens Framework
-        uint256 positionId;
-        /// @notice Total size of the order in outcome tokens
-        /// @dev Immutable after creation (unless modified via modifyOrder)
-        uint256 amount;
-        /// @notice Amount of tokens remaining to be filled
-        /// @dev Decreases as the order is matched; 0 means fully filled
-        uint256 remainingAmount;
-        /// @notice Minimum amount that must be filled in a single match
-        /// @dev Set to 0 for no minimum; prevents dust fills
-        uint256 minFillAmount;
-        /// @notice Price per outcome token
-        /// @dev For Standard orders: denominated in collateral token (e.g., 0.65 USDC per YES token)
-        /// @dev For CC Fixed orders: denominated in quote currency (e.g., 0.66 USDT per YES token)
-        /// @dev For CC Dynamic orders: floor price in collateral token (e.g., 0.000007 BTC per YES token)
-        uint256 pricePerToken;
-        /// @notice Address of the order creator
-        /// @dev Has permission to cancel or modify the order
-        address maker; // 20 bytes
-        /// @notice Timestamp after which the order becomes invalid
-        /// @dev Set to 0 for no expiry; uint32 supports dates until February 2106
-        uint32 expiry; // 4 bytes
-        /// @notice Timestamp when the order was created
-        /// @dev Used for FIFO tiebreaking when prices are equal; uint32 until year 2106
-        uint32 createdAt; // 4 bytes
-        /// @notice Maker fee in basis points (1 bp = 0.01%)
-        /// @dev Applied when this order is the passive side (maker) in a trade
-        uint16 makerFeeBps; // 2 bytes
-        /// @notice Taker fee in basis points (1 bp = 0.01%)
-        /// @dev Applied when this order is the aggressive side (taker) in a trade
-        uint16 takerFeeBps; // 2 bytes
-        /// @notice Address of the collateral token (e.g., USDC, WETH, BTC)
-        /// @dev Standard/Dynamic orders: token used for pricing and settlement
-        /// @dev Fixed CC orders: base token, but settlement occurs in quote currency
-        address collateralToken; // 20 bytes
-        /// @notice Unique identifier for this order
-        /// @dev Incrementally assigned; uint64 supports 18 quintillion orders
-        uint256 orderId; // 32 bytes
-        /// @notice Whether this is a Buy or Sell order
-        /// @dev Buy: user provides collateral, receives outcome tokens
-        /// @dev Sell: user provides outcome tokens, receives collateral
-        OrderDirection direction; // 1 byte
-        /// @notice Order execution type
-        /// @dev Market: executes immediately at best available price
-        /// @dev Limit: only executes at specified price or better
-        ExecutionType executionType; // 1 byte
-        /// @notice Whether the order is currently active and matchable
-        /// @dev Set to false when cancelled or fully filled
-        bool active; // 1 byte
-        /// @notice Fill-or-Kill flag
-        /// @dev If true, order must be completely filled immediately or it's cancelled
-        /// @dev If false, partial fills are allowed
-        bool fillOrKill; // 1 byte
-    }
-
-    /// @notice Global storage layout for the Orderbook facet/module
-    struct OrderbookStorageStruct {
-        uint256 nextOrderId;
-        /// @notice Mapping from order ID to Order struct
-        mapping(uint256 => Order) orders;
-        // ========================================
-        // Single Mapping for All Orderbooks
-        // Key: keccak256(abi.encodePacked(positionId, quoteCurrencyToken));
-        // ========================================
-        /// @notice Mapping of position ID and Currency to array of active buy order IDs
-        mapping(bytes32 => uint256[]) buyOrdersByPositionAndCurrency;
-        /// @notice Mapping of position ID and Currency to array of active sell order IDs
-        mapping(bytes32 => uint256[]) sellOrdersByPositionAndCurrency;
-        /// @notice Mapping of order ID to CrossCurrencyData
-        mapping(uint256 => CrossCurrencyData) crossCurrencyData;
-        /// @notice Added Extra Gaps for safe upgrades
-        uint256[10] __gap;
-    }
-
-    struct EscrowStorage {
-        mapping(address => mapping(address => uint256)) collateralBalances; // user => ERC20 token => amount
-        mapping(address => mapping(uint256 => uint256)) lockedERC1155Balances; // user => positionId => amount
-        mapping(address => uint256) protocolFees; // ERC20 token => total accumulated
-        uint256[10] __gap;
-    }
+    // SCRUM-229 (ARCH-03): AccessControlStorage and AdminConfigStorage were peeled out
+    // of this monolith into their own EIP-7201 namespaces — see {LibAccessControlStorage}
+    // and {LibAdminConfigStorage}. New modules get their own namespace; do not re-embed
+    // sub-structs here.
 
     struct MarketMetadata {
         address collateralToken;
@@ -364,51 +184,21 @@ library LibDoefinStorage {
         uint256[10] __gap;
     }
 
-    struct AdapterConfig {
-        uint256 maxStaleness;
-        uint256 failureCount;
-        address adapterAddress;
-        bool enabled;
-    }
-
-    struct AssetConfig {
-        bytes32[] adapterPriority; // Ordered array of adapter IDs
-        uint256 maxStaleness;
-        uint256 lastUpdateTimestamp;
-        uint8 decimals; // Number of decimals for the oracle price (0-18, 0 defaults to 18)
-        bool tradingPaused;
-    }
-
-    struct PriceData {
-        uint256 price;
-        uint256 timestamp;
-        bytes32 lastSuccessfulAdapterId;
-        bool isValid;
-    }
-
-    struct OracleStorage {
-        mapping(bytes32 => AdapterConfig) adapters;
-        mapping(bytes32 => AssetConfig) assetConfigs;
-        mapping(bytes32 => PriceData) priceData;
-        mapping(bytes32 => bool) usedNonces;
-        address authorizedSigner;
-        uint256 maxManualUpdateAge; // Maximum age in seconds for manual price updates (default: 300)
-        uint256[9] __gap; // Reduced gap by 1 to accommodate new field
-    }
-
+    /// @custom:storage-location erc7201:doefin.storage
+    /// @dev Legacy monolithic namespace. SCRUM-229 (ARCH-03) peeled the admin-config and
+    ///      access-control sub-structs out into their own EIP-7201 namespaces
+    ///      ({LibAdminConfigStorage}, {LibAccessControlStorage}); the CTF / ERC1155 /
+    ///      position-registry / reentrancy / Bitcoin-oracle sub-structs remain here as a
+    ///      grandfathered monolith. New modules get their own namespace — do not add
+    ///      sub-structs here.
     struct AppStorage {
         ConditionalTokensStorage conditionalTokens;
-        AccessControlStorage accessControl;
         ERC1155Storage erc1155Storage;
-        AdminConfigStorage adminConfigStorage;
-        OrderbookStorageStruct orderbookStorage;
-        EscrowStorage escrowStorage;
         PositionRegistryStorage positionRegistry;
         ReentrancyStorage reentrancyStorage;
-        OracleStorage oracleStorage;
         BlockHeaderOracleStorage blockHeaderOracleStorage;
         OracleAdapterStorage oracleAdapterStorage;
-        uint256[50] __gap;
+        uint256[51] __gap;
     }
 
     function appStorage() internal pure returns (AppStorage storage ds) {
@@ -419,19 +209,16 @@ library LibDoefinStorage {
     }
 
     /// @notice Initialize critical storage values (call once during deployment)
-    function initialize(address feeReceiver, uint16 resolutionFeeBps, uint16 makerFeeBps, uint16 takerFeeBps) internal {
+    function initialize(address feeReceiver, uint16 resolutionFeeBps) internal {
         if (isInitialized()) revert Errors.AlreadyInitialized();
 
         AppStorage storage ds = appStorage();
-
-        ds.orderbookStorage.nextOrderId = 1;
         ds.reentrancyStorage._status = 1;
 
-        // Set admin config during initialization
-        ds.adminConfigStorage.feeReceiver = feeReceiver;
-        ds.adminConfigStorage.resolutionFeeBps = resolutionFeeBps;
-        ds.adminConfigStorage.makerTradingFeeBps = makerFeeBps;
-        ds.adminConfigStorage.takerTradingFeeBps = takerFeeBps;
+        // Admin config lives in its own EIP-7201 namespace (SCRUM-229).
+        LibAdminConfigStorage.AdminConfigStorage storage acs = LibAdminConfigStorage.adminConfigStorage();
+        acs.feeReceiver = feeReceiver;
+        acs.resolutionFeeBps = resolutionFeeBps;
 
         setInitialized();
     }

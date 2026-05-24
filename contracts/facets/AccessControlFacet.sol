@@ -2,9 +2,10 @@
 // Based on Diamond Standard by Nick Mudge: https://github.com/mudgen/diamond-3-hardhat
 // Uses shared logic from Gnosis Conditional Tokens Framework: https://github.com/gnosis/conditional-tokens-contracts
 
-pragma solidity ^0.8.6;
+pragma solidity ^0.8.20;
 
 import {LibAccessControl} from "../libraries/LibAccessControl.sol";
+import {LibDiamond} from "../libraries/LibDiamond.sol";
 import {IAccessControl} from "../interfaces/IAccessControl.sol";
 import {Events} from "../libraries/Events.sol";
 import {Errors} from "../libraries/Errors.sol";
@@ -28,6 +29,7 @@ contract AccessControlFacet is IAccessControl {
      * @custom:security Only callable by contract owner via LibAccessControl validation
      */
     function addMarketMaker(address account) external {
+        LibDiamond.enforceIsContractOwner();
         if (account == address(0)) {
             revert Errors.InvalidMakerAddress();
         }
@@ -50,6 +52,7 @@ contract AccessControlFacet is IAccessControl {
      * @custom:note Existing conditions created by this account remain valid
      */
     function removeMarketMaker(address account) external {
+        LibDiamond.enforceIsContractOwner();
         if (account == address(0)) {
             revert Errors.InvalidMakerAddress();
         }

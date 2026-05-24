@@ -142,14 +142,13 @@ async function deployDiamond() {
     "DoefinV1BlockHeaderOracle",
     "AccessControlFacet",
     "AdminConfigFacet",
-    "OrderCreationFacet", // Split from ExchangeFacet to reduce size
-    "OrderManagementFacet", // Split from ExchangeFacet to reduce size
-    "ExchangeViewFacet", // Read-only exchange queries
-    "MarketExecutionFacet",
-    "RouteSimulationFacet",
     "MarketDataFacet",
     "OracleAdapterFacet",
-    "OracleManagerFacet",
+    // v3 Settlement facets
+    "SignatureVerifierFacet",
+    "NonceManagerFacet",
+    "SettlementFacet",
+    "SettlementAdminFacet",
   ];
   const cut = [];
   for (const FacetName of FacetNames) {
@@ -240,6 +239,36 @@ async function deployDiamond() {
     } catch (ownerErr) {
       console.error("❌ Diamond may not be properly initialized:", ownerErr.message);
     }
+  }
+
+  // --- v3 Settlement initialization ---
+  if (process.env.OPERATOR_ADDRESS) {
+    const settlementAdmin = await ethers.getContractAt("ISettlementAdmin", diamond.address);
+    const setOpTx = await settlementAdmin.setOperator(process.env.OPERATOR_ADDRESS);
+    await setOpTx.wait();
+    console.log("Operator set to:", process.env.OPERATOR_ADDRESS);
+  } else {
+    console.log("WARNING: OPERATOR_ADDRESS not set in .env. Call setOperator() manually after deployment.");
+  }
+
+  // Log deployment info for backend configuration
+  try {
+    const verifier = await ethers.getContractAt("ISignatureVerifier", diamond.address);
+    const domainSep = await verifier.getDomainSeparator();
+    const network = await ethers.provider.getNetwork();
+    const blockNumber = await ethers.provider.getBlockNumber();
+
+    console.log("\n========== BACKEND CONFIGURATION ==========");
+    console.log("DIAMOND_CONTRACT_ADDRESS=" + diamond.address);
+    console.log("CHAIN_ID=" + network.chainId);
+    console.log("DOMAIN_SEPARATOR=" + domainSep);
+    console.log("DEPLOY_BLOCK=" + blockNumber);
+    if (process.env.OPERATOR_ADDRESS) {
+      console.log("OPERATOR_ADDRESS=" + process.env.OPERATOR_ADDRESS);
+    }
+    console.log("============================================\n");
+  } catch (e) {
+    console.log("Warning: Could not read deployment info:", e.message);
   }
 
   return diamond.address;

@@ -1,535 +1,277 @@
 # Order Lifecycle Flow
 
-This document explains the complete lifecycle of orders in Doefin V2, covering both limit and market orders from creation through execution to settlement.
+This document explains the complete lifecycle of orders in Doefin V3, which uses an
+**off-chain orderbook with on-chain settlement** (the Polymarket hybrid model).
 
 ## Overview
 
-The order lifecycle consists of three main stages:
-1. **Order Creation** - Users create limit or market orders with specific parameters
-2. **Order Matching** - The matching engine finds compatible opposing orders
-3. **Order Settlement** - Positions and collateral are transferred to complete trades
+The order lifecycle has three stages:
+
+1. **Order Creation** — a user signs an order off-chain (EIP-712). No collateral is locked.
+2. **Order Matching** — the off-chain match engine finds crossing orders and groups one
+   taker against one or more makers.
+3. **On-Chain Settlement** — the authorized operator submits the matched orders to the
+   Diamond, which validates and atomically settles them.
 
 ```mermaid
 graph TD
-    A[User Creates Order] --> B{Order Type?}
-    B -->|Market| C[Immediate Matching]
-    B -->|Limit| D[Add to Orderbook]
-    
-    C --> E[Execute Against Best Orders]
-    E --> F[Settlement]
-    
-    D --> G[Wait for Match]
-    G --> H[Counter Order Arrives]
-    H --> I[Matching Engine]
-    I --> F
-    
-    F --> J[Position Transfer]
-    F --> K[Collateral Transfer]
-    F --> L[Fee Collection]
-    
-    subgraph "Order Creation"
+    A[User Signs Order off-chain] --> B[Order in Off-Chain Book]
+    B --> C[Match Engine Finds Crossing Orders]
+    C --> D[Operator Submits matchOrders]
+    D --> E[Contract Validates Signatures and Orders]
+    E --> F[Determine Match Type per Maker]
+    F --> G[Execute Settlement Path]
+    G --> H[Position + Collateral Transfer]
+    G --> I[Fee Collection to feeReceiver]
+
+    subgraph "Off-Chain"
         A
         B
-    end
-    
-    subgraph "Matching Engine"
         C
+    end
+
+    subgraph "On-Chain Settlement"
+        D
         E
+        F
         G
         H
         I
     end
-    
-    subgraph "Settlement"
-        F
-        J
-        K
-        L
-    end
 ```
 
-## Stage 1: Order Creation
+## Stage 1: Order Creation (Off-Chain)
 
-### Entry Points
-- **Limit Orders**: [`OrderCreationFacet.createOrder`](../contracts/facets/OrderCreationFacet.sol) with `ExecutionType.Limit`
-- **Market Orders**: [`OrderCreationFacet.createOrder`](../contracts/facets/OrderCreationFacet.sol) with `ExecutionType.Market`
+Orders are **never created on-chain**. A user signs a `DoefinOrder` struct using EIP-712
+and submits the signed payload to the off-chain orderbook service.
+
+### The DoefinOrder Struct
+
+`DoefinOrder` is defined in `contracts/libraries/LibDoefinOrder.sol` and has **10 fields**:
+
+```solidity
+struct DoefinOrder {
+    uint256 salt;            // Uniqueness salt
+    address maker;           // SCW (Safe) address holding funds
+    address signer;          // EOA that signed the order
+    bytes32 positionId;      // CTF ERC1155 position ID
+    address collateralToken; // ERC20 collateral token
+    uint8   side;            // 0 = BUY, 1 = SELL
+    uint128 amount;          // Total outcome tokens to trade
+    uint128 pricePerToken;   // Price per outcome token, in collateral units
+    uint64  expiration;      // Expiry timestamp (0 = no expiry)
+    uint256 nonce;           // Maker nonce for bulk cancellation
+}
+```
+
+The fields `minFillAmount`, `orderType`, `quoteCurrency`, `exchangeRate`, and `feeRateBps`
+that existed in the old 15-field struct have been removed. `signature` and
+`signatureType` are NOT part of the struct hash — they are passed alongside the order as
+separate function parameters.
+
+### EIP-712 Domain
+
+```
+EIP712Domain("Doefin Exchange", "3", chainId, diamondAddress)
+```
+
+The domain separator is recomputed against the current `block.chainid` so a chain fork
+cannot leave stale signatures valid.
 
 ### Order Parameters
 
-```solidity
-function createOrder(
-    uint256 positionId,           // ERC1155 token ID for the outcome position
-    address collateralToken,      // ERC20 token used as collateral (USDC, WETH, etc.)
-    uint256 amount,              // Total outcome tokens to trade
-    uint256 pricePerToken,       // Price per outcome token in collateral units
-    uint256 minFillAmount,       // Minimum fill size (0 = no minimum)
-    uint32 expiry,              // Expiration timestamp (0 = no expiry)
-    bool fillOrKill,            // Must fill completely or cancel
-    OrderDirection direction,    // Buy or Sell
-    ExecutionType executionType, // Market or Limit
-    CrossCurrencyData memory crossCurrencyData // Cross-currency config
-) external;
-```
+- **`pricePerToken`** — the maker's signed commitment: the price per outcome token in
+  collateral units. For a BUY this is the maximum price; for a SELL the minimum return.
+- **`amount`** — the total outcome tokens the order is willing to trade.
+- **`expiration`** — a UNIX timestamp; `0` means no expiry.
+- **`nonce`** — used by `NonceManagerFacet` for bulk cancellation.
 
-### Order Types
+There is no on-chain order-type field. There is no on-chain minimum-fill enforcement.
 
-#### 1. Limit Orders
-- **Purpose**: Passive orders that wait in the orderbook for matching
-- **Collateral Handling**: Collateral is locked immediately upon creation
-- **Gas Cost**: ~200,000-300,000 gas
-- **Execution**: Added to sorted orderbook structure for efficient matching
+### Fees Are Not Signed
 
-**Buy Limit Order Process:**
-```mermaid
-sequenceDiagram
-    participant User
-    participant OrderCreation as OrderCreationFacet
-    participant Orderbook as LibOrderbook
-    participant CollateralMgr as LibCollateralManager
-    
-    User->>OrderCreation: createOrder(Buy, Limit, ...)
-    OrderCreation->>Orderbook: createOrder()
-    Orderbook->>Orderbook: validateOrderParameters()
-    Orderbook->>CollateralMgr: lockERC20Collateral()
-    CollateralMgr->>CollateralMgr: transferFrom(user, escrow)
-    Orderbook->>Orderbook: insertSorted()
-    Orderbook-->>User: OrderCreated event
-```
+Trading fees are **not** part of the signed order. The off-chain operator computes the fee
+(a symmetric bell-curve formula, `fee ∝ min(price, 1-price) * fillAmount`) and supplies the
+per-leg fee amount at settlement time. The contract enforces only an admin-set ceiling
+(see Stage 3).
 
-**Sell Limit Order Process:**
-```mermaid
-sequenceDiagram
-    participant User
-    participant OrderCreation as OrderCreationFacet
-    participant Orderbook as LibOrderbook
-    participant CollateralMgr as LibCollateralManager
-    
-    User->>OrderCreation: createOrder(Sell, Limit, ...)
-    OrderCreation->>Orderbook: createOrder()
-    Orderbook->>Orderbook: validateOrderParameters()
-    Orderbook->>CollateralMgr: lockERC1155Collateral()
-    CollateralMgr->>CollateralMgr: safeTransferFrom(user, escrow)
-    Orderbook->>Orderbook: insertSorted()
-    Orderbook-->>User: OrderCreated event
-```
+## Stage 2: Order Matching (Off-Chain)
 
-#### 2. Market Orders
-- **Purpose**: Immediate execution orders that match against existing orderbook
-- **Collateral Handling**: Collateral validated but not pre-locked
-- **Gas Cost**: ~300,000-800,000 gas (varies by number of matches)
-- **Execution**: Immediately seeks matches via [`LibMatchEngine.findPotentialMatches`](../contracts/libraries/LibMatchEngine.sol)
+The off-chain match engine discovers crossing orders and groups one taker against one or
+more makers. For each maker it determines the settlement match type:
 
-**Market Order Process:**
-```mermaid
-sequenceDiagram
-    participant User
-    participant OrderCreation as OrderCreationFacet
-    participant Orderbook as LibOrderbook
-    participant MatchEngine as LibMatchEngine
-    participant Settlement as LibSettlement
-    
-    User->>OrderCreation: createOrder(Buy, Market, ...)
-    OrderCreation->>Orderbook: createOrder()
-    Orderbook->>Orderbook: validateOrderParameters()
-    Orderbook->>MatchEngine: findPotentialMatches()
-    MatchEngine->>MatchEngine: searchOrderbook()
-    MatchEngine-->>Orderbook: matchingOrderIds[]
-    Orderbook->>Settlement: fillOrders()
-    Settlement->>Settlement: executeMatches()
-    Settlement-->>User: TradeFilled events
-```
+- **Complementary** — taker and maker trade the same outcome on opposite sides.
+- **Mint** — taker BUY A vs maker BUY B (complementary outcomes), settled by minting both
+  outcomes from pooled collateral via CTF `splitPosition`.
+- **Merge** — taker SELL A vs maker SELL B (complementary outcomes), settled by merging a
+  complete set back to collateral via CTF `mergePositions`.
 
-### Order Validation
+A single match group can contain **a mix of match types** — see
+`MATCHING_MECHANISMS.md` for the matching algorithm and worked examples.
 
-All orders undergo comprehensive validation in [`LibOrderbook.createOrder`](../contracts/libraries/LibOrderbook.sol):
+### Crossing Rule
+
+Using `unit` as the collateral units per complete outcome pair:
+
+- **BUY taker**: a maker is crossing when `effective_price <= taker.pricePerToken`.
+- **SELL taker**: a maker is crossing when `effective_return >= taker.pricePerToken`.
+
+Where the effective price/return per match type is:
+
+| Taker side | Match type | Maker order | Effective price/return |
+|-----------|-----------|-------------|------------------------|
+| BUY | Complementary | SELL same outcome @ P_m | P_m |
+| BUY | Mint | BUY complement @ P_m | unit - P_m |
+| SELL | Complementary | BUY same outcome @ P_m | P_m |
+| SELL | Merge | SELL complement @ P_m | unit - P_m |
+
+## Stage 3: On-Chain Settlement
+
+The authorized operator submits matched orders to `SettlementFacet`. There are two entry
+points:
+
+- **`matchOrders()`** — settle one taker against one or more makers.
+- **`fillOrder()`** — settle a single order leg.
+
+Both are `onlyOperator`, `notPaused`, and `nonReentrant`.
+
+### matchOrders Signature
 
 ```solidity
-// Amount validation
-if (amount < minFillAmount || amount == 0) revert InvalidAmounts();
-
-// Expiry validation  
-if (expiry != 0 && expiry <= block.timestamp) revert OrderCreatedWithPastExpiry();
-
-// Price validation for standard orders
-if (pricePerToken >= unitsPerPair || pricePerToken == 0) revert InvalidPrice();
-
-// Token allowlist validation
-if (unitsPerPair == 0) revert TokenNotAllowed();
-
-// Cross-currency specific validation
-if (orderType == OrderType.Dynamic) {
-    if (LibQuoteCurrency.isOracleStale(quoteCurrencyToken, collateralToken)) {
-        revert OraclePriceStale();
-    }
-}
+function matchOrders(
+    LibDoefinOrder.DoefinOrder calldata takerOrder,
+    bytes calldata takerSignature,
+    uint8 takerSignatureType,
+    LibDoefinOrder.DoefinOrder[] calldata makerOrders,
+    bytes[] calldata makerSignatures,
+    uint8[] calldata makerSignatureTypes,
+    uint128 takerFillAmount,
+    uint128[] calldata makerFillAmounts,
+    uint128[] calldata takerFees,
+    uint128[] calldata makerFees
+) external onlyOperator notPaused nonReentrant;
 ```
 
-### Collateral Management
+`takerFees` and `makerFees` are the operator-supplied per-leg fee amounts (one entry per
+maker order).
 
-#### Buy Orders
-- **Standard**: Locks `amount * pricePerToken + fees` in collateral token
-- **Cross-Currency**: Locks appropriate amount in quote currency based on order type
-
-#### Sell Orders  
-- **All Types**: Locks `amount` of position tokens (ERC1155)
-
-### Fee Structure
-
-Fees are determined at order creation and stored with each order:
-
-```solidity
-struct OrderFeeConfig {
-    uint16 makerFeeBps;  // Fee for liquidity providers (typically lower)
-    uint16 takerFeeBps;  // Fee for liquidity takers (typically higher)  
-}
-```
-
-## Stage 2: Order Matching
-
-### Matching Engine Architecture
-
-The matching engine uses a sophisticated multi-source approach implemented in [`LibMatchEngine`](../contracts/libraries/LibMatchEngine.sol):
-
-#### 1. Complementary Matching
-- **Use Case**: Orders on opposite sides of the same outcome
-- **Example**: Buy outcome A vs Sell outcome A  
-- **Efficiency**: Direct position transfer, no CTF operations needed
-
-#### 2. Mint Matching
-- **Use Case**: Buy order vs compatible position that requires minting
-- **Example**: Buy outcome A vs Sell outcome B (when A+B = complete set)
-- **Process**: Uses CTF `splitPosition` to mint new tokens
-
-#### 3. Merge Matching  
-- **Use Case**: Sell order vs compatible position that allows merging
-- **Example**: Sell outcome A vs Buy outcome B (when A+B = complete set)
-- **Process**: Uses CTF `mergePositions` to redeem collateral
-
-### Matching Algorithm
-
-```mermaid
-graph TD
-    A[New Order] --> B[Find Position Type]
-    B --> C{Complementary Orders Available?}
-    C -->|Yes| D[Calculate Best Complementary]
-    C -->|No| E{Mint Opportunities?}
-    E -->|Yes| F[Calculate Mint Costs]
-    E -->|No| G{Merge Opportunities?}
-    G -->|Yes| H[Calculate Merge Returns]
-    G -->|No| I[No Match Available]
-    
-    D --> J[Rank by Price/Efficiency]
-    F --> J
-    H --> J
-    J --> K[Execute Best Match]
-    
-    I --> L[Add to Orderbook]
-```
-
-### Order Book Structure
-
-Orders are stored in sorted lists for efficient matching:
-
-```solidity
-struct OrderbookStorage {
-    // Sorted by price (ascending for buys, descending for sells)
-    mapping(uint256 => uint256[]) buyOrderIdsByPosition;   // positionId => orderIds
-    mapping(uint256 => uint256[]) sellOrderIdsByPosition;  // positionId => orderIds
-    
-    // Order details
-    mapping(uint256 => Order) orders;                      // orderId => Order
-    mapping(uint256 => CrossCurrencyData) crossCurrencyData; // orderId => CrossCurrencyData
-    
-    uint256 nextOrderId;
-}
-```
-
-### Price Crossing Logic
-
-Orders can only match when there's a price crossing:
-
-- **Buy orders** match when `takerPrice >= makerPrice`
-- **Sell orders** match when `takerPrice <= makerPrice`  
-- **Cross-currency orders** require additional exchange rate validation
-
-## Stage 3: Order Execution and Settlement
-
-### Settlement Entry Point
-
-All matches are settled through [`MarketExecutionFacet.fillOrders`](../contracts/facets/MarketExecutionFacet.sol):
-
-```solidity
-function fillOrders(uint256 takerId, uint256[] calldata makerIds) external;
-```
-
-### Settlement Process Flow
+### Settlement Process
 
 ```mermaid
 sequenceDiagram
-    participant Taker
-    participant MarketExecution as MarketExecutionFacet  
-    participant Settlement as LibSettlement
-    participant TradeSettlement as LibTradeSettlement
+    participant Operator
+    participant Settlement as SettlementFacet
+    participant SigVerifier as SignatureVerifierFacet
     participant CTF as ConditionalTokens
-    participant ERC20 as CollateralToken
-    participant ERC1155 as PositionTokens
-    
-    Taker->>MarketExecution: fillOrders(takerId, makerIds[])
-    MarketExecution->>Settlement: fillOrders()
-    Settlement->>Settlement: validateOrder(taker)
-    
+    participant ERC20 as Collateral Token
+    participant ERC1155 as Position Tokens
+
+    Operator->>Settlement: matchOrders(taker, makers[], fills, fees)
+    Settlement->>SigVerifier: verify taker signature (EOA / EIP-1271)
+    Settlement->>Settlement: validate taker order + fill cap
+
     loop For each maker
-        Settlement->>Settlement: validateOrder(maker)
-        Settlement->>Settlement: checkPriceCrossing()
-        Settlement->>Settlement: calculateFillAmount()
-        Settlement->>TradeSettlement: settlementDispatcher()
-        
-        alt Complementary Match
-            TradeSettlement->>ERC1155: transfer positions directly
-        else Mint Match  
-            TradeSettlement->>ERC20: collect collateral
-            TradeSettlement->>CTF: splitPosition()
-            TradeSettlement->>ERC1155: distribute new positions
-        else Merge Match
-            TradeSettlement->>ERC1155: collect positions  
-            TradeSettlement->>CTF: mergePositions()
-            TradeSettlement->>ERC20: distribute collateral
+        Settlement->>SigVerifier: verify maker signature
+        Settlement->>Settlement: validate maker order + fill cap
+        Settlement->>Settlement: determine match type
+        Settlement->>Settlement: _validateFee(takerFee), _validateFee(makerFee)
+
+        alt Complementary
+            Settlement->>ERC1155: transfer positions
+            Settlement->>ERC20: transfer collateral
+        else Mint
+            Settlement->>ERC20: collect pooled collateral
+            Settlement->>CTF: splitPosition()
+            Settlement->>ERC1155: distribute both outcomes
+        else Merge
+            Settlement->>ERC1155: collect complementary positions
+            Settlement->>CTF: mergePositions()
+            Settlement->>ERC20: distribute redeemed collateral
         end
-        
-        TradeSettlement->>Settlement: accrueFees()
-        TradeSettlement-->>Taker: TradeFilled event
+
+        Settlement->>ERC20: transfer fees to feeReceiver
     end
+
+    Settlement->>Settlement: update taker filled amount
+    Settlement->>Operator: OrderSettled event
 ```
 
-### Settlement Types
+### Validation
 
-#### 1. Complementary Settlement
-**When**: Orders on the same outcome with opposite directions
-**Process**: Direct position token transfer with fee collection
+For the taker once, and for every maker:
 
-```solidity
-// Simplified complementary settlement
-function _handleComplementaryMatch(SettlementExecutionContext memory ctx) internal {
-    // Calculate fees
-    (uint256 makerFee, uint256 takerFee) = LibFeeManager.computeComplementaryFees(ctx);
-    
-    // Transfer positions
-    LibERC1155.safeTransferFromInternalPositions(
-        ctx.makerOrder.maker, 
-        ctx.takerOrder.maker, 
-        ctx.takerOrder.positionId, 
-        ctx.fillableAmount
-    );
-    
-    // Collect fees and transfer collateral
-    LibCollateralManager.transferCollateralWithFees(ctx, makerFee, takerFee);
-}
+- **Signature** — EIP-712 hash verified via `ecrecover` (EOA) or EIP-1271 (SCW).
+- **Order validity** — collateral token on the allow-list, non-zero `unit`,
+  `pricePerToken <= unit`, not expired, not cancelled.
+- **Fill cap** — the new fill must not overfill the order's remaining capacity.
+- **Aggregate invariant** — `sum(makerFillAmounts) == takerFillAmount`.
+
+### Fee Enforcement
+
+The fee is operator-supplied. `SettlementFacet._validateFee` enforces, for each leg:
+
+```
+fee <= cashValue * maxFeeRateBps / 10000
+fee <= proceeds
 ```
 
-#### 2. Mint Settlement
-**When**: Orders require new position token creation
-**Process**: Collect collateral, execute CTF split, distribute positions
+- `maxFeeRateBps` is the admin-set ceiling (`AdminConfigFacet.setMaxFeeRate`), bounded by
+  the hard constant `MAX_FEE_RATE_BPS_CAP = 1000` (10%).
+- The check is **fail-closed**: a `maxFeeRateBps` of 0 forbids any non-zero fee.
+- Fees go to the admin-configurable `feeReceiver`, never to the operator.
 
-```solidity
-function _handleMintMatch(SettlementExecutionContext memory ctx) internal {
-    // Calculate contributions and fees
-    (uint256 makerFee, uint256 takerFee, uint256 makerContrib, uint256 takerContrib) = 
-        LibFeeManager.computeMintFees(ctx.makerOrder, ctx.fillableAmount);
-        
-    // Collect total collateral needed
-    uint256 totalCollateral = makerContrib + takerContrib;
-    
-    // Execute CTF split to mint positions
-    LibCTFCondition.splitPosition(
-        ctx.makerOrder.collateralToken,
-        parentCollectionId,
-        conditionId, 
-        partition,
-        totalCollateral
-    );
-    
-    // Distribute newly minted positions to each party
-    _distributePositionTokens(ctx);
-}
-```
+## Settlement Paths
 
-#### 3. Merge Settlement
-**When**: Orders allow merging positions back to collateral
-**Process**: Collect positions, execute CTF merge, distribute collateral
+### 1. Complementary Settlement
 
-```solidity
-function _handleMergeMatch(SettlementExecutionContext memory ctx) internal {
-    // Collect the complementary positions from both parties
-    LibERC1155.burnPositionsForMerge(ctx);
-    
-    // Execute CTF merge to redeem collateral
-    LibCTFCondition.mergePositions(
-        ctx.makerOrder.collateralToken,
-        parentCollectionId,
-        conditionId,
-        partition,
-        ctx.fillableAmount  
-    );
-    
-    // Calculate fees and distribute collateral
-    (uint256 makerPayout, uint256 takerPayout) = LibFeeManager.computePayouts(ctx);
-    LibCollateralManager.distributeCollateral(ctx, makerPayout, takerPayout);
-}
-```
+Taker and maker trade the same outcome on opposite sides. The buyer pays collateral and
+receives position tokens; the seller delivers positions and receives collateral. The fill
+price is the maker's `pricePerToken`. Each party's own fee is transferred to `feeReceiver`
+from their side of the trade.
 
-## Order Management Operations
+### 2. Mint Settlement
 
-### Order Cancellation
+Taker BUY A vs maker BUY B, where A and B are complementary outcomes of one condition.
+Both parties contribute collateral; the contract calls CTF `splitPosition` to mint a
+complete outcome set, then distributes outcome A to the taker and outcome B to the maker.
+The maker pays exactly their committed price; the taker pays the effective price
+`unit - maker.pricePerToken`, so price improvement flows to the taker.
 
-Users can cancel their active limit orders via [`OrderManagementFacet.cancelOrder`](../contracts/facets/OrderManagementFacet.sol):
+### 3. Merge Settlement
 
-```mermaid
-sequenceDiagram
-    participant User
-    participant OrderMgmt as OrderManagementFacet
-    participant Orderbook as LibOrderbook
-    participant CollateralMgr as LibCollateralManager
-    
-    User->>OrderMgmt: cancelOrder(orderId)
-    OrderMgmt->>Orderbook: cancelOrder(orderId, user)
-    Orderbook->>Orderbook: validateOrderOwnership()
-    Orderbook->>Orderbook: removeFromSortedList()
-    Orderbook->>CollateralMgr: releaseLockedCollateral()
-    CollateralMgr->>User: transferBack(lockedAmount)
-    Orderbook-->>User: OrderCancelled event
-```
+Taker SELL A vs maker SELL B (complementary outcomes). Both parties deliver position
+tokens; the contract calls CTF `mergePositions` to redeem the complete set back to
+collateral, then distributes the proceeds. The maker receives exactly their committed
+price; the taker receives the remainder `unit - maker.pricePerToken`.
 
-### Order Modification
+## Order Cancellation
 
-Limit orders can be modified through [`OrderManagementFacet.modifyLimitOrder`](../contracts/facets/OrderManagementFacet.sol):
+Because orders live off-chain, cancellation is a nonce / hash operation handled by
+`NonceManagerFacet`:
 
-**Modifiable Parameters:**
-- `amount` - Order size
-- `pricePerToken` - Order price  
-- `minFillAmount` - Minimum fill requirement
-- `expiry` - Expiration timestamp
+- **`cancelOrder()`** — invalidates a specific signed order by its hash.
+- **`cancelOrdersForPosition()`** — invalidates all of a maker's open orders for a
+  position.
+- **`incrementNonce()`** — bumps the maker nonce, invalidating every order signed under
+  the previous nonce.
 
-**Non-Modifiable Parameters:**
-- `positionId` - Cannot change the outcome being traded
-- `direction` - Cannot switch between buy/sell
-- `collateralToken` - Cannot change the collateral type
-- `executionType` - Market orders cannot be modified
+A cancelled order fails the order-validity check at settlement and reverts the leg.
 
-```solidity
-function modifyLimitOrder(
-    uint256 orderId,
-    uint256 newAmount, 
-    uint256 newPricePerToken,
-    uint256 newMinFillAmount,
-    uint32 newExpiry
-) external;
-```
+## Error Conditions
 
-### Gas Optimization Strategies
+Common settlement reverts (`Errors.sol`):
 
-#### 1. Batch Operations
-- Multiple matches in single transaction
-- Collateral updates batched when possible
-- Event emission optimized
+- `TradingIsPaused` — settlement is globally paused.
+- `UnauthorizedOperator` — caller is not the authorized operator.
+- `MismatchedInputLengths` — per-leg array lengths disagree, or the aggregate fill
+  invariant fails.
+- `InvalidOrderSignature` — signature does not recover to the order signer.
+- `OrderCancelled` — the order was cancelled off-chain.
+- `OrderOverfilled` — the requested fill exceeds remaining capacity.
+- `InvalidMatch` — the match type or crossing condition is invalid.
+- `ZeroAmount` — a fill amount is zero.
+- `FeeExceedsMaxRate` — an operator-supplied fee exceeds the admin ceiling.
+- `FeeExceedsProceeds` — a fee exceeds the leg's proceeds.
 
-#### 2. Storage Optimization  
-- Packed structs for order data
-- Efficient sorting algorithms
-- Minimal state updates
-
-#### 3. Market Order Limits
-- Affordability constraints prevent over-execution
-- Gas limit protection via match count limitations
-
-## Common Order Patterns
-
-### 1. Pure Speculation
-```solidity
-// User believes outcome A is underpriced
-createOrder(
-    positionId: outcomeA,
-    amount: 1000e6,        // 1000 tokens
-    pricePerToken: 0.3e6,  // $0.30 each  
-    direction: Buy,
-    executionType: Market
-);
-```
-
-### 2. Arbitrage Between Outcomes
-```solidity  
-// Simultaneous buy/sell if A + B prices don't sum to $1
-createOrder(outcomeA, amount, 0.4e6, Buy, Market);   // Buy A at $0.40
-createOrder(outcomeB, amount, 0.5e6, Sell, Market);  // Sell B at $0.50
-// Guaranteed $0.10 profit per token if both fill
-```
-
-### 3. Market Making
-```solidity
-// Provide liquidity on both sides with spread
-createOrder(outcomeA, amount, 0.48e6, Buy, Limit);   // Bid at $0.48
-createOrder(outcomeA, amount, 0.52e6, Sell, Limit);  // Ask at $0.52
-// Earn $0.04 spread when both sides fill
-```
-
-## Error Conditions and Recovery
-
-### Common Order Failures
-- `InvalidAmounts`: Amount is zero or less than minimum fill
-- `OrderCreatedWithPastExpiry`: Expiry timestamp is in the past
-- `InvalidPrice`: Price is zero or >= token unit (would create arbitrage)
-- `TokenNotAllowed`: Collateral token not whitelisted  
-- `InsufficientBalance`: User lacks required collateral/positions
-- `InsufficientAllowance`: Approval amount too low
-- `FillOrKillFailed`: Market order with Fill-or-Kill couldn't complete fully
-
-### Recovery Mechanisms
-- **Failed Matches**: Order remains active for future matching
-- **Partial Fills**: Order remainder stays in orderbook
-- **Expired Orders**: Automatically become unmatchable but must be manually cancelled
-- **Insufficient Collateral**: Order creation fails, no state changes
-
-## Integration Examples
-
-### Basic Limit Order Creation
-```typescript
-// TypeScript integration example
-const orderParams = {
-  positionId: "123456",
-  collateralToken: "0xA0b86a33E6A2c475c6A3ad1d1Cf01827c8f3B2E1", // USDC
-  amount: parseUnits("100", 6),    // 100 USDC worth
-  pricePerToken: parseUnits("0.55", 6), // $0.55 per outcome token
-  minFillAmount: parseUnits("10", 6),   // Minimum 10 USDC fill
-  expiry: Math.floor(Date.now() / 1000) + 86400, // 24 hours
-  fillOrKill: false,
-  direction: 0, // Buy
-  executionType: 1, // Limit
-  crossCurrencyData: {
-    quoteCurrencyToken: ethers.constants.AddressZero,
-    floorRate: 0
-  }
-};
-
-const tx = await diamond.createOrder(...Object.values(orderParams));
-```
-
-### Market Order Execution  
-```typescript
-// Execute market order against specific maker orders
-const makerOrderIds = ["1001", "1002", "1003"];
-const takerOrderId = "2001";
-
-const tx = await diamond.fillOrders(takerOrderId, makerOrderIds);
-const receipt = await tx.wait();
-
-// Parse TradeFilled events
-const trades = receipt.events
-  .filter(e => e.event === 'TradeFilled')
-  .map(e => ({
-    takerId: e.args.takerId,
-    makerId: e.args.makerId,
-    amount: e.args.fillAmount,
-    price: e.args.price
-  }));
-```
-
-This comprehensive order lifecycle enables efficient prediction market trading with strong guarantees around price discovery, settlement, and risk management.
+This lifecycle gives users gas-free order creation and cancellation while keeping
+settlement fully trustless and atomic on-chain.

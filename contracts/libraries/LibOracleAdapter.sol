@@ -2,7 +2,7 @@
 // Based on Diamond Standard by Nick Mudge: https://github.com/mudgen/diamond-3-hardhat
 // Uses shared logic from Gnosis Conditional Tokens Framework: https://github.com/gnosis/conditional-tokens-contracts
 
-pragma solidity ^0.8.6;
+pragma solidity ^0.8.20;
 
 import {Errors} from "./Errors.sol";
 import {Events} from "./Events.sol";
@@ -361,6 +361,11 @@ library LibOracleAdapter {
     /// @notice Calculate timestamp bucket for efficient lookup
     /// @param timestamp The timestamp to bucket
     /// @return The bucketed timestamp
+    /// @dev The `(t / BUCKET) * BUCKET` shape is an intentional bucket-floor — division
+    ///      truncates to the floor, multiplication recovers the bucket boundary. Slither's
+    ///      `divide-before-multiply` heuristic flags any expression of this shape because
+    ///      it can lose precision; here the precision loss IS the operation (flooring).
+    // slither-disable-next-line divide-before-multiply
     function getTimestampBucket(uint256 timestamp) internal pure returns (uint256) {
         return (timestamp / LibDoefinStorage.TIMESTAMP_BUCKET) * LibDoefinStorage.TIMESTAMP_BUCKET;
     }

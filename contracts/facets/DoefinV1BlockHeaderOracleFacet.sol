@@ -2,11 +2,12 @@
 // Based on Diamond Standard by Nick Mudge: https://github.com/mudgen/diamond-3-hardhat
 // Uses shared logic from Gnosis Conditional Tokens Framework: https://github.com/gnosis/conditional-tokens-contracts
 
-pragma solidity ^0.8.6;
+pragma solidity ^0.8.20;
 
 import {Errors} from "../libraries/Errors.sol";
 import {Events} from "../libraries/Events.sol";
 import {LibDoefinStorage} from "../libraries/LibDoefinStorage.sol";
+import {LibDoefinBlockHeaderOracle} from "../libraries/LibDoefinBlockHeaderOracle.sol";
 import {BlockHeaderUtils} from "../libraries/BlockHeaderUtils.sol";
 import {LibOracleAdapter} from "../libraries/LibOracleAdapter.sol";
 import {IDoefinBlockHeaderOracle} from "../interfaces/IDoefinBlockHeaderOracle.sol";
@@ -139,6 +140,9 @@ contract DoefinV1BlockHeaderOracle is IDoefinBlockHeaderOracle {
     /// @inheritdoc IDoefinBlockHeaderOracle
     function medianBlockTime() public view returns (uint256) {
         LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
+        // Solidity zero-initializes fixed-size memory arrays; the loop below fills every
+        // slot deterministically before `BlockHeaderUtils.median` reads any element.
+        // slither-disable-next-line uninitialized-local
         uint256[11] memory timestamps;
         uint256 startIndex = (ds.blockHeaderOracleStorage.nextBlockIndex + LibDoefinStorage.NUM_OF_BLOCK_HEADERS - 1) %
             LibDoefinStorage.NUM_OF_BLOCK_HEADERS;
@@ -152,11 +156,12 @@ contract DoefinV1BlockHeaderOracle is IDoefinBlockHeaderOracle {
     }
 
     /// @inheritdoc IDoefinBlockHeaderOracle
+    /// @dev SCRUM-234 (dead-code A-10) — body routed through
+    ///      {LibDoefinBlockHeaderOracle.getLatestBlockHeader} (single source of truth).
+    ///      Pure refactor — observable behaviour unchanged, including the silent return
+    ///      of the zero-valued slot when the oracle has not been initialised.
     function getLatestBlockHeader() public view returns (LibDoefinStorage.BlockHeader memory) {
-        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
-        uint256 currentBlockIndex = ((ds.blockHeaderOracleStorage.nextBlockIndex + LibDoefinStorage.NUM_OF_BLOCK_HEADERS) - 1) %
-            LibDoefinStorage.NUM_OF_BLOCK_HEADERS;
-        return ds.blockHeaderOracleStorage.blockHeaders[currentBlockIndex];
+        return LibDoefinBlockHeaderOracle.getLatestBlockHeader();
     }
 
     /**
@@ -248,53 +253,28 @@ contract DoefinV1BlockHeaderOracle is IDoefinBlockHeaderOracle {
         return LibDoefinStorage.appStorage().blockHeaderOracleStorage.currentBlockHeight;
     }
 
-    /// @notice Get the next index in the ring buffer
-    /// @return The next block index
+    /// @notice Get the next index in the ring buffer.
+    /// @dev SCRUM-234 — routed through {LibDoefinBlockHeaderOracle.getNextBlockIndex}.
     function getNextBlockIndex() external view returns (uint256) {
-        return LibDoefinStorage.appStorage().blockHeaderOracleStorage.nextBlockIndex;
+        return LibDoefinBlockHeaderOracle.getNextBlockIndex();
     }
 
-    /// @notice Get a block header at a specific index in the ring buffer
-    /// @param index The index in the ring buffer
-    /// @return The block header at that index
+    /// @notice Get a block header at a specific index in the ring buffer.
+    /// @dev SCRUM-234 — routed through {LibDoefinBlockHeaderOracle.getBlockHeaderAt}.
     function getBlockHeaderAt(uint256 index) external view returns (LibDoefinStorage.BlockHeader memory) {
-        if (index >= LibDoefinStorage.NUM_OF_BLOCK_HEADERS) {
-            revert Errors.ValueOutOfRange();
-        }
-        return LibDoefinStorage.appStorage().blockHeaderOracleStorage.blockHeaders[index];
+        return LibDoefinBlockHeaderOracle.getBlockHeaderAt(index);
     }
 
-    /// @notice Get a block header by block number
-    /// @param blockNumber The Bitcoin block number
-    /// @return The block header if found
+    /// @notice Get a block header by Bitcoin block number.
+    /// @dev SCRUM-234 — routed through {LibDoefinBlockHeaderOracle.getBlockHeaderByNumber}.
     function getBlockHeaderByNumber(uint256 blockNumber) external view returns (LibDoefinStorage.BlockHeader memory) {
-        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
-        uint256 currentHeight = ds.blockHeaderOracleStorage.currentBlockHeight;
-
-        // Check if block number is within the buffer range
-        if (blockNumber > currentHeight || blockNumber <= currentHeight - LibDoefinStorage.NUM_OF_BLOCK_HEADERS) {
-            revert Errors.ValueOutOfRange();
-        }
-
-        // Calculate the index in the ring buffer
-        uint256 offset = currentHeight - blockNumber;
-        uint256 index = (ds.blockHeaderOracleStorage.nextBlockIndex + LibDoefinStorage.NUM_OF_BLOCK_HEADERS - offset - 1) %
-            LibDoefinStorage.NUM_OF_BLOCK_HEADERS;
-
-        return ds.blockHeaderOracleStorage.blockHeaders[index];
+        return LibDoefinBlockHeaderOracle.getBlockHeaderByNumber(blockNumber);
     }
 
-    /// @notice Get all block headers in the ring buffer
-    /// @return Array of all block headers currently stored
+    /// @notice Get all block headers currently in the ring buffer.
+    /// @dev SCRUM-234 — routed through {LibDoefinBlockHeaderOracle.getAllBlockHeaders}.
     function getAllBlockHeaders() external view returns (LibDoefinStorage.BlockHeader[] memory) {
-        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
-        LibDoefinStorage.BlockHeader[] memory headers = new LibDoefinStorage.BlockHeader[](LibDoefinStorage.NUM_OF_BLOCK_HEADERS);
-
-        for (uint256 i = 0; i < LibDoefinStorage.NUM_OF_BLOCK_HEADERS; i++) {
-            headers[i] = ds.blockHeaderOracleStorage.blockHeaders[i];
-        }
-
-        return headers;
+        return LibDoefinBlockHeaderOracle.getAllBlockHeaders();
     }
 
     /// @notice Get the buffer size (number of blocks stored)

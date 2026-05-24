@@ -2,12 +2,11 @@
 // Based on Diamond Standard by Nick Mudge: https://github.com/mudgen/diamond-3-hardhat
 // Uses shared logic from Gnosis Conditional Tokens Framework: https://github.com/gnosis/conditional-tokens-contracts
 
-pragma solidity ^0.8.6;
+pragma solidity ^0.8.20;
 
 import { LibDiamond } from  "../libraries/LibDiamond.sol";
 import { LibERC1155 } from "../libraries/LibERC1155.sol";
 import { IERC1155Facet } from "../interfaces/IERC1155.sol";
-import { Events } from "../libraries/Events.sol";
 
 contract ERC1155Facet is IERC1155Facet {
     function balanceOf(address owner, uint256 id) external view override returns (uint256) {
@@ -18,9 +17,11 @@ contract ERC1155Facet is IERC1155Facet {
         return LibERC1155.balanceOfBatch(owners, ids);
     }
 
+    /// @custom:audit SEC-014 — duplicate `emit Events.ApprovalForAll` removed. The
+    ///      single source of the event is now `LibERC1155.setApprovalForAll`, which the
+    ///      external safeBatchTransferFrom/setApprovalForAll paths all go through.
     function setApprovalForAll(address operator, bool approved) external override {
         LibERC1155.setApprovalForAll(msg.sender, operator, approved);
-        emit Events.ApprovalForAll(msg.sender, operator, approved);
     }
 
     function isApprovedForAll(address owner, address operator) external view override returns (bool) {

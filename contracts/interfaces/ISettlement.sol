@@ -1,0 +1,37 @@
+// SPDX-License-Identifier: AGPL-3.0
+pragma solidity ^0.8.20;
+
+import {LibDoefinOrder} from "../libraries/LibDoefinOrder.sol";
+
+/**
+ * @title ISettlement
+ * @author Doefin
+ * @notice Interface for the v3 hybrid settlement facet
+ * @dev Operator-only entry point for executing matched order pairs on-chain.
+ *      Owner-only governance (operator management, pause switch) lives in the
+ *      separate {ISettlementAdmin} interface (ARCH-01 / SCRUM-230).
+ */
+interface ISettlement {
+    function matchOrders(
+        LibDoefinOrder.DoefinOrder calldata takerOrder,
+        bytes calldata takerSignature,
+        uint8 takerSignatureType,
+        LibDoefinOrder.DoefinOrder[] calldata makerOrders,
+        bytes[] calldata makerSignatures,
+        uint8[] calldata makerSignatureTypes,
+        uint128 takerFillAmount,
+        uint128[] calldata makerFillAmounts,
+        uint128[] calldata takerFees,
+        uint128[] calldata makerFees
+    ) external;
+
+    function fillOrder(
+        LibDoefinOrder.DoefinOrder calldata order,
+        bytes calldata signature,
+        uint8 signatureType,
+        uint128 fillAmount,
+        uint128 fee
+    ) external;
+
+    function getFilledAmount(bytes32 orderHash) external view returns (uint256);
+}

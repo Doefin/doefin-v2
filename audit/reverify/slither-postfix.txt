@@ -1,0 +1,76 @@
+'npx hardhat clean' running (wd: /src)
+'npx hardhat clean --global' running (wd: /src)
+'npx hardhat compile --force' running (wd: /src)
+INFO:Detectors:
+Detector: arbitrary-send-erc20
+SettlementFacet._settleComplementary(LibDoefinOrder.DoefinOrder,LibDoefinOrder.DoefinOrder,uint128,uint128,uint128) (contracts/facets/SettlementFacet.sol#441-484) uses arbitrary from in transferFrom: IERC20(taker.collateralToken).safeTransferFrom(buyerAddr,sellerAddr,collateralAmount) (contracts/facets/SettlementFacet.sol#470)
+SettlementFacet._settleComplementary(LibDoefinOrder.DoefinOrder,LibDoefinOrder.DoefinOrder,uint128,uint128,uint128) (contracts/facets/SettlementFacet.sol#441-484) uses arbitrary from in transferFrom: IERC20(taker.collateralToken).safeTransferFrom(buyerAddr,feeReceiver,buyerFee) (contracts/facets/SettlementFacet.sol#474)
+SettlementFacet._settleComplementary(LibDoefinOrder.DoefinOrder,LibDoefinOrder.DoefinOrder,uint128,uint128,uint128) (contracts/facets/SettlementFacet.sol#441-484) uses arbitrary from in transferFrom: IERC20(taker.collateralToken).safeTransferFrom(sellerAddr,feeReceiver,sellerFee) (contracts/facets/SettlementFacet.sol#479)
+SettlementFacet._settleMint(LibDoefinOrder.DoefinOrder,LibDoefinOrder.DoefinOrder,uint128,uint128,uint128) (contracts/facets/SettlementFacet.sol#492-552) uses arbitrary from in transferFrom: IERC20(taker.collateralToken).safeTransferFrom(taker.maker,feeReceiver,takerFee) (contracts/facets/SettlementFacet.sol#520)
+SettlementFacet._settleMint(LibDoefinOrder.DoefinOrder,LibDoefinOrder.DoefinOrder,uint128,uint128,uint128) (contracts/facets/SettlementFacet.sol#492-552) uses arbitrary from in transferFrom: IERC20(taker.collateralToken).safeTransferFrom(taker.maker,address(this),takerCollateral) (contracts/facets/SettlementFacet.sol#515)
+SettlementFacet._settleMint(LibDoefinOrder.DoefinOrder,LibDoefinOrder.DoefinOrder,uint128,uint128,uint128) (contracts/facets/SettlementFacet.sol#492-552) uses arbitrary from in transferFrom: IERC20(maker.collateralToken).safeTransferFrom(maker.maker,address(this),makerCollateral) (contracts/facets/SettlementFacet.sol#516)
+SettlementFacet._settleMint(LibDoefinOrder.DoefinOrder,LibDoefinOrder.DoefinOrder,uint128,uint128,uint128) (contracts/facets/SettlementFacet.sol#492-552) uses arbitrary from in transferFrom: IERC20(maker.collateralToken).safeTransferFrom(maker.maker,feeReceiver,makerFee) (contracts/facets/SettlementFacet.sol#523)
+SettlementFacet._executeOperatorFill(LibDoefinOrder.DoefinOrder,uint128,uint128) (contracts/facets/SettlementFacet.sol#627-658) uses arbitrary from in transferFrom: IERC20(order.collateralToken).safeTransferFrom(order.maker,feeReceiver,fee) (contracts/facets/SettlementFacet.sol#646)
+SettlementFacet._executeOperatorFill(LibDoefinOrder.DoefinOrder,uint128,uint128) (contracts/facets/SettlementFacet.sol#627-658) uses arbitrary from in transferFrom: IERC20(order.collateralToken).safeTransferFrom(order.maker,msg.sender,collateralAmount - fee) (contracts/facets/SettlementFacet.sol#644)
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#arbitrary-from-in-transferfrom
+INFO:Detectors:
+Detector: divide-before-multiply
+LibOracleAdapter.getTimestampBucket(uint256) (contracts/libraries/LibOracleAdapter.sol#364-366) performs a multiplication on the result of a division:
+	- (timestamp / LibDoefinStorage.TIMESTAMP_BUCKET) * LibDoefinStorage.TIMESTAMP_BUCKET (contracts/libraries/LibOracleAdapter.sol#365)
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#divide-before-multiply
+INFO:Detectors:
+Detector: uninitialized-local
+SettlementFacet.matchOrders(LibDoefinOrder.DoefinOrder,bytes,uint8,LibDoefinOrder.DoefinOrder[],bytes[],uint8[],uint128,uint128[]).totalTakerFee (contracts/facets/SettlementFacet.sol#111) is a local variable never initialized
+SettlementFacet.matchOrders(LibDoefinOrder.DoefinOrder,bytes,uint8,LibDoefinOrder.DoefinOrder[],bytes[],uint8[],uint128,uint128[]).totalMakerFill (contracts/facets/SettlementFacet.sol#94) is a local variable never initialized
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#uninitialized-local-variables
+INFO:Detectors:
+Detector: calls-loop
+OracleManagerFacet.updatePrice(bytes32) (contracts/facets/OracleManagerFacet.sol#241-307) has external calls inside a loop: (price,timestamp,isValid) = IBaseOracleAdapter(adapterConfig.adapterAddress).getLatestPrice(assetId) (contracts/facets/OracleManagerFacet.sol#261-294)
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation/#calls-inside-a-loop
+INFO:Detectors:
+Detector: timestamp
+NonceManagerFacet.isOrderValid(LibDoefinOrder.DoefinOrder) (contracts/facets/NonceManagerFacet.sol#137-147) uses timestamp for comparisons
+	Dangerous comparisons:
+	- order.expiration != 0 && block.timestamp >= order.expiration (contracts/facets/NonceManagerFacet.sol#144)
+OracleManagerFacet.updatePrice(bytes32) (contracts/facets/OracleManagerFacet.sol#241-307) uses timestamp for comparisons
+	Dangerous comparisons:
+	- isValid && price > 0 && timestamp <= block.timestamp (contracts/facets/OracleManagerFacet.sol#262)
+	- block.timestamp - timestamp <= adapterConfig.maxStaleness (contracts/facets/OracleManagerFacet.sol#264)
+OracleManagerFacet.getPrice(bytes32) (contracts/facets/OracleManagerFacet.sol#324-339) uses timestamp for comparisons
+	Dangerous comparisons:
+	- isStale = (block.timestamp - timestamp) > assetConfig.maxStaleness (contracts/facets/OracleManagerFacet.sol#337)
+	- isPaused = assetConfig.tradingPaused || isStale (contracts/facets/OracleManagerFacet.sol#338)
+OracleManagerFacet.manualUpdatePrice(bytes32,uint256,uint256,bytes32,bytes) (contracts/facets/OracleManagerFacet.sol#363-409) uses timestamp for comparisons
+	Dangerous comparisons:
+	- timestamp > block.timestamp (contracts/facets/OracleManagerFacet.sol#367)
+	- block.timestamp - timestamp > maxAge (contracts/facets/OracleManagerFacet.sol#372)
+OracleManagerFacet.getAssetOracleStatus(bytes32) (contracts/facets/OracleManagerFacet.sol#481-494) uses timestamp for comparisons
+	Dangerous comparisons:
+	- isStale = (block.timestamp - priceData.timestamp) > assetConfig.maxStaleness (contracts/facets/OracleManagerFacet.sol#490)
+SettlementFacet._validateOrder(LibSettlementStorage.SettlementStorage,LibDoefinOrder.DoefinOrder,bytes32) (contracts/facets/SettlementFacet.sol#312-340) uses timestamp for comparisons
+	Dangerous comparisons:
+	- order.expiration != 0 && block.timestamp >= order.expiration (contracts/facets/SettlementFacet.sol#324)
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#block-timestamp
+INFO:Detectors:
+Detector: assembly
+OracleManagerFacet._recoverSigner(bytes32,bytes) (contracts/facets/OracleManagerFacet.sol#544-560) uses assembly
+	- INLINE ASM (contracts/facets/OracleManagerFacet.sol#553-557)
+SettlementFacet._verifySignature(LibDoefinOrder.DoefinOrder,bytes32,bytes,uint8) (contracts/facets/SettlementFacet.sol#252-297) uses assembly
+	- INLINE ASM (contracts/facets/SettlementFacet.sol#263-267)
+SignatureVerifierFacet._recoverSigner(bytes32,bytes) (contracts/facets/SignatureVerifierFacet.sol#169-196) uses assembly
+	- INLINE ASM (contracts/facets/SignatureVerifierFacet.sol#178-183)
+LibDoefinStorage.appStorage() (contracts/libraries/LibDoefinStorage.sol#428-433) uses assembly
+	- INLINE ASM (contracts/libraries/LibDoefinStorage.sol#430-432)
+LibDoefinStorage.isInitialized() (contracts/libraries/LibDoefinStorage.sol#454-459) uses assembly
+	- INLINE ASM (contracts/libraries/LibDoefinStorage.sol#456-458)
+LibDoefinStorage.setInitialized() (contracts/libraries/LibDoefinStorage.sol#462-467) uses assembly
+	- INLINE ASM (contracts/libraries/LibDoefinStorage.sol#464-466)
+LibSettlementStorage.settlementStorage() (contracts/libraries/LibSettlementStorage.sol#56-61) uses assembly
+	- INLINE ASM (contracts/libraries/LibSettlementStorage.sol#58-60)
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#assembly-usage
+INFO:Detectors:
+Detector: low-level-calls
+Low level call in SettlementFacet._verifySignature(LibDoefinOrder.DoefinOrder,bytes32,bytes,uint8) (contracts/facets/SettlementFacet.sol#252-297):
+	- (success,result) = order.maker.staticcall(abi.encodeWithSignature(isValidSignature(bytes32,bytes),orderHash,signature)) (contracts/facets/SettlementFacet.sol#287-289)
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#low-level-calls
+INFO:Slither:. analyzed (89 contracts with 98 detectors), 27 result(s) found

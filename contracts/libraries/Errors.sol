@@ -2,7 +2,7 @@
 // Based on Diamond Standard by Nick Mudge: https://github.com/mudgen/diamond-3-hardhat
 // Uses shared logic from Gnosis Conditional Tokens Framework: https://github.com/gnosis/conditional-tokens-contracts
 
-pragma solidity ^0.8.6;
+pragma solidity ^0.8.20;
 
 /**
  * @title Errors
@@ -19,9 +19,6 @@ library Errors {
 
     /// @notice Thrown when caller is not a market maker
     error NotMarketMaker();
-
-    /// @notice Thrown when caller is not authorized to perform action
-    error NotAuthorized();
 
     /// @notice Thrown when caller is not the order maker
     error NotOrderMaker();
@@ -57,8 +54,8 @@ library Errors {
     /// @notice Thrown when no change is made for fees/receiver
     error NoChangeRequired();
 
-    /// @notice Thrown when conversion path is invalid (e.g., same from/to tokens)
-    error InvalidConversionPath();
+    /// @notice Thrown when the admin attempts to set a max fee rate above the hard ceiling
+    error MaxFeeRateExceedsCeiling();
 
     // ========================================
     // CONDITION MANAGER ERRORS
@@ -101,9 +98,6 @@ library Errors {
     /// @notice Thrown when payout length is invalid
     error InvalidPayoutLength();
 
-    /// @notice Thrown when there are too many outcome slots
-    error TooManyOutcomeSlots();
-
     /// @notice Thrown when outcome slot count is invalid
     error InvalidOutcomeSlotCount();
 
@@ -126,38 +120,6 @@ library Errors {
     /// @notice Thrown when collateral amount is not aligned to unit
     error CollateralNotAligned();
 
-    /// @notice Thrown when unit per pair is not set for token
-    error UnitPerPairNotSet();
-
-    /// @notice Thrown when price exceeds maximum (1.0)
-    error PriceExceedsMaximum();
-
-    // ========================================
-    // ESCROW ERRORS
-    // ========================================
-
-    /// @notice Thrown when insufficient ERC20 balance in escrow
-    error InsufficientERC20Balance();
-
-    /// @notice Thrown when insufficient ERC20 balance in escrow with custom details for debugging
-    error InsufficientERC20EscrowBalance(address user, address token, uint256 requested, uint256 actual);
-
-    /// @notice Thrown when insufficient ERC1155 balance in escrow
-    error InsufficientERC1155Balance(address owner, uint256 tokenId, uint256 requested, uint256 actual);
-
-    /// @notice Thrown when ERC20 allowance is insufficient
-    error InsufficientERC20Allowance(address owner, address token, uint256 required, uint256 approved);
-
-    // ========================================
-    // FEE MANAGEMENT ERRORS
-    // ========================================
-
-    /// @notice Thrown when no fees are available for withdrawal
-    error NoFeesToWithdraw();
-
-    /// @notice Thrown when insufficient fee balance for withdrawal
-    error InsufficientFeeBalance();
-
     // ========================================
     // REENTRANCY ERRORS
     // ========================================
@@ -166,54 +128,11 @@ library Errors {
     error ReentrantCall();
 
     // ========================================
-    // ORDERBOOK ERRORS
+    // ORDERBOOK / PRICE ERRORS
     // ========================================
-
-    /// @notice Thrown when order is not active
-    error OrderNotActive();
-
-    /// @notice Thrown when order has expired
-    error OrderExpired();
-
-    /// @notice Thrown when partially filled orders cannot be modified
-    error PartiallyFilledOrdersNotModifiable();
-
-    /// @notice Thrown when no matchable orders are available
-    error NoMatchableOrders();
 
     /// @notice Thrown when order price exceeds maximum
     error InvalidPrice();
-
-    /// @notice Thrown when order amounts are invalid
-    error InvalidAmounts();
-
-    /// @notice Thrown when order is created with past expiry
-    error OrderCreatedWithPastExpiry();
-
-    /// @notice Thrown when invalid quote currency token is provided
-    error InvalidQuoteCurrencyToken();
-
-    /// @notice Thrown when invalid exchange rate is provided
-    error InvalidFloorExchangeRate();
-
-    /// @notice Thrown when cross currency order has the same collateral and quote currency
-    error SameCollateralAndQuoteCurrency();
-
-    // ========================================
-    // SETTLEMENT ERRORS
-    // ========================================
-
-    /// @notice Thrown when position IDs don't match
-    error PositionIdMismatch();
-
-    /// @notice Thrown when order directions are the same for complementary match
-    error SameDirectionForComplementary();
-
-    /// @notice Thrown when order directions differ for mint/merge match
-    error DifferentOrderDirectionForNonComplementary();
-
-    /// @notice Thrown when fill-or-kill order cannot be completely filled
-    error FillOrKillFailed();
 
     // ========================================
     // POSITION REGISTRY ERRORS
@@ -227,9 +146,6 @@ library Errors {
 
     /// @notice Thrown when invalid match between positions
     error InvalidMatch();
-
-    /// @dev added for debugging
-    error NotCrossingPrices();
 
     /// @notice Thrown when complement position is invalid
     error InvalidComplement();
@@ -276,68 +192,6 @@ library Errors {
     error InvalidParentCollectionId();
 
     // ========================================
-    // ORACLE ERRORS
-    // ========================================
-
-    /// @notice Thrown when oracle adapter is not registered
-    error AdapterNotRegistered(bytes32 adapterId);
-
-    /// @notice Thrown when oracle adapter already exists
-    error AdapterAlreadyExists(bytes32 adapterId);
-
-    /// @notice Thrown when asset is not configured for oracle
-    error AssetNotConfigured(bytes32 assetId);
-
-    /// @notice Thrown when adapter priority array is empty
-    error EmptyAdapterPriority();
-
-    /// @notice Thrown when all configured oracle adapters fail to provide a valid price
-    error AllOracleAdaptersFailed(bytes32 assetId);
-
-    /// @notice Thrown when oracle timestamp is invalid
-    error InvalidTimestamp();
-
-    /// @notice Thrown when signature signer is not authorized
-    error UnauthorizedSigner();
-
-    /// @notice Thrown when nonce has already been used for replay protection
-    error NonceAlreadyUsed();
-
-    /// @notice Thrown when signature has expired
-    error SignatureExpired();
-
-    /// @notice Thrown when signature is invalid or ecrecover fails
-    error InvalidSignature();
-
-    /// @notice Thrown when oracle decimals configuration is invalid (must be 0-18)
-    error InvalidOracleDecimals(bytes32 assetId, uint8 decimals);
-
-    /// @notice Thrown when feed ID is invalid (zero)
-    error InvalidFeedId();
-
-    /// @notice Thrown when decimals value is invalid (zero or greater than 18)
-    error InvalidDecimals();
-
-    // ========================================
-    // CROSS-CURRENCY ERRORS
-    // ========================================
-
-    /// @notice Thrown when invalid order type is used for cross-currency operations
-    error InvalidOrderType();
-
-    /// @notice Thrown when buy orders attempt to use dynamic exchange rate (only fixed allowed)
-    error BuyOrdersMustUseFixedRate();
-
-    /// @notice Thrown when cross-currency orders have incompatible quote currencies
-    error IncompatibleQuoteCurrencies();
-
-    /// @notice Thrown when cross-currency order matching is attempted with non-complementary orders
-    error NonComplementaryCrossCurrencyMatch();
-
-    /// @notice Thrown when oracle price is stale for dynamic exchange rate calculation
-    error OraclePriceStale();
-
-    // ========================================
     // BLOCK HEADER ORACLE ERRORS
     // ========================================
     error BlockHeaderOracle_NewChainNotLonger();
@@ -368,9 +222,6 @@ library Errors {
     /// @notice Thrown when block is not in buffer
     error OracleAdapter_BlockNotInBuffer();
 
-    /// @notice Thrown when question already exists with same parameters
-    error OracleAdapter_QuestionAlreadyExists();
-
     /// @notice Thrown when question type is invalid
     error OracleAdapter_InvalidQuestionType();
 
@@ -392,12 +243,6 @@ library Errors {
 
     /// @notice Thrown when value is out of valid range
     error ValueOutOfRange();
-
-    /// @notice Thrown when operation would cause overflow
-    error ArithmeticOverflow();
-
-    /// @notice Thrown when operation would cause underflow
-    error ArithmeticUnderflow();
 
     // ========================================
     // INITIALIZATION ERRORS
@@ -445,21 +290,51 @@ library Errors {
     error InvalidSignatureLength();
 
     // ========================================
-    // MOCK CONTRACT ERRORS
+    // SETTLEMENT ERRORS (v3)
     // ========================================
 
-    /// @notice Thrown when caller is not owner in mock contracts
-    error NotOwner();
+    /// @notice Thrown when EIP-712 order signature verification fails
+    error InvalidOrderSignature(bytes32 orderHash);
 
-    /// @notice Thrown when trying to set owner to invalid address
-    error InvalidAddress();
+    /// @notice Thrown when attempting to fill a cancelled order
+    error OrderCancelled(bytes32 orderHash);
 
-    /// @notice Thrown when mock adapter is configured to fail for testing
-    error MockAdapterConfiguredToFail();
+    /// @notice Thrown when order nonce is below the maker's current nonce
+    error OrderNonceInvalid(bytes32 orderHash, uint256 orderNonce, uint256 currentNonce);
 
-    /// @notice Thrown when caller is not the pending owner
-    error NotPendingOwner();
+    /// @notice Thrown when fill amount exceeds the order's remaining unfilled amount
+    error OrderOverfilled(bytes32 orderHash, uint256 requested, uint256 remaining);
 
-    /// @notice Thrown when max manual update age is invalid (too short or too long)
-    error InvalidMaxManualUpdateAge();
+    /// @notice Thrown when settlement is attempted while trading is paused
+    error TradingIsPaused();
+
+    /// @notice Thrown when caller is not the authorized settlement operator
+    error UnauthorizedOperator(address caller);
+
+    /// @notice Thrown when minValidSalt is not strictly greater than the current value
+    error InvalidSaltThreshold();
+
+    /// @notice Thrown when taker and maker are the same address (self-trade prevention)
+    error SelfTrade();
+
+    /// @notice Thrown when an operator-supplied fee exceeds the admin-set maximum rate
+    error FeeExceedsMaxRate();
+
+    /// @notice Thrown when an operator-supplied fee exceeds a party's payout/proceeds
+    error FeeExceedsProceeds();
+
+    /// @notice Thrown when the maker fill amounts do not sum to the taker fill amount
+    error FillAmountMismatch(uint128 sumOfMakerFills, uint128 takerFillAmount);
+
+    // ========================================
+    // FEE BANK ERRORS (SCRUM-236)
+    // ========================================
+
+    /// @notice Thrown when an owner-initiated withdrawFees call requests more than the
+    ///         per-token accrued balance.
+    /// @dev Parameterised for off-chain debuggability — mirrors the
+    ///      FillAmountMismatch(sumOfMakerFills, takerFillAmount) precedent.
+    /// @param requested The amount the caller asked to withdraw
+    /// @param available The current accruedFees[token] balance
+    error InsufficientAccruedFees(uint256 requested, uint256 available);
 }

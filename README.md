@@ -1,13 +1,17 @@
-# Doefin V2 🔮⚡
+# Doefin V3 🔮⚡
 
-> **Decentralized Bitcoin Prediction Markets on Ethereum**
+> **Decentralized Bitcoin Prediction Markets on Base L2**
 
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
 [![Hardhat](https://img.shields.io/badge/Built%20with-Hardhat-yellow.svg)](https://hardhat.org/)
 [![Solidity](https://img.shields.io/badge/Solidity-^0.8.20-lightgrey)](https://docs.soliditylang.org/)
 [![Diamond Standard](https://img.shields.io/badge/EIP--2535-Diamond%20Standard-purple)](https://eips.ethereum.org/EIPS/eip-2535)
 
-Doefin V2 is a decentralized prediction market protocol that enables users to create and trade on Bitcoin network metrics. Built on the Diamond Standard (EIP-2535) for maximum upgradeability and modularity, the protocol features a trustless Bitcoin block header oracle and supports diverse prediction market types.
+Doefin V3 is a decentralized prediction market protocol on Base L2 that lets users trade
+on Bitcoin network metrics. Built on the Diamond Standard (EIP-2535) for upgradeability and
+modularity, it uses a **hybrid model**: an **off-chain orderbook** with **on-chain
+settlement** (the Polymarket model). It features a trustless Bitcoin block header oracle
+for condition resolution.
 
 ## 🚀 Features
 
@@ -18,8 +22,8 @@ Doefin V2 is a decentralized prediction market protocol that enables users to cr
 
 ### 🔗 **Bitcoin Block Header Oracle**
 - **Trustless Verification**: Validates Bitcoin block headers using consensus rules
-- **Reorg Protection**: 17-block buffer ensures chain integrity
-- **Automated Settlement**: Real-time difficulty adjustment tracking
+- **Reorg Protection**: Multi-block buffer ensures chain integrity
+- **Automated Resolution**: Real-time difficulty adjustment tracking
 - **Proof of Work Validation**: Full SHA-256 validation of block headers
 
 ### 📈 **Prediction Market Types**
@@ -31,11 +35,13 @@ Doefin V2 is a decentralized prediction market protocol that enables users to cr
 | **Block Count** | Blocks mined in time window | "Blocks mined between timestamps X and Y: <100, 100-150, 150-200, >200" |
 | **Mining Duration** | Time to mine block range | "Time to mine 144 blocks from height X: <1hr, 1-2hr, 2-3hr, >3hr" |
 
-### 💱 **Advanced Exchange Features**
-- **Full Order Book**: Limit and market orders with partial fills
-- **Cross-Currency Trading**: Multiple collateral token support (USDC, DAI, etc.)
-- **MEV Protection**: Fill-or-kill orders and minimum fill amounts
-- **Gas Optimization**: Batch order matching and settlement
+### 💱 **Hybrid Exchange Model**
+- **Off-Chain Orderbook**: Users sign EIP-712 orders off-chain; no gas to place or cancel
+- **On-Chain Settlement**: An authorized operator submits matched orders for trustless,
+  atomic settlement
+- **Three Settlement Paths**: Complementary, Mint, and Merge — a single `matchOrders` call
+  can mix match types
+- **Operator-Supplied Fees**: Per-leg fee amounts bounded by an admin-set ceiling
 
 ### 🎯 **Conditional Token Framework**
 - **Gnosis CTF Integration**: Battle-tested conditional token standard
@@ -81,18 +87,20 @@ npx hardhat compile
 # Run tests
 npm test
 
-# Run specific test file
-npx hardhat test test/unit/MarketExecutionTest.js
+# Run specific test suites
+npx hardhat test test/unit/SettlementFacet/
+npx hardhat test test/unit/SignatureVerifierFacet/
+npx hardhat test test/unit/NonceManagerFacet/
 
 # Get test coverage
 npx hardhat coverage
 
 # Deploy to local network
 npx hardhat node
-npx hardhat run scripts/deploy.js --network localhost
+npm run deploy:local
 
-# Deploy to testnet
-npx hardhat run scripts/deploy.js --network arbitrumSepolia
+# Deploy to Base Sepolia testnet
+npm run deploy:baseSepolia
 ```
 
 ## 🏗️ Architecture Overview
@@ -104,42 +112,46 @@ graph TB
         Diamond --> DCF[DiamondCutFacet]
         Diamond --> DLF[DiamondLoupeFacet]
     end
-    
-    subgraph "Core Facets"
+
+    subgraph "Settlement Facets"
+        SF[SettlementFacet]
+        SVF[SignatureVerifierFacet]
+        NMF[NonceManagerFacet]
+    end
+
+    subgraph "CTF Facets"
         CTF[ConditionalTokensFacet]
-        MEF[MarketExecutionFacet]
-        OCF[OrderCreationFacet]
-        OMF[OrderManagementFacet]
+        CMF[ConditionManagerFacet]
+        ERC[ERC1155Facet]
     end
-    
+
     subgraph "Oracle System"
-        BHO[BlockHeaderOracleFacet]
+        BHO[DoefinV1BlockHeaderOracleFacet]
         OAF[OracleAdapterFacet]
-        BSOA[BlockScholesOracleAdapter]
     end
-    
-    subgraph "Access Control"
+
+    subgraph "Admin"
         ACF[AccessControlFacet]
         OF[OwnershipFacet]
-        ACF[AdminConfigFacet]
+        ADM[AdminConfigFacet]
     end
-    
+
     subgraph "Libraries"
         LDS[LibDoefinStorage]
-        LCT[LibCTHelpers]
-        LM[LibMatchEngine]
-        LS[LibSettlement]
+        LSS[LibSettlementStorage]
+        LDO[LibDoefinOrder]
+        LCT[LibCTFCondition]
     end
-    
+
+    Diamond --> SF
     Diamond --> CTF
-    Diamond --> MEF
     Diamond --> BHO
-    Diamond --> ACF
-    
-    CTF --> LDS
-    MEF --> LM
+    Diamond --> ADM
+
+    SF --> LDO
+    SF --> LSS
+    CTF --> LCT
     BHO --> LDS
-    OAF --> LS
 ```
 
 ## 📁 Contract Structure
@@ -148,16 +160,20 @@ graph TB
 contracts/
 ├── Diamond.sol                 # Main diamond proxy contract
 ├── facets/                     # Diamond facets
+│   ├── SettlementFacet.sol            # On-chain settlement (matchOrders / fillOrder)
+│   ├── SignatureVerifierFacet.sol     # EIP-712 signature verification
+│   ├── NonceManagerFacet.sol          # Off-chain order cancellation
 │   ├── ConditionalTokensFacet.sol     # CTF position management
-│   ├── MarketExecutionFacet.sol       # Order matching engine
-│   ├── OrderCreationFacet.sol         # Order creation logic
-│   ├── DoefinV1BlockHeaderOracleFacet.sol  # Bitcoin oracle
+│   ├── ConditionManagerFacet.sol      # Condition preparation / resolution
+│   ├── DoefinV1BlockHeaderOracleFacet.sol  # Bitcoin block header oracle
+│   ├── OracleAdapterFacet.sol         # Bitcoin question views
 │   └── ...
 ├── interfaces/                 # Contract interfaces
 ├── libraries/                  # Shared logic libraries
-│   ├── LibDoefinStorage.sol           # Central storage definitions
-│   ├── LibMatchEngine.sol            # Order matching algorithms
-│   ├── LibSettlement.sol             # Trade settlement logic
+│   ├── LibDoefinStorage.sol           # Shared AppStorage definitions
+│   ├── LibSettlementStorage.sol       # Isolated v3 settlement storage
+│   ├── LibDoefinOrder.sol             # DoefinOrder struct + EIP-712 hashing
+│   ├── LibCTFCondition.sol            # CTF split / merge operations
 │   └── ...
 └── upgradeInitializers/       # Upgrade initialization scripts
 ```
@@ -171,12 +187,16 @@ The protocol supports multiple networks with different configurations:
 ```javascript
 // hardhat.config.js
 networks: {
-  arbitrumSepolia: {
-    url: process.env.SEPOLIA_RPC_URL,
+  baseSepolia: {
+    url: process.env.BASE_SEPOLIA_RPC_URL,
     accounts: [process.env.PRIVATE_KEY],
-    chainId: 421614
+    chainId: 84532
   },
-  // ... other networks
+  base: {
+    url: process.env.BASE_RPC_URL,
+    accounts: [process.env.PRIVATE_KEY],
+    chainId: 8453
+  }
 }
 ```
 
@@ -211,10 +231,7 @@ npx hardhat test test/integration/
 npx hardhat test test/oracle/
 
 # With gas reporting
-npx hardhat test --reporter gasReporter
-
-# Debug specific test
-npx hardhat test test/debug-market-order.js --verbose
+REPORT_GAS=true npx hardhat test
 ```
 
 ### Test Coverage
@@ -242,9 +259,9 @@ The project maintains >90% test coverage across all critical paths:
 
 ### Known Limitations
 
-- Bitcoin reorgs beyond 17 blocks require manual intervention
+- Deep Bitcoin reorgs require manual intervention
 - Oracle updates depend on external block header submission
-- Cross-currency rates require external price feeds
+- Settlement depends on the authorized off-chain operator submitting matched orders
 
 ## 📊 Gas Optimization
 
@@ -261,13 +278,18 @@ settings: {
 
 ### Typical Gas Costs
 
-| Operation | Gas Cost | Notes |
-|-----------|----------|-------|
-| Create Order | ~150k | First-time position |
-| Fill Order | ~180k | Including settlement |
-| Split Position | ~120k | CTF position creation |
-| Oracle Update | ~300k | Block header submission |
-| Redeem Position | ~80k | Post-settlement |
+Order creation and cancellation are off-chain and cost no gas. On-chain operations:
+
+| Operation | Notes |
+|-----------|-------|
+| `matchOrders` | Settle one taker against one or more makers (varies with maker count) |
+| `fillOrder` | Settle a single order leg |
+| `splitPosition` | CTF position creation |
+| `mergePositions` | CTF position redemption to collateral |
+| Block header submission | Bitcoin oracle update |
+| `redeemPositions` | Redeem winning positions post-resolution |
+
+Run `REPORT_GAS=true npx hardhat test` for current measured numbers.
 
 ## 🚀 Deployment
 
@@ -285,10 +307,11 @@ settings: {
 ### Deploy Script
 
 ```bash
-# Deploy to testnet
-npx hardhat run scripts/deploy.js --network arbitrumSepolia
+# Deploy to Base Sepolia testnet
+npm run deploy:baseSepolia
 
-# Verify on Etherscan (automatically included in deploy script)
+# Verify the deployment
+npm run verify:baseSepolia
 ```
 
 ### Post-Deployment
@@ -305,7 +328,7 @@ We welcome contributions! Please see our [Contributing Guidelines](CONTRIBUTING.
 ### Development Workflow
 
 1. **Fork & Clone**: Fork the repository and clone locally
-2. **Branch**: Create feature branches from `dev`
+2. **Branch**: Create feature branches from `v3/dev`
 3. **Develop**: Write code with comprehensive tests
 4. **Test**: Ensure all tests pass and maintain coverage
 5. **PR**: Submit pull request with detailed description
@@ -318,25 +341,16 @@ We welcome contributions! Please see our [Contributing Guidelines](CONTRIBUTING.
 
 ## 📚 Documentation
 
-### 📄 **Whitepaper & Protocol Overview**
-- **Doefin V2 Whitepaper**: [Complete protocol specification, economics, and user guide](./docs/DOEFIN_V2_WHITEPAPER.md)
-
 ### 🏗️ **System Architecture & Design**
 - **Architecture Guide**: [System overview and design principles](./docs/ARCHITECTURE.md)
 - **Diamond Contract Guide**: [Diamond pattern implementation and best practices](./docs/DIAMOND_CONTRACT_CONSIDERATIONS.md)
 - **Deployment Guide**: [Network deployment procedures](./docs/DEPLOYMENT.md)
 
 ### 🔄 **System Flows & Operations**
-- **Order Lifecycle Flow**: [Complete order creation, matching, and settlement process](./docs/ORDER_LIFECYCLE_FLOW.md)
-- **Cross-Currency Orders Flow**: [Multi-collateral trading with oracle integration](./docs/CROSS_CURRENCY_ORDERS_FLOW.md)
-- **Matching Mechanisms**: [Order book matching algorithms and optimization](./docs/MATCHING_MECHANISMS.md)
-- **Settlement Flow**: [Trade settlement and position management](./docs/SETTLEMENT_FLOW.md)
-- **Condition Lifecycle Flow**: [Market creation to final resolution](./docs/CONDITION_LIFECYCLE_FLOW.md)
-
-### 🔮 **Oracle Systems**
-- **Price Feed Oracle System**: [Dynamic oracle adapter management with failover](./docs/PRICE_FEED_ORACLE_SYSTEM.md)
-- **Bitcoin Block Header Oracle**: [Trustless Bitcoin network integration](./docs/QUESTIONS_TYPES.md)
-- **Reorg Test Data Guide**: [Bitcoin reorganization testing scenarios](./docs/REORG_TEST_DATA_GUIDE.md)
+- **Order Lifecycle Flow**: [Off-chain order creation through on-chain settlement](./docs/flows/ORDER_LIFECYCLE.md)
+- **Matching Mechanisms**: [Off-chain matching algorithm and 1:many grouping](./docs/flows/MATCHING_MECHANISMS.md)
+- **Settlement Flow**: [On-chain settlement and the three match types](./docs/flows/SETTLEMENT_FLOW.md)
+- **Condition Lifecycle Flow**: [Condition creation to final resolution](./docs/flows/CONDITION_LIFECYCLE.md)
 
 ## 🔗 Links & Resources
 

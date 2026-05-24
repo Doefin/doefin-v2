@@ -1,6 +1,6 @@
 # Deployment Guide
 
-This guide covers deploying Doefin V2 to various Ethereum networks.
+This guide covers deploying Doefin V3 to Base and other EVM networks.
 
 ## 📋 Prerequisites
 
@@ -11,17 +11,16 @@ This guide covers deploying Doefin V2 to various Ethereum networks.
 
 ### Required Information
 - **Deployer Private Key**: Account with sufficient ETH for deployment
-- **RPC URL**: Node endpoint for target network 
-- **API Keys**: For contract verification (Etherscan/Arbiscan)
+- **RPC URL**: Node endpoint for the target network
+- **API Keys**: For contract verification (Basescan)
 
 ### Network Requirements
 
-| Network | Min ETH Required | Confirmation Blocks |
-|---------|------------------|-------------------|
-| Hardhat Local | 0 ETH | 1 |
-| Arbitrum Sepolia | ~0.01 ETH | 2 |
-| Arbitrum Mainnet | ~0.1 ETH | 5 |
-| Ethereum Mainnet | ~0.5 ETH | 5 |
+| Network | Chain ID | Min ETH Required |
+|---------|----------|------------------|
+| Hardhat Local | 31337 | 0 ETH |
+| Base Sepolia | 84532 | ~0.01 ETH |
+| Base Mainnet | 8453 | ~0.05 ETH |
 
 ## 🔧 Environment Setup
 
@@ -48,12 +47,9 @@ nano .env
 ```bash
 # Deployment
 PRIVATE_KEY=0x1234567890abcdef...
-ARBITRUM_SEPOLIA_RPC_URL=https://arb-sepolia.g.alchemy.com/v2/YOUR_KEY
-ARBISCAN_API_KEY=YOUR_ARBISCAN_API_KEY
-
-# Optional: Gas optimization
-DEPLOYMENT_CONFIRMATIONS=2
-VERIFICATION_ENABLED=true
+BASE_SEPOLIA_RPC_URL=https://base-sepolia.g.alchemy.com/v2/YOUR_KEY
+BASE_RPC_URL=https://base-mainnet.g.alchemy.com/v2/YOUR_KEY
+BASESCAN_API_KEY=YOUR_BASESCAN_API_KEY
 ```
 
 ### 3. Compilation Test
@@ -89,30 +85,30 @@ Completed diamond cut
 Diamond address: 0x...
 ```
 
-### Arbitrum Sepolia Testnet
+### Base Sepolia Testnet
 
 ```bash
 # Deploy to testnet
-npm run deploy:sepolia
+npm run deploy:baseSepolia
 
-# Verify deployment
-npx hardhat verify --network arbitrumSepolia DEPLOYED_ADDRESS
+# Verify the deployment
+npm run verify:baseSepolia
 ```
 
-### Mainnet Deployment
+### Base Mainnet Deployment
 
 ⚠️ **CRITICAL: Mainnet deployment checklist**
 
 - [ ] All tests passing with 100% success rate
 - [ ] Security audit completed
-- [ ] Multi-sig wallet setup for contract ownership  
+- [ ] Multi-sig (Safe) wallet set up for contract ownership
 - [ ] Deployment parameters review
 - [ ] Gas price optimization
 - [ ] Emergency pause mechanism tested
 
 ```bash
-# Deploy to mainnet (when ready)
-npx hardhat run scripts/deploy.js --network arbitrumMainnet
+# Deploy to Base mainnet (when ready) — Safe-owned Diamond deployment
+npm run deploy:safe:base
 ```
 
 ## 📝 Post-Deployment Configuration
@@ -178,7 +174,7 @@ npx hardhat verify --network NETWORK_NAME FACET_ADDRESS
 
 ### Monitoring Setup
 
-1. **Block Explorer**: Bookmark contract addresses on Etherscan/Arbiscan
+1. **Block Explorer**: Bookmark contract addresses on Basescan
 2. **Event Monitoring**: Set up event indexing for critical events
 3. **Oracle Monitoring**: Track block header submissions
 4. **Gas Monitoring**: Monitor transaction costs
@@ -222,25 +218,16 @@ ALLOW_UNLIMITED_CONTRACT_SIZE=true npm run compile
 
 ### Gas Usage Estimates
 
-| Component | Gas Cost | ETH Cost (20 gwei) |
-|-----------|----------|-------------------|
-| Diamond | ~1,500,000 | ~0.03 ETH |
-| DiamondCutFacet | ~800,000 | ~0.016 ETH |
-| Core Facets (6x) | ~4,000,000 | ~0.08 ETH |
-| Oracle Facets (2x) | ~1,000,000 | ~0.02 ETH |
-| **Total** | **~7,300,000** | **~0.146 ETH** |
+Total deployment is the Diamond proxy plus its facets (settlement, CTF, oracle, and
+infrastructure facets) and the diamond-cut transaction that wires them together. Run
+`npx hardhat size-contracts` before deployment to confirm every facet is under the 24 KiB
+limit, and use Hardhat's gas estimation for current per-facet figures.
 
-### Network Differences
+### Network Notes
 
-**Ethereum Mainnet:**
-- Higher gas costs (~10-50x)
-- Longer confirmation times
-- More robust finality
-
-**Arbitrum:**
-- Lower gas costs
-- Faster confirmations  
-- L2 specific considerations
+**Base (L2):**
+- Low gas costs and fast confirmations
+- The intended production network — chain ID 8453 (mainnet), 84532 (Sepolia)
 
 ## 🔄 Upgrade Process
 

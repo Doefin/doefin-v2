@@ -2,7 +2,7 @@
 // Based on Diamond Standard by Nick Mudge: https://github.com/mudgen/diamond-3-hardhat
 // Uses shared logic from Gnosis Conditional Tokens Framework: https://github.com/gnosis/conditional-tokens-contracts
 
-pragma solidity ^0.8.6;
+pragma solidity ^0.8.20;
 
 import {Errors} from "./Errors.sol";
 import {LibDoefinStorage} from "./LibDoefinStorage.sol";
@@ -77,13 +77,17 @@ library LibDoefinBlockHeaderOracle {
         return ds.blockHeaderOracleStorage.blockHeaders[index];
     }
 
-    /// @notice Get the latest block header
-    /// @return The latest block header
+    /// @notice Get the latest block header.
+    /// @dev SCRUM-234 (dead-code A-10 + option B) — matches the
+    ///      `DoefinV1BlockHeaderOracleFacet.getLatestBlockHeader` behaviour exactly,
+    ///      including the silent return of the zero-valued ring-buffer slot when the
+    ///      oracle has not been initialised. The previous `currentBlockHeight == 0 ->
+    ///      revert ValueOutOfRange` guard was removed so the facet can route through
+    ///      this function without changing observable behaviour (some integration tests
+    ///      rely on the silent return). Callers that need an "is oracle initialised"
+    ///      gate should check `getCurrentBlockHeight() != 0` themselves.
     function getLatestBlockHeader() internal view returns (LibDoefinStorage.BlockHeader memory) {
         LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
-        if (ds.blockHeaderOracleStorage.currentBlockHeight == 0) {
-            revert Errors.ValueOutOfRange();
-        }
         uint256 currentBlockIndex = ((ds.blockHeaderOracleStorage.nextBlockIndex + LibDoefinStorage.NUM_OF_BLOCK_HEADERS) - 1) %
             LibDoefinStorage.NUM_OF_BLOCK_HEADERS;
         return ds.blockHeaderOracleStorage.blockHeaders[currentBlockIndex];

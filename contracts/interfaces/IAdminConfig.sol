@@ -2,7 +2,7 @@
 // Based on Diamond Standard by Nick Mudge: https://github.com/mudgen/diamond-3-hardhat
 // Uses shared logic from Gnosis Conditional Tokens Framework: https://github.com/gnosis/conditional-tokens-contracts
 
-pragma solidity ^0.8.6;
+pragma solidity ^0.8.20;
 
 interface IAdminConfig {
     function addCollateralToken(address token, uint256 unitPerPair) external;
@@ -13,13 +13,15 @@ interface IAdminConfig {
 
     function setResolutionFeeBps(uint16 bps) external;
 
-    function setTradingFeesBps(uint16 makerBps, uint16 takerBps) external;
+    function setMaxFeeRate(uint16 maxFeeRateBps) external;
+
+    function getMaxFeeRate() external view returns (uint16);
 
     function isAllowedCollateral(address token) external view returns (bool);
 
     function getCollateralUnit(address token) external view returns (uint256);
 
-    function getFees() external view returns (address feeReceiver, uint16 resolutionFeeBps, uint16 makerTradingFeeBps, uint16 takerTradingFeeBps);
+    function getFees() external view returns (address feeReceiver, uint16 resolutionFeeBps);
 
     // ----------------------------------------
     // Token Symbol Management
@@ -39,120 +41,20 @@ interface IAdminConfig {
      */
     function setTokenSymbol(address token, string calldata symbol) external;
 
-    /**
-     * @notice Get oracle asset ID for cross-currency conversion
-     * @param fromToken The source token address
-     * @param toToken The target token address
-     * @return assetIds Array of oracle asset IDs needed for conversion
-     */
-    function getCrossCurrencyConversionPath(address fromToken, address toToken) external view returns (bytes32[] memory assetIds);
-
     // ----------------------------------------
-    // Conversion Path Management
+    // Fee Bank (SCRUM-236)
     // ----------------------------------------
 
     /**
-     * @notice Set a custom conversion path between two tokens
-     * @param fromToken The source token address
-     * @param toToken The target token address
-     * @param assetIds Array of oracle asset IDs representing the conversion path
-     * @dev Only callable by contract owner. Allows adding support for new currency pairs without code changes.
+     * @notice Sweep accrued fees for a token to the configured fee receiver.
+     * @param token The collateral token to sweep
+     * @param amount Amount to withdraw, or `type(uint256).max` to drain
      */
-    function setConversionPath(address fromToken, address toToken, bytes32[] calldata assetIds) external;
+    function withdrawFees(address token, uint256 amount) external;
 
     /**
-     * @notice Remove a custom conversion path between two tokens
-     * @param fromToken The source token address
-     * @param toToken The target token address
-     * @dev Reverts to hardcoded fallback logic if available
+     * @notice Returns the current per-token balance in the in-Diamond fee bank.
+     * @param token The collateral token to inspect
      */
-    function removeConversionPath(address fromToken, address toToken) external;
-
-    /**
-     * @notice Get the configured conversion path for a token pair
-     * @param fromToken The source token address
-     * @param toToken The target token address
-     * @return assetIds The configured asset IDs, or empty array if not configured
-     */
-    function getConfiguredConversionPath(address fromToken, address toToken) external view returns (bytes32[] memory assetIds);
-
-    // ----------------------------------------
-    // Fee Withdrawal Functions
-    // ----------------------------------------
-
-    /**
-     * @notice Withdraw accumulated protocol fees for a specific token
-     * @param token The token to withdraw fees for
-     * @param amount The amount to withdraw (0 = withdraw all)
-     */
-    function withdrawProtocolFees(address token, uint256 amount) external;
-
-    /**
-     * @notice Withdraw accumulated protocol fees to a specific recipient
-     * @param token The token to withdraw fees for
-     * @param amount The amount to withdraw (0 = withdraw all)
-     * @param recipient The address to send fees to
-     */
-    function withdrawProtocolFeesTo(address token, uint256 amount, address recipient) external;
-
-    /**
-     * @notice Withdraw all accumulated fees for a specific token
-     * @param token The token to withdraw all fees for
-     */
-    function withdrawAllProtocolFees(address token) external;
-
-    /**
-     * @notice Withdraw all accumulated fees for a specific token to a specific recipient
-     * @param token The token to withdraw all fees for
-     * @param recipient The address to send fees to
-     */
-    function withdrawAllProtocolFeesTo(address token, address recipient) external;
-
-    /**
-     * @notice Batch withdraw fees for multiple tokens
-     * @param tokens Array of token addresses
-     * @param amounts Array of amounts to withdraw (0 = withdraw all for that token)
-     */
-    function batchWithdrawProtocolFees(address[] calldata tokens, uint256[] calldata amounts) external;
-
-    /**
-     * @notice Batch withdraw fees for multiple tokens to a specific recipient
-     * @param tokens Array of token addresses
-     * @param amounts Array of amounts to withdraw (0 = withdraw all for that token)
-     * @param recipient The address to send fees to
-     */
-    function batchWithdrawProtocolFeesTo(address[] calldata tokens, uint256[] calldata amounts, address recipient) external;
-
-    // ----------------------------------------
-    // NEW: Fee Query Functions
-    // ----------------------------------------
-
-    /**
-     * @notice Get accumulated protocol fees for a token
-     * @param token The token address
-     * @return The accumulated fee amount
-     */
-    function getProtocolFeesBalance(address token) external view returns (uint256);
-
-    /**
-     * @notice Get accumulated fees for multiple tokens
-     * @param tokens Array of token addresses
-     * @return fees Array of accumulated fee amounts
-     */
-    function getProtocolFeesBalances(address[] calldata tokens) external view returns (uint256[] memory fees);
-
-    /**
-     * @notice Check if there are any fees available for withdrawal
-     * @param token The token address
-     * @return True if fees are available
-     */
-    function hasFeesAvailable(address token) external view returns (bool);
-
-    /**
-     * @notice Get comprehensive fee statistics for a token
-     * @param token The token address
-     * @return available The currently available fees
-     * @return receiver The configured fee receiver
-     */
-    function getFeeStatistics(address token) external view returns (uint256 available, address receiver);
+    function getAccruedFees(address token) external view returns (uint256);
 }

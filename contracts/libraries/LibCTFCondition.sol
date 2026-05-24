@@ -2,16 +2,16 @@
 // Based on Diamond Standard by Nick Mudge: https://github.com/mudgen/diamond-3-hardhat
 // Uses shared logic from Gnosis Conditional Tokens Framework: https://github.com/gnosis/conditional-tokens-contracts
 
-pragma solidity ^0.8.6;
+pragma solidity ^0.8.20;
 
 import {LibDoefinStorage} from "./LibDoefinStorage.sol";
+import {LibAdminConfigStorage} from "./LibAdminConfigStorage.sol";
 import {LibCTHelpers} from "./LibCTHelpers.sol";
 import {LibERC1155} from "./LibERC1155.sol";
 import {Errors} from "./Errors.sol";
 import {Events} from "./Events.sol";
 import {LibPositionRegistry} from "./LibPositionRegistry.sol";
 import {LibReentrancyGuard} from "./LibReentrancyGuard.sol";
-import {LibAccessControl} from "./LibAccessControl.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 library LibCTFCondition {
@@ -79,7 +79,7 @@ library LibCTFCondition {
         uint256 amount,
         uint256[] memory partition
     ) internal {
-        if (!LibAccessControl.isCollateralTokenAllowed(collateralToken)) {
+        if (!LibAdminConfigStorage.adminConfigStorage().isAllowed[collateralToken]) {
             revert Errors.TokenNotAllowed();
         }
 
@@ -98,6 +98,10 @@ library LibCTFCondition {
             if (parentCollectionId == bytes32(0)) {
                 /// @dev Skip token transfer when contract calls itself to avoid circular transfers
                 if (sender != address(this)) {
+                    // `sender` is `msg.sender` at the public entrypoint
+                    // (`ConditionalTokensFacet.splitPosition`); a user splits their own
+                    // collateral — they cannot pass a third-party `from`.
+                    // slither-disable-next-line arbitrary-send-erc20
                     IERC20(collateralToken).safeTransferFrom(sender, address(this), amount);
                 }
             } else {
@@ -115,16 +119,92 @@ library LibCTFCondition {
         LibReentrancyGuard._nonReentrantAfter();
     }
 
-    function _validateCollateral(address collateralToken, uint256 amount) internal view {
-        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
-        if (!LibAccessControl.isCollateralTokenAllowed(collateralToken)) {
+    /// @notice Split position without reentrancy guard — caller MUST already hold the lock.
+    /// @dev Only for use by SettlementFacet (or other internal callers that hold nonReentrant).
+    ///      When sender == address(this), no external calls are made (safeTransferFrom is skipped),
+    ///      so there is no reentrancy risk.
+    function _splitPositionInternal(
+        address sender,
+        address collateralToken,
+        bytes32 parentCollectionId,
+        bytes32 conditionId,
+        uint256 amount,
+        uint256[] memory partition
+    ) internal {
+        if (!LibAdminConfigStorage.adminConfigStorage().isAllowed[collateralToken]) {
             revert Errors.TokenNotAllowed();
         }
 
-        uint256 unit = ds.adminConfigStorage.unitPerPair[collateralToken];
+        (uint256 fullIndexSet, uint256 freeIndexSet, uint256[] memory positionIds, uint256[] memory amounts) = _validateAndBuildPartitionPositions(
+            collateralToken,
+            parentCollectionId,
+            conditionId,
+            partition,
+            amount
+        );
 
-        if (amount % unit != 0) {
-            revert Errors.CollateralNotAligned();
+        // Registry was already populated by the initial splitPosition that seeded
+        // this market. Settlement mints must not re-run the consistency check —
+        // it is order-sensitive and the partition here is derived from taker/maker
+        // assignment, not the canonical registration order.
+
+        if (freeIndexSet == 0) {
+            if (parentCollectionId == bytes32(0)) {
+                if (sender != address(this)) {
+                    // `_splitPositionInternal` is only called by `SettlementFacet._settleMint`
+                    // with `sender = address(this)`; the `sender != address(this)` branch is
+                    // structurally unreachable but kept for parity with `_splitPosition`.
+                    // slither-disable-next-line arbitrary-send-erc20
+                    IERC20(collateralToken).safeTransferFrom(sender, address(this), amount);
+                }
+            } else {
+                uint256 parentPosId = LibCTHelpers.getPositionId(collateralToken, parentCollectionId);
+                LibERC1155._burn(sender, parentPosId, amount);
+            }
+        } else {
+            uint256 mergedSet = fullIndexSet ^ freeIndexSet;
+            uint256 mergedPosId = _getPositionId(collateralToken, parentCollectionId, conditionId, mergedSet);
+            LibERC1155._burn(sender, mergedPosId, amount);
+        }
+
+        LibERC1155._batchMint(sender, positionIds, amounts, "");
+    }
+
+    /// @notice Merge positions without reentrancy guard — caller MUST already hold the lock.
+    /// @dev Only for use by SettlementFacet (or other internal callers that hold nonReentrant).
+    ///      When sender == address(this), no external calls are made (safeTransfer is skipped),
+    ///      so there is no reentrancy risk.
+    function _mergePositionsInternal(
+        address sender,
+        address collateralToken,
+        bytes32 parentCollectionId,
+        bytes32 conditionId,
+        uint256[] memory partition,
+        uint256 amount
+    ) internal {
+        (uint256 fullIndexSet, uint256 freeIndexSet, uint256[] memory positionIds, uint256[] memory amounts) = _validateAndBuildPartitionPositions(
+            collateralToken,
+            parentCollectionId,
+            conditionId,
+            partition,
+            amount
+        );
+
+        LibERC1155._batchBurn(sender, positionIds, amounts);
+
+        if (freeIndexSet == 0) {
+            if (parentCollectionId == bytes32(0)) {
+                if (sender != address(this)) {
+                    IERC20(collateralToken).safeTransfer(sender, amount);
+                }
+            } else {
+                uint256 parentPosId = LibCTHelpers.getPositionId(collateralToken, parentCollectionId);
+                LibERC1155._mint(sender, parentPosId, amount, "");
+            }
+        } else {
+            uint256 mergedSet = fullIndexSet ^ freeIndexSet;
+            uint256 mergedPosId = _getPositionId(collateralToken, parentCollectionId, conditionId, mergedSet);
+            LibERC1155._mint(sender, mergedPosId, amount, "");
         }
     }
 
@@ -146,13 +226,14 @@ library LibCTFCondition {
         }
 
         uint256 den = 0;
-        for (uint256 i = 0; i < outcomeSlotCount; i++) {
+        for (uint256 i = 0; i < outcomeSlotCount;) {
             uint256 num = payouts[i];
             if (numerators[i] != 0) {
                 revert Errors.PayoutAlreadySet();
             }
             numerators[i] = num;
             den += num;
+            unchecked { ++i; } // GAS-007: counter is bounded by outcomeSlotCount
         }
 
         if (den == 0) {
@@ -184,7 +265,7 @@ library LibCTFCondition {
         positionIds = new uint256[](partition.length);
         amounts = new uint256[](partition.length);
 
-        for (uint256 i = 0; i < partition.length; i++) {
+        for (uint256 i = 0; i < partition.length;) {
             uint256 indexSet = partition[i];
             if (indexSet == 0 || indexSet >= fullIndexSet) revert Errors.InvalidIndexSet();
             if ((indexSet & freeIndexSet) != indexSet) revert Errors.PartitionNotDisjoint();
@@ -192,6 +273,7 @@ library LibCTFCondition {
 
             positionIds[i] = _getPositionId(collateralToken, parentCollectionId, conditionId, indexSet);
             amounts[i] = amount;
+            unchecked { ++i; } // GAS-007: counter is bounded by partition.length
         }
     }
 

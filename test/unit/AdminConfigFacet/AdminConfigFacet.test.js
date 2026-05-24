@@ -5,7 +5,6 @@ const { ethers } = require("hardhat");
 const {
   addCollateralToken,
   removeCollateralToken,
-  setTradingFeesBps,
   setResolutionFeeBps,
   setFeeReceiver,
   isAllowedCollateral,
@@ -81,31 +80,49 @@ describe("AdminConfigFacet", function () {
       .to.be.revertedWith("FeeTooHigh()");
   });
 
-  it("should set trading fees", async function () {
-    await expect(setTradingFeesBps({ adminConfig, makerBps: 300, takerBps: 400, caller: owner }))
-      .to.emit(adminConfig, "TradingFeesUpdated")
-      .withArgs(100, 200, 300, 400);
-  });
-
-  it("should revert on too high trading fees", async function () {
-    await expect(setTradingFeesBps({ adminConfig, makerBps: 20000, takerBps: 100, caller: owner }))
-      .to.be.revertedWith("FeeTooHigh()");
-  });
-
   it("should get fees config", async function () {
     await setFeeReceiver({ adminConfig, feeReceiver, caller: owner });
     await setResolutionFeeBps({ adminConfig, bps: 123, caller: owner });
-    await setTradingFeesBps({ adminConfig, makerBps: 10, takerBps: 20, caller: owner });
 
     const fees = await getFees(adminConfig);
     expect(fees.receiver).to.equal(feeReceiver.address);
     expect(fees.resolutionFeeBps).to.equal(123);
-    expect(fees.makerBps).to.equal(10);
-    expect(fees.takerBps).to.equal(20);
   });
 
   it("should revert getCollateralUnit if token not allowed", async function () {
     await expect(getCollateralUnit(adminConfig, mockToken))
       .to.be.revertedWith("TokenNotAllowed()");
+  });
+
+  // ========================================
+  // MAX FEE RATE (SCRUM-224)
+  // ========================================
+
+  describe("setMaxFeeRate / getMaxFeeRate (SCRUM-224)", function () {
+    it("should default maxFeeRateBps to 0 on a fresh deploy", async function () {
+      expect(await adminConfig.getMaxFeeRate()).to.equal(0);
+    });
+
+    it("should set the max fee rate and emit MaxFeeRateUpdated", async function () {
+      await expect(adminConfig.connect(owner).setMaxFeeRate(250))
+        .to.emit(adminConfig, "MaxFeeRateUpdated")
+        .withArgs(0, 250);
+      expect(await adminConfig.getMaxFeeRate()).to.equal(250);
+    });
+
+    it("should allow setting the rate exactly at the 1000-bps ceiling", async function () {
+      await adminConfig.connect(owner).setMaxFeeRate(1000);
+      expect(await adminConfig.getMaxFeeRate()).to.equal(1000);
+    });
+
+    it("should revert when the rate exceeds the 1000-bps ceiling", async function () {
+      await expect(adminConfig.connect(owner).setMaxFeeRate(1001))
+        .to.be.revertedWith("MaxFeeRateExceedsCeiling()");
+    });
+
+    it("should revert setMaxFeeRate for a non-owner", async function () {
+      await expect(adminConfig.connect(addr1).setMaxFeeRate(100))
+        .to.be.revertedWith("NotContractOwner()");
+    });
   });
 });

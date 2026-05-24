@@ -1,0 +1,127 @@
+[2026-05-17 13:45:29.79] Compiling `contracts/audit/DoefinInvariantHarness.sol`... echidna: Ticker: poll failed: Interrupted system call: Interrupted system call
+Done! (34.697619669s)
+Analyzing contract: /src/contracts/audit/DoefinInvariantHarness.sol:DoefinInvariantHarness
+[2026-05-17 13:46:04.88] Running slither on `contracts/audit/DoefinInvariantHarness.sol`... echidna: Ticker: poll failed: Interrupted system call: Interrupted system call
+Done! (36.931232919s)
+Loaded 0 transaction sequences from audit/output/echidna/corpus/reproducers
+Loaded 16 transaction sequences from audit/output/echidna/corpus/coverage
+[2026-05-17 13:46:43.94] [Worker 0] New coverage: 25477 instr, 17 contracts, 1 seqs in corpus
+[2026-05-17 13:46:43.94] [Worker 0] Sequence replayed from corpus file 5842367479727475121.txt (1/4)
+[2026-05-17 13:46:45.05] [Worker 3] New coverage: 25653 instr, 17 contracts, 2 seqs in corpus
+[2026-05-17 13:46:45.05] [Worker 3] Sequence replayed from corpus file 1100332896112065928.txt (1/4)
+[2026-05-17 13:46:45.30] [Worker 2] New coverage: 25653 instr, 17 contracts, 3 seqs in corpus
+[2026-05-17 13:46:45.30] [Worker 2] Sequence replayed from corpus file 6951299370729654526.txt (1/4)
+[2026-05-17 13:46:45.34] [status] tests: 0/6, fuzzing: 0/15000, values: [], cov: 25653, corpus: 3, gas/s: 0
+[2026-05-17 13:46:45.66] [Worker 0] Sequence replayed from corpus file 5798476223178127921.txt (2/4)
+[2026-05-17 13:46:45.73] [Worker 1] New coverage: 25653 instr, 17 contracts, 4 seqs in corpus
+[2026-05-17 13:46:45.74] [Worker 1] Sequence replayed from corpus file 1003527542994960680.txt (1/4)
+[2026-05-17 13:46:47.18] [Worker 2] New coverage: 25704 instr, 17 contracts, 5 seqs in corpus
+[2026-05-17 13:46:47.18] [Worker 2] Sequence replayed from corpus file 6928222284003000542.txt (2/4)
+[2026-05-17 13:46:47.36] [Worker 3] New coverage: 25718 instr, 17 contracts, 6 seqs in corpus
+[2026-05-17 13:46:47.36] [Worker 3] Sequence replayed from corpus file 4349701957379058729.txt (2/4)
+[2026-05-17 13:46:48.13] [Worker 0] Sequence replayed from corpus file 7323218795658880183.txt (3/4)
+[2026-05-17 13:46:48.35] [status] tests: 0/6, fuzzing: 0/15000, values: [], cov: 25718, corpus: 6, gas/s: 0
+[2026-05-17 13:46:48.66] [Worker 1] New coverage: 25722 instr, 17 contracts, 7 seqs in corpus
+[2026-05-17 13:46:48.66] [Worker 1] Sequence replayed from corpus file 2909560112367874879.txt (2/4)
+[2026-05-17 13:46:49.13] [Worker 1] Sequence replayed from corpus file 7572540592198867626.txt (3/4)
+[2026-05-17 13:46:49.91] [Worker 3] New coverage: 25743 instr, 17 contracts, 8 seqs in corpus
+[2026-05-17 13:46:49.92] [Worker 3] Sequence replayed from corpus file 8157097635455160033.txt (3/4)
+[2026-05-17 13:46:50.18] [Worker 2] Sequence replayed from corpus file 5804929451453188668.txt (3/4)
+[2026-05-17 13:46:50.60] [Worker 0] New coverage: 25743 instr, 17 contracts, 9 seqs in corpus
+[2026-05-17 13:46:50.60] [Worker 0] Sequence replayed from corpus file 4063794781102752501.txt (4/4)
+[2026-05-17 13:46:51.35] [status] tests: 0/6, fuzzing: 0/15000, values: [], cov: 25764, corpus: 9, gas/s: 0
+[2026-05-17 13:46:51.78] [Worker 1] New coverage: 25764 instr, 17 contracts, 10 seqs in corpus
+[2026-05-17 13:46:51.78] [Worker 1] Sequence replayed from corpus file 6318698361009749041.txt (4/4)
+[2026-05-17 13:46:52.27] [Worker 2] Sequence replayed from corpus file 4157254001315208164.txt (4/4)
+[2026-05-17 13:46:52.64] [Worker 3] Sequence replayed from corpus file 5002583262003193152.txt (4/4)
+[2026-05-17 13:46:54.36] [status] tests: 0/6, fuzzing: 255/15000, values: [], cov: 25764, corpus: 10, gas/s: 1494113537
+[2026-05-17 13:46:57.36] [status] tests: 0/6, fuzzing: 1203/15000, values: [], cov: 25764, corpus: 10, gas/s: 5447906604
+[2026-05-17 13:47:00.37] [status] tests: 0/6, fuzzing: 1458/15000, values: [], cov: 25764, corpus: 10, gas/s: 1525855719
+[2026-05-17 13:47:03.38] [status] tests: 0/6, fuzzing: 1660/15000, values: [], cov: 25764, corpus: 10, gas/s: 1190226987
+[2026-05-17 13:47:06.38] [status] tests: 0/6, fuzzing: 1888/15000, values: [], cov: 25764, corpus: 10, gas/s: 1321039072
+[2026-05-17 13:47:09.39] [status] tests: 0/6, fuzzing: 2092/15000, values: [], cov: 25764, corpus: 10, gas/s: 1159320292
+[2026-05-17 13:47:12.40] [status] tests: 0/6, fuzzing: 2347/15000, values: [], cov: 25764, corpus: 10, gas/s: 1530781168
+[2026-05-17 13:47:15.40] [status] tests: 0/6, fuzzing: 2500/15000, values: [], cov: 25764, corpus: 10, gas/s: 948801413
+[2026-05-17 13:47:18.41] [status] tests: 0/6, fuzzing: 2704/15000, values: [], cov: 25764, corpus: 10, gas/s: 1294322274
+[2026-05-17 13:47:21.41] [status] tests: 0/6, fuzzing: 2908/15000, values: [], cov: 25764, corpus: 10, gas/s: 1199772134
+[2026-05-17 13:47:24.42] [status] tests: 0/6, fuzzing: 3190/15000, values: [], cov: 25764, corpus: 10, gas/s: 1670067120
+[2026-05-17 13:47:27.43] [status] tests: 0/6, fuzzing: 3445/15000, values: [], cov: 25764, corpus: 10, gas/s: 1567827763
+[2026-05-17 13:47:30.43] [status] tests: 0/6, fuzzing: 3649/15000, values: [], cov: 25764, corpus: 10, gas/s: 1148948499
+[2026-05-17 13:47:33.43] [status] tests: 0/6, fuzzing: 3947/15000, values: [], cov: 25764, corpus: 10, gas/s: 1775502503
+[2026-05-17 13:47:36.44] [status] tests: 0/6, fuzzing: 4202/15000, values: [], cov: 25764, corpus: 10, gas/s: 1503740576
+[2026-05-17 13:47:39.44] [status] tests: 0/6, fuzzing: 4457/15000, values: [], cov: 25764, corpus: 10, gas/s: 1454823591
+[2026-05-17 13:47:42.45] [status] tests: 0/6, fuzzing: 4661/15000, values: [], cov: 25764, corpus: 10, gas/s: 1225959204
+[2026-05-17 13:47:45.45] [status] tests: 0/6, fuzzing: 4883/15000, values: [], cov: 25764, corpus: 10, gas/s: 1325883635
+[2026-05-17 13:47:48.46] [status] tests: 0/6, fuzzing: 5146/15000, values: [], cov: 25764, corpus: 10, gas/s: 1585308359
+[2026-05-17 13:47:51.46] [status] tests: 0/6, fuzzing: 5330/15000, values: [], cov: 25764, corpus: 10, gas/s: 1080396172
+[2026-05-17 13:47:54.47] [status] tests: 0/6, fuzzing: 5534/15000, values: [], cov: 25764, corpus: 10, gas/s: 1139014021
+[2026-05-17 13:47:57.47] [status] tests: 0/6, fuzzing: 5789/15000, values: [], cov: 25764, corpus: 10, gas/s: 1557439310
+[2026-05-17 13:48:00.48] [status] tests: 0/6, fuzzing: 6095/15000, values: [], cov: 25764, corpus: 10, gas/s: 1784699483
+[2026-05-17 13:48:03.48] [status] tests: 0/6, fuzzing: 6350/15000, values: [], cov: 25764, corpus: 10, gas/s: 1448068192
+[2026-05-17 13:48:06.49] [status] tests: 0/6, fuzzing: 6571/15000, values: [], cov: 25764, corpus: 10, gas/s: 1371722826
+[2026-05-17 13:48:09.49] [status] tests: 0/6, fuzzing: 6822/15000, values: [], cov: 25764, corpus: 10, gas/s: 1506432697
+[2026-05-17 13:48:12.50] [status] tests: 0/6, fuzzing: 6975/15000, values: [], cov: 25764, corpus: 10, gas/s: 911217866
+[2026-05-17 13:48:15.51] [status] tests: 0/6, fuzzing: 7281/15000, values: [], cov: 25764, corpus: 10, gas/s: 1778073488
+[2026-05-17 13:48:18.51] [status] tests: 0/6, fuzzing: 7434/15000, values: [], cov: 25764, corpus: 10, gas/s: 947301705
+[2026-05-17 13:48:21.51] [status] tests: 0/6, fuzzing: 7689/15000, values: [], cov: 25764, corpus: 10, gas/s: 1484134426
+[2026-05-17 13:48:24.51] [status] tests: 0/6, fuzzing: 7991/15000, values: [], cov: 25764, corpus: 10, gas/s: 1781714792
+[2026-05-17 13:48:27.52] [status] tests: 0/6, fuzzing: 8176/15000, values: [], cov: 25764, corpus: 10, gas/s: 1113575905
+[2026-05-17 13:48:30.52] [status] tests: 0/6, fuzzing: 8431/15000, values: [], cov: 25764, corpus: 10, gas/s: 1543899377
+[2026-05-17 13:48:33.52] [status] tests: 0/6, fuzzing: 8635/15000, values: [], cov: 25764, corpus: 10, gas/s: 1198999839
+[2026-05-17 13:48:36.53] [status] tests: 0/6, fuzzing: 8833/15000, values: [], cov: 25764, corpus: 10, gas/s: 1130033815
+[2026-05-17 13:48:39.53] [status] tests: 0/6, fuzzing: 9088/15000, values: [], cov: 25764, corpus: 10, gas/s: 1451196809
+[2026-05-17 13:48:42.54] [status] tests: 0/6, fuzzing: 9292/15000, values: [], cov: 25764, corpus: 10, gas/s: 1164198980
+[2026-05-17 13:48:45.55] [status] tests: 0/6, fuzzing: 9496/15000, values: [], cov: 25764, corpus: 10, gas/s: 1211589016
+[2026-05-17 13:48:48.55] [status] tests: 0/6, fuzzing: 9762/15000, values: [], cov: 25764, corpus: 10, gas/s: 1495375216
+[2026-05-17 13:48:51.55] [status] tests: 0/6, fuzzing: 9964/15000, values: [], cov: 25764, corpus: 10, gas/s: 1222421296
+[2026-05-17 13:48:54.56] [status] tests: 0/6, fuzzing: 10168/15000, values: [], cov: 25764, corpus: 10, gas/s: 1222789587
+[2026-05-17 13:48:57.56] [status] tests: 0/6, fuzzing: 10409/15000, values: [], cov: 25764, corpus: 10, gas/s: 1420515583
+[2026-05-17 13:49:00.57] [status] tests: 0/6, fuzzing: 10608/15000, values: [], cov: 25764, corpus: 10, gas/s: 1235000899
+[2026-05-17 13:49:03.58] [status] tests: 0/6, fuzzing: 10795/15000, values: [], cov: 25764, corpus: 10, gas/s: 903703531
+[2026-05-17 13:49:06.59] [status] tests: 0/6, fuzzing: 11048/15000, values: [], cov: 25764, corpus: 10, gas/s: 1462168748
+[2026-05-17 13:49:09.60] [status] tests: 0/6, fuzzing: 11252/15000, values: [], cov: 25764, corpus: 10, gas/s: 1193723958
+[2026-05-17 13:49:12.60] [status] tests: 0/6, fuzzing: 11552/15000, values: [], cov: 25764, corpus: 10, gas/s: 1875525570
+[2026-05-17 13:49:15.61] [status] tests: 0/6, fuzzing: 11705/15000, values: [], cov: 25764, corpus: 10, gas/s: 827073819
+[2026-05-17 13:49:18.61] [status] tests: 0/6, fuzzing: 11858/15000, values: [], cov: 25764, corpus: 10, gas/s: 934802723
+[2026-05-17 13:49:21.63] [status] tests: 0/6, fuzzing: 12077/15000, values: [], cov: 25764, corpus: 10, gas/s: 1279003806
+[2026-05-17 13:49:24.63] [status] tests: 0/6, fuzzing: 12230/15000, values: [], cov: 25764, corpus: 10, gas/s: 876099732
+[2026-05-17 13:49:27.64] [status] tests: 0/6, fuzzing: 12418/15000, values: [], cov: 25764, corpus: 10, gas/s: 1164090247
+[2026-05-17 13:49:30.64] [status] tests: 0/6, fuzzing: 12613/15000, values: [], cov: 25764, corpus: 10, gas/s: 1105981132
+[2026-05-17 13:49:33.65] [status] tests: 0/6, fuzzing: 12766/15000, values: [], cov: 25764, corpus: 10, gas/s: 911024929
+[2026-05-17 13:49:36.24] [Worker 1] New coverage: 25791 instr, 17 contracts, 11 seqs in corpus
+[2026-05-17 13:49:36.25]  Saved reproducer to audit/output/echidna/corpus/coverage/2232807681463497242.txt
+[2026-05-17 13:49:36.65] [status] tests: 0/6, fuzzing: 12981/15000, values: [], cov: 25791, corpus: 11, gas/s: 1258682975
+[2026-05-17 13:49:39.67] [status] tests: 0/6, fuzzing: 13185/15000, values: [], cov: 25791, corpus: 11, gas/s: 1211193527
+[2026-05-17 13:49:42.67] [status] tests: 0/6, fuzzing: 13338/15000, values: [], cov: 25791, corpus: 11, gas/s: 931936838
+[2026-05-17 13:49:45.68] [status] tests: 0/6, fuzzing: 13491/15000, values: [], cov: 25791, corpus: 11, gas/s: 930058622
+[2026-05-17 13:49:48.68] [status] tests: 0/6, fuzzing: 13695/15000, values: [], cov: 25791, corpus: 11, gas/s: 1186628095
+[2026-05-17 13:49:51.68] [status] tests: 0/6, fuzzing: 13922/15000, values: [], cov: 25791, corpus: 11, gas/s: 1342748955
+[2026-05-17 13:49:54.69] [status] tests: 0/6, fuzzing: 14075/15000, values: [], cov: 25791, corpus: 11, gas/s: 889145421
+[2026-05-17 13:49:56.62] [Worker 0] Test limit reached. Stopping.
+[2026-05-17 13:49:57.69] [status] tests: 0/6, fuzzing: 14330/15000, values: [], cov: 25791, corpus: 11, gas/s: 1533710425
+[2026-05-17 13:50:00.69] [status] tests: 0/6, fuzzing: 14432/15000, values: [], cov: 25791, corpus: 11, gas/s: 608165508
+[2026-05-17 13:50:03.69] [status] tests: 0/6, fuzzing: 14534/15000, values: [], cov: 25791, corpus: 11, gas/s: 595074944
+[2026-05-17 13:50:06.70] [status] tests: 0/6, fuzzing: 14687/15000, values: [], cov: 25791, corpus: 11, gas/s: 918783995
+[2026-05-17 13:50:09.70] [status] tests: 0/6, fuzzing: 14789/15000, values: [], cov: 25791, corpus: 11, gas/s: 604746960
+[2026-05-17 13:50:11.70] [Worker 2] Test limit reached. Stopping.
+[2026-05-17 13:50:12.38] [Worker 3] Test limit reached. Stopping.
+[2026-05-17 13:50:12.71] [status] tests: 0/6, fuzzing: 14993/15000, values: [], cov: 25791, corpus: 11, gas/s: 1251780849
+[2026-05-17 13:50:15.66] [Worker 1] Test limit reached. Stopping.
+[2026-05-17 13:50:15.66] [status] tests: 0/6, fuzzing: 15072/15000, values: [], cov: 25791, corpus: 11, gas/s: 492995639
+echidna_diamond_solvent: passing
+echidna_nonce_monotonic: passing
+echidna_fee_receiver_only_grows: passing
+echidna_no_overfill: passing
+echidna_collateral_conserved: passing
+echidna_reentrancy_latch_clear: passing
+
+Unique instructions: 25791
+Unique codehashes: 17
+Corpus size: 11
+Seed: 7140372535077873630
+Total calls: 15072
+
+[2026-05-17 13:50:15.67] Saving test reproducers... Done! (0.000037459s)
+[2026-05-17 13:50:15.67] Saving corpus... Done! (0.001717375s)
+[2026-05-17 13:50:15.67] Saving foundry reproducers... Done! (0.00021375s)
+[2026-05-17 13:50:15.67] Saving coverage... Done! (1.713771042s)

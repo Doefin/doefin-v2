@@ -1,0 +1,75 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main, "v3/dev"]
+  push:
+    branches: [main, "v3/dev"]
+
+# Concurrency: cancel in-progress runs for the same PR / branch when a new
+# commit lands. Saves minutes and gives CodeRabbit a clean, current signal.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ──────────────────────────────────────────────────────────────────────
+  # compile — also asserts contract sizes (< 24 KiB EIP-170) and emits a
+  # gas snapshot for the Solidity diff. CodeRabbit reads the check status
+  # and references it in the PR review.
+  # ──────────────────────────────────────────────────────────────────────
+  compile:
+    name: compile + size-contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npx hardhat compile
+      - name: size-contracts (warn if > 24 KiB deployed)
+        run: npx hardhat size-contracts
+
+  # ──────────────────────────────────────────────────────────────────────
+  # solhint — Solidity linter. CodeRabbit also runs solhint via its tool
+  # integration; running it here surfaces failures as a check-run status,
+  # which CodeRabbit then incorporates into the PR summary.
+  # ──────────────────────────────────────────────────────────────────────
+  lint:
+    name: solhint (Solidity lint)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npx solhint 'contracts/**/*.sol'
+
+  # ──────────────────────────────────────────────────────────────────────
+  # test — the full Hardhat suite. This also exercises the EIP-7201
+  # storage-layout snapshot gate (test/storage/storage-layout-snapshot.test.js)
+  # so any layout drift fails CI here automatically.
+  # ──────────────────────────────────────────────────────────────────────
+  test:
+    name: hardhat test (full suite)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npx hardhat test
+        env:
+          # Storage snapshot is read-only on CI — an intentional layout change
+          # MUST be regenerated locally via UPDATE_STORAGE_SNAPSHOT=true and
+          # committed.
+          UPDATE_STORAGE_SNAPSHOT: "false"

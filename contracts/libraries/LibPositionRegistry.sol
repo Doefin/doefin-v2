@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Uses shared storage derived from Gnosis Conditional Tokens Framework: https://github.com/gnosis/conditional-tokens-contracts
 
-pragma solidity ^0.8.6;
+pragma solidity ^0.8.20;
 
 import {LibDoefinStorage} from "./LibDoefinStorage.sol";
 import {Errors} from "./Errors.sol";
@@ -63,34 +63,6 @@ library LibPositionRegistry {
     }
 
     /**
-     * @notice Validates that two positions belong to the same condition and returns the condition ID
-     * @dev Used during mint/merge operations to ensure positions are from the same prediction market
-     * @dev Both positions must be registered and belong to the same conditional token condition
-     * @param positionId1 First position ID to validate
-     * @param positionId2 Second position ID to validate
-     * @return The shared condition ID for both positions
-     * @custom:reverts InvalidPositionId if either position is not registered
-     * @custom:reverts InvalidMatch if positions belong to different conditions
-     * @custom:note Essential for CTF compliance - positions must share condition for split/merge
-     */
-    function retrieveConditionId(uint256 positionId1, uint256 positionId2) internal view returns (bytes32) {
-        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
-
-        // Validate both positions exist
-        validatePositionId(positionId1);
-        validatePositionId(positionId2);
-
-        // Get condition IDs for both positions
-        bytes32 conditionId1 = ds.positionRegistry.conditionIdByPositionId[positionId1];
-        bytes32 conditionId2 = ds.positionRegistry.conditionIdByPositionId[positionId2];
-
-        // Ensure they belong to the same condition
-        if (conditionId1 != conditionId2) revert Errors.InvalidMatch();
-
-        return conditionId1;
-    }
-
-    /**
      * @notice Gets the condition ID associated with a specific position
      * @dev Each position belongs to exactly one condition in the conditional token framework
      * @param positionId The position ID to query
@@ -108,21 +80,6 @@ library LibPositionRegistry {
         LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
         if (ds.positionRegistry.marketKeyByPositionId[positionId] == bytes32(0)) {
             revert Errors.InvalidPositionId();
-        }
-    }
-
-    function validateComplement(uint256 positionId, uint256 complementPositionId) internal view {
-        validatePositionId(positionId);
-        validatePositionId(complementPositionId);
-
-        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
-
-        // They must belong to the same market
-        bytes32 positionMarketKey = ds.positionRegistry.marketKeyByPositionId[positionId];
-        bytes32 complementMarketKey = ds.positionRegistry.marketKeyByPositionId[complementPositionId];
-
-        if (positionMarketKey != complementMarketKey) {
-            revert Errors.InvalidComplement();
         }
     }
 
@@ -180,21 +137,23 @@ library LibPositionRegistry {
                 revert Errors.InvalidMatch();
             }
 
-            for (uint256 i = 0; i < positionIds.length; i++) {
+            for (uint256 i = 0; i < positionIds.length;) {
                 if (meta.positionIds[i] != positionIds[i] || meta.partitions[i] != partitions[i]) {
                     revert Errors.InvalidMatch();
                 }
+                unchecked { ++i; } // GAS-007: counter is bounded by positionIds.length
             }
         }
 
         // Map each positionId to both conditionId and marketKey
-        for (uint256 i = 0; i < positionIds.length; i++) {
+        for (uint256 i = 0; i < positionIds.length;) {
             bytes32 existingMarketKey = ds.positionRegistry.marketKeyByPositionId[positionIds[i]];
             if (existingMarketKey != bytes32(0) && existingMarketKey != marketKey) {
                 revert Errors.InvalidMatch();
             }
             ds.positionRegistry.marketKeyByPositionId[positionIds[i]] = marketKey;
             ds.positionRegistry.conditionIdByPositionId[positionIds[i]] = conditionId;
+            unchecked { ++i; } // GAS-007: counter is bounded by positionIds.length
         }
     }
 
@@ -212,8 +171,9 @@ library LibPositionRegistry {
         bytes32[] memory marketKeys = ds.positionRegistry.marketKeysByCondition[conditionId];
 
         LibDoefinStorage.MarketMetadata[] memory markets = new LibDoefinStorage.MarketMetadata[](marketKeys.length);
-        for (uint256 i = 0; i < marketKeys.length; i++) {
+        for (uint256 i = 0; i < marketKeys.length;) {
             markets[i] = ds.positionRegistry.marketsByKey[marketKeys[i]];
+            unchecked { ++i; } // GAS-007: counter is bounded by marketKeys.length
         }
         return markets;
     }
@@ -225,10 +185,5 @@ library LibPositionRegistry {
     /// @return Market key hash (condition + parent + collateral)
     function buildMarketKey(bytes32 conditionId, bytes32 parentCollectionId, address collateralToken) internal pure returns (bytes32) {
         return keccak256(abi.encode(conditionId, parentCollectionId, collateralToken));
-    }
-
-    function getMarketCount(bytes32 conditionId) internal view returns (uint256) {
-        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
-        return ds.positionRegistry.marketKeysByCondition[conditionId].length;
     }
 }

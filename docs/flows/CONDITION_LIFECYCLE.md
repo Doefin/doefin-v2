@@ -1,6 +1,6 @@
 # Condition Full Life Cycle Flow
 
-This document explains the complete lifecycle of prediction market conditions in Doefin V2, from creation through resolution to position redemption.
+This document explains the complete lifecycle of prediction market conditions in Doefin V3, from creation through resolution to position redemption.
 
 ## Overview
 
@@ -690,25 +690,22 @@ function createConditionWithInitialLiquidity(
 }
 ```
 
-## Cross-Market Arbitrage Opportunities
+## Arbitrage Opportunities
 
-### Multi-Collateral Arbitrage
+### Outcome-Set Arbitrage
 
-When the same condition exists across multiple collateral markets:
+When the prices of complementary outcomes do not sum to `unit`, an arbitrageur can buy the
+underpriced side and sell the overpriced side. The Mint and Merge settlement paths capture
+this directly: a Mint settles two buyers whose prices sum above `unit`, and a Merge
+settles two sellers whose prices sum below `unit`.
 
 ```mermaid
 graph TD
-    A["Bitcoin > 100K Condition"] --> B["USDC Market: $0.60"]
-    A --> C["WETH Market: 0.0003 ETH"] 
-    A --> D["WBTC Market: 0.000006 BTC"]
-    
-    E[Arbitrageur] --> F{Compare Prices}
-    F --> G[Buy Cheapest Market]
-    F --> H[Sell Most Expensive]
-    
-    G --> I[Cross-Market Transfer]
-    H --> I
-    I --> J[Risk-Free Profit]
+    A[Market Scan] --> B[Outcome prices do not sum to unit]
+    B --> C{Profitable after fees?}
+    C -->|Yes| D[Buy underpriced / Sell overpriced]
+    C -->|No| E[Continue scanning]
+    D --> F[Settled via Mint or Merge]
 ```
 
 ### Resolution Timing Arbitrage
@@ -812,20 +809,16 @@ sequenceDiagram
 - Position tokens are fully transferable ERC1155 tokens
 
 #### **Oracle System Integration**
-- **[`DoefinV1BlockHeaderOracle`](../contracts/facets/DoefinV1BlockHeaderOracleAdapterFacet.sol)** provides automated Bitcoin data
+- **[`DoefinV1BlockHeaderOracleFacet`](../contracts/facets/DoefinV1BlockHeaderOracleFacet.sol)** provides automated Bitcoin data
 - Supports multiple question types with deterministic resolution
-- 6-block confirmation requirement for reorg protection
+- Multi-block confirmation requirement for reorg protection
 - Real-time validation of submitted block headers
 
-#### **Cross-Currency Support**
-- Conditions can be traded using multiple collateral currencies
-- Exchange rate integration for cross-currency settlements
-- Dynamic pricing based on oracle feeds
-
-#### **Order Book Integration**
-- Position tokens immediately tradeable upon creation
-- Supports limit orders, market orders, and cross-currency orders
-- Advanced matching engine with mint/merge optimization
+#### **Settlement Integration**
+- Position tokens are immediately tradeable upon creation
+- Orders are signed off-chain and settled on-chain via `SettlementFacet`
+- Three settlement paths — Complementary, Mint, Merge — with mint/merge using CTF
+  `splitPosition` / `mergePositions`
 
 ### State Dependencies and Transitions
 
@@ -845,20 +838,14 @@ stateDiagram-v2
 
 ### External System Integrations
 
-#### **Chainlink Price Feeds**
-- Exchange rate data for cross-currency orders
-- Backup oracle data for validation
-- Heartbeat monitoring for data freshness
-
 #### **Bitcoin Network Monitoring**
 - Real-time block header submissions
 - Difficulty adjustment tracking
 - Timestamp validation and reorg detection
 
 #### **DeFi Ecosystem**
-- ERC20 collateral token support (USDC, USDT, DAI, WETH, WBTC)
-- DEX integration for collateral swaps
-- Yield farming rewards for liquidity providers
+- ERC20 collateral token support (allow-listed by the admin)
+- Gnosis CTF-compatible ERC1155 position tokens
 
 ## Performance Considerations
 
@@ -903,24 +890,23 @@ struct PackedCondition {
 
 ### Scalability Solutions
 
-#### **Layer 2 Compatibility**
-- Compatible with Polygon, Arbitrum, Optimism
-- State channel support for high-frequency trading
-- Cross-chain bridge integration for multi-chain liquidity
+#### **Layer 2 Deployment**
+- Deployed on Base L2 for low-cost transactions
+- EVM-compatible — the Diamond design is portable to other EVM chains
 
 #### **Modular Architecture**
 ```mermaid
 graph TD
-    A[Diamond Proxy] --> B[Condition Manager]
-    A --> C[Order Creation]
-    A --> D[Market Execution]
-    A --> E[Oracle Adapter]
-    
+    A[Diamond Proxy] --> B[ConditionManagerFacet]
+    A --> C[SettlementFacet]
+    A --> D[ConditionalTokensFacet]
+    A --> E[OracleAdapterFacet]
+
     B --> F[CTF Framework]
-    C --> G[Orderbook Storage]
-    D --> H[Settlement Engine]
+    C --> G[On-Chain Settlement]
+    D --> F
     E --> I[Bitcoin Oracle]
-    
+
     subgraph "Upgradeability"
         J[Diamond Cut]
         J --> B
@@ -955,4 +941,4 @@ struct OracleMetrics {
 }
 ```
 
-This comprehensive condition lifecycle enables trustless, automated prediction markets backed by Bitcoin's blockchain data, providing users with transparent and verifiable outcome resolution while supporting sophisticated trading strategies and cross-currency operations.
+This comprehensive condition lifecycle enables trustless, automated prediction markets backed by Bitcoin's blockchain data, providing users with transparent and verifiable outcome resolution while supporting sophisticated trading strategies.

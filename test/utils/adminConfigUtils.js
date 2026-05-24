@@ -15,13 +15,6 @@ async function removeCollateralToken({ adminConfig, token, caller }) {
 }
 
 /**
- * Set trading fees (maker and taker) in BPS.
- */
-async function setTradingFeesBps({ adminConfig, makerBps, takerBps, caller }) {
-  return adminConfig.connect(caller).setTradingFeesBps(makerBps, takerBps);
-}
-
-/**
  * Set the resolution fee in BPS.
  */
 async function setResolutionFeeBps({ adminConfig, bps, caller }) {
@@ -52,23 +45,19 @@ async function getCollateralUnit(adminConfig, token) {
 }
 
 /**
- * Get current fee config (receiver, resolutionFeeBps, makerBps, takerBps).
+ * Get current fee config (receiver, resolutionFeeBps).
  */
 async function getFees(adminConfig) {
-  const [receiver, resolutionFeeBps, makerBps, takerBps] =
-    await adminConfig.getFees();
+  const [receiver, resolutionFeeBps] = await adminConfig.getFees();
   return {
     receiver,
     resolutionFeeBps,
-    makerBps,
-    takerBps,
   };
 }
 
 module.exports = {
   addCollateralToken,
   removeCollateralToken,
-  setTradingFeesBps,
   setResolutionFeeBps,
   setFeeReceiver,
   isAllowedCollateral,

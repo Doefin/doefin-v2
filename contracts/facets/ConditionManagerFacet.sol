@@ -2,10 +2,11 @@
 // Based on Diamond Standard by Nick Mudge: https://github.com/mudgen/diamond-3-hardhat
 // Uses shared logic from Gnosis Conditional Tokens Framework: https://github.com/gnosis/conditional-tokens-contracts
 
-pragma solidity ^0.8.6;
+pragma solidity ^0.8.20;
 
 import {LibDoefinStorage} from "../libraries/LibDoefinStorage.sol";
 import {LibAccessControl} from "../libraries/LibAccessControl.sol";
+import {LibDiamond} from "../libraries/LibDiamond.sol";
 import {LibCTFCondition} from "../libraries/LibCTFCondition.sol";
 import {LibConditionMetadata} from "../libraries/LibConditionMetadata.sol";
 import {LibOracleAdapter} from "../libraries/LibOracleAdapter.sol";
@@ -200,7 +201,7 @@ contract ConditionManagerFacet is IConditionManager {
             revert Errors.ConditionDoesNotExist();
         }
 
-        if (cond.creator != msg.sender && !LibAccessControl.isOwner(msg.sender)) {
+        if (cond.creator != msg.sender && msg.sender != LibDiamond.contractOwner()) {
             revert Errors.NotAuthorizedToCancel();
         }
 
