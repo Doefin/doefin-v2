@@ -191,12 +191,14 @@ contract MarketDataFacet is IMarketData {
         override
         returns (bytes32 conditionId, address collateralToken, uint256 unit, uint256 complementId, LibDoefinStorage.MarketMetadata memory metadata)
     {
-        // Validate position exists once
-        LibPositionRegistry.validatePositionId(positionId);
-
-        // Get all information efficiently
-        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
-        conditionId = ds.positionRegistry.conditionIdByPositionId[positionId];
+        // SCRUM-234 (A-15) + CR-3291973204 — route every read through
+        // LibPositionRegistry. Each library getter calls validatePositionId
+        // internally, so the bespoke `validatePositionId` call above is
+        // redundant. Matches getConditionId (line ~150) and the
+        // `.coderabbit.yml` MarketDataFacet contract that forbids facets from
+        // reading positionRegistry storage directly (broken-encapsulation
+        // regression check).
+        conditionId = LibPositionRegistry.getConditionId(positionId);
         collateralToken = LibPositionRegistry.getCollateralToken(positionId);
         complementId = LibPositionRegistry.getComplement(positionId);
         metadata = LibPositionRegistry.getMarketMetadata(positionId);
