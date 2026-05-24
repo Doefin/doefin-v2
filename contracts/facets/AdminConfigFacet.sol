@@ -3,11 +3,13 @@ pragma solidity ^0.8.20;
 
 import {LibAdminConfigStorage} from "../libraries/LibAdminConfigStorage.sol";
 import {LibConstants} from "../libraries/LibConstants.sol";
+import {LibReentrancyGuard} from "../libraries/LibReentrancyGuard.sol";
 import {IAdminConfig} from "../interfaces/IAdminConfig.sol";
 import {LibDiamond} from "../libraries/LibDiamond.sol";
 import {Errors} from "../libraries/Errors.sol";
 import {Events} from "../libraries/Events.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
+import {SafeERC20, IERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 /**
  * @title AdminConfigFacet
@@ -18,6 +20,8 @@ import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IER
  * @dev Enhanced version with comprehensive fee management and token symbol support
  */
 contract AdminConfigFacet is IAdminConfig {
+    using SafeERC20 for IERC20;
+
     /// @notice Hard ceiling on the admin-configurable maximum settlement fee rate (10%).
     /// @dev SCRUM-224 — `setMaxFeeRate` reverts if the requested rate exceeds this. The
     ///      admin may configure any value in [0, MAX_FEE_RATE_BPS_CAP]; the operator
@@ -140,7 +144,10 @@ contract AdminConfigFacet is IAdminConfig {
      * @param _maxFeeRateBps New maximum fee rate in basis points (0..MAX_FEE_RATE_BPS_CAP)
      * @custom:emits MaxFeeRateUpdated with old and new rates
      * @custom:reverts MaxFeeRateExceedsCeiling if `_maxFeeRateBps` exceeds the 1000-bps cap
+     * @custom:reverts NoChangeRequired if `_maxFeeRateBps` is the same as the current value
      * @custom:security Only callable by contract owner
+     * @custom:audit CR-3291973202 (folded into SCRUM-236) — added the `NoChangeRequired`
+     *      no-op guard to match `setFeeReceiver` / `setResolutionFeeBps`.
      */
     function setMaxFeeRate(uint16 _maxFeeRateBps) external override {
         LibDiamond.enforceIsContractOwner();
@@ -148,6 +155,7 @@ contract AdminConfigFacet is IAdminConfig {
 
         LibAdminConfigStorage.AdminConfigStorage storage acs = LibAdminConfigStorage.adminConfigStorage();
         uint16 oldRate = acs.maxFeeRateBps;
+        if (oldRate == _maxFeeRateBps) revert Errors.NoChangeRequired();
         acs.maxFeeRateBps = _maxFeeRateBps;
         emit Events.MaxFeeRateUpdated(oldRate, _maxFeeRateBps);
     }
@@ -208,5 +216,76 @@ contract AdminConfigFacet is IAdminConfig {
         LibAdminConfigStorage.AdminConfigStorage storage acs = LibAdminConfigStorage.adminConfigStorage();
         acs.tokenSymbols[token] = symbol;
         emit Events.TokenSymbolUpdated(token, symbol);
+    }
+
+    // ----------------------------------------
+    // Fee Bank (SCRUM-236)
+    // ----------------------------------------
+
+    /**
+     * @notice Sweeps accrued fees for `token` out of the Diamond fee bank to `acs.feeReceiver`.
+     * @dev SCRUM-236 pull-payment model. Trading fees (SettlementFacet) and resolution
+     *      fees (ConditionalTokensFacet) accrue into the in-Diamond
+     *      `acs.accruedFees[token]` accumulator on every settlement / redemption leg.
+     *      This function is the only decrement path: it transfers `amount` of `token`
+     *      from `address(this)` to `acs.feeReceiver`.
+     * @dev Passing `amount == type(uint256).max` drains the full per-token balance
+     *      atomically in a single call. The drain-when-empty case resolves to
+     *      `amount == 0` and reverts `ZeroAmount` (single error path for "nothing
+     *      to withdraw").
+     * @dev Owner-only. Under SCRUM-213 the owner is a Gnosis Safe;
+     *      `LibDiamond.enforceIsContractOwner` already handles the Safe correctly
+     *      (the Safe address is the on-chain owner).
+     * @dev Reentrancy: the entire body — accruedFees decrement, external transfer,
+     *      event emission — sits inside one `LibReentrancyGuard` window. A malicious
+     *      ERC20 with a transfer hook cannot re-enter the Diamond mid-state.
+     * @dev Event ordering: decrement -> transfer -> emit, all inside the guard, so an
+     *      off-chain indexer never sees a `FeesWithdrawn` for a call that later reverts.
+     * @param token The collateral token to sweep
+     * @param amount Amount to withdraw, or `type(uint256).max` to drain
+     * @custom:emits FeesWithdrawn(token, feeReceiver, amount)
+     * @custom:reverts NotContractOwner if caller is not the owner
+     * @custom:reverts InvalidTokenAddress if `token == address(0)`
+     * @custom:reverts ZeroAmount if the resolved amount is 0 (includes drain-when-empty)
+     * @custom:reverts InsufficientAccruedFees(requested, available) if `amount > accruedFees[token]`
+     * @custom:reverts InvalidFeeReceiver if `acs.feeReceiver == address(0)`
+     * @custom:audit SCRUM-236 §6.1 meta-check — this is a Diamond-as-`from` site; the
+     *      symmetric decrement of `accruedFees[token]` preserves
+     *      `balance >= outstandingPairs + accruedFees` (INV-SOLV-4-revised).
+     */
+    function withdrawFees(address token, uint256 amount) external {
+        LibDiamond.enforceIsContractOwner();
+        if (token == address(0)) revert Errors.InvalidTokenAddress();
+
+        LibAdminConfigStorage.AdminConfigStorage storage acs = LibAdminConfigStorage.adminConfigStorage();
+
+        // SCRUM-236 §6.7: convert the drain idiom via a local before the bounds check.
+        // Parameter mutation is avoided — `w` is the resolved amount used everywhere
+        // below (state decrement, transfer, event).
+        uint256 accrued = acs.accruedFees[token];
+        uint256 w = (amount == type(uint256).max) ? accrued : amount;
+        if (w == 0) revert Errors.ZeroAmount();
+        if (w > accrued) revert Errors.InsufficientAccruedFees(w, accrued);
+        address feeReceiver = acs.feeReceiver;
+        if (feeReceiver == address(0)) revert Errors.InvalidFeeReceiver();
+
+        // Reentrancy guard wraps the ENTIRE state-mutating + interaction + emit block,
+        // per design §6.2.
+        LibReentrancyGuard._nonReentrantBefore();
+        acs.accruedFees[token] = accrued - w;
+        IERC20(token).safeTransfer(feeReceiver, w);
+        emit Events.FeesWithdrawn(token, feeReceiver, w);
+        LibReentrancyGuard._nonReentrantAfter();
+    }
+
+    /**
+     * @notice Returns the current per-token balance in the in-Diamond fee bank.
+     * @dev SCRUM-236. Counterpart view for `withdrawFees`; used by off-chain treasury
+     *      tooling and by the audit harness to assert INV-FEE-NEW symmetry.
+     * @param token The collateral token to inspect
+     * @return The amount of `token` currently held in `accruedFees[token]`
+     */
+    function getAccruedFees(address token) external view returns (uint256) {
+        return LibAdminConfigStorage.adminConfigStorage().accruedFees[token];
     }
 }

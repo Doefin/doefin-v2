@@ -40,4 +40,21 @@ interface IAdminConfig {
      * @param symbol The new symbol
      */
     function setTokenSymbol(address token, string calldata symbol) external;
+
+    // ----------------------------------------
+    // Fee Bank (SCRUM-236)
+    // ----------------------------------------
+
+    /**
+     * @notice Sweep accrued fees for a token to the configured fee receiver.
+     * @param token The collateral token to sweep
+     * @param amount Amount to withdraw, or `type(uint256).max` to drain
+     */
+    function withdrawFees(address token, uint256 amount) external;
+
+    /**
+     * @notice Returns the current per-token balance in the in-Diamond fee bank.
+     * @param token The collateral token to inspect
+     */
+    function getAccruedFees(address token) external view returns (uint256);
 }
