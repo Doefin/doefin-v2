@@ -325,4 +325,16 @@ library Errors {
 
     /// @notice Thrown when the maker fill amounts do not sum to the taker fill amount
     error FillAmountMismatch(uint128 sumOfMakerFills, uint128 takerFillAmount);
+
+    // ========================================
+    // FEE BANK ERRORS (SCRUM-236)
+    // ========================================
+
+    /// @notice Thrown when an owner-initiated withdrawFees call requests more than the
+    ///         per-token accrued balance.
+    /// @dev Parameterised for off-chain debuggability — mirrors the
+    ///      FillAmountMismatch(sumOfMakerFills, takerFillAmount) precedent.
+    /// @param requested The amount the caller asked to withdraw
+    /// @param available The current accruedFees[token] balance
+    error InsufficientAccruedFees(uint256 requested, uint256 available);
 }
