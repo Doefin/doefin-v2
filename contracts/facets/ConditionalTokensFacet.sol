@@ -201,43 +201,64 @@ contract ConditionalTokensFacet is IConditionalTokens {
     }
 
     /**
-     * @notice Handles payout transfers with resolution fee deduction
-     * @dev Internal function managing fee calculation and distribution during redemption
-     * @dev Applies resolution fee if configured and transfers remainder to recipient
-     * @dev Uses reentrancy protection for external token transfers
+     * @notice Handles payout transfers with resolution-fee accrual into the in-Diamond fee bank.
+     * @dev SCRUM-236 — the pre-bank flow checked `feeReceiver != 0` *before* the zero-fee
+     *      short-circuit, which bricked `redeemPositions` on a fresh-deploy default
+     *      (`feeReceiver == address(0) && resolutionFeeBps == 0`) — the original
+     *      CR-3291973203 finding. Under the pull-payment model the resolution fee no
+     *      longer requires a `feeReceiver` at redemption time: it accrues to
+     *      `acs.accruedFees[token]` and is swept later by `AdminConfigFacet.withdrawFees`.
+     *      That eliminates the bypass-DoS class entirely: the `feeReceiver` check moves
+     *      to `withdrawFees`. The fee-zero case is now a true no-op (no SSTORE, no event).
+     * @dev Uses the existing reentrancy guard for the external user transfer. The
+     *      accrual is a single SSTORE before the transfer (CEI ordering); no external
+     *      call to `feeReceiver` happens on this path.
      * @param collateralToken The ERC20 token being transferred
      * @param recipient The address receiving the payout
      * @param amount The gross payout amount before fees
-     * @custom:emits PayoutRedemptionFeePaid if fees are applied
-     * @custom:reverts InvalidFeeReceiver if fee receiver not configured but fees enabled
-     * @custom:security Protected against reentrancy attacks during transfers
-     * @custom:note Zero fee configuration bypasses fee deduction entirely
+     * @custom:emits PayoutRedemptionFeePaid if a fee is accrued.
+     * @custom:emits FeeAccrued (kind = FEE_KIND_RESOLUTION) if a fee is accrued.
+     * @custom:security Protected against reentrancy on the user payout transfer.
+     * @custom:audit CR-3291973203 — zero-fee + zero-feeReceiver no longer reverts.
      */
     function _handlePayoutTransfer(address collateralToken, address recipient, uint256 amount) internal {
         LibAdminConfigStorage.AdminConfigStorage storage acs = LibAdminConfigStorage.adminConfigStorage();
-
-        address feeReceiver = acs.feeReceiver;
         uint16 feeBps = acs.resolutionFeeBps;
 
-        if (feeReceiver == address(0)) revert Errors.InvalidFeeReceiver();
-
+        // SCRUM-236: fee-zero is a true symmetric no-op. No SSTORE on `accruedFees`,
+        // no `FeeAccrued` emission — required for INV-FEE-NEW symmetry under fee == 0
+        // AND for the CR-3291973203 regression check (a zero-fee redeem must not revert
+        // and must not emit a spurious zero-amount event).
         if (feeBps == 0) {
             LibReentrancyGuard._nonReentrantBefore();
             IERC20(collateralToken).safeTransfer(recipient, amount);
             LibReentrancyGuard._nonReentrantAfter();
-
             return;
         }
 
         uint256 feeAmount = (amount * feeBps) / LibConstants.BPS_DENOMINATOR;
         uint256 userAmount = amount - feeAmount;
 
+        // SCRUM-236: the resolution fee already sits in the Diamond's ERC20 balance
+        // (the redeemed payout was internal); just book it into `accruedFees` and
+        // pay the user their net. The `feeAmount > 0` guard prevents a spurious
+        // FeeAccrued for the extreme rounding case where `amount * feeBps` truncates
+        // to zero (e.g. a 1-wei payout with feeBps < BPS_DENOMINATOR).
+        if (feeAmount > 0) {
+            acs.accruedFees[collateralToken] += feeAmount;
+            emit Events.FeeAccrued(collateralToken, feeAmount, LibConstants.FEE_KIND_RESOLUTION);
+        }
+
+        // Keep the existing PayoutRedemptionFeePaid event so off-chain redemption
+        // analytics still see the per-redeem fee attribution. The address passed as
+        // `feeReceiver` is the current `acs.feeReceiver` snapshot; if it is zero
+        // the event simply carries the zero address (the funds are safely in the bank
+        // and the owner can set a receiver before the next `withdrawFees`).
         LibReentrancyGuard._nonReentrantBefore();
-        IERC20(collateralToken).safeTransfer(feeReceiver, feeAmount);
         IERC20(collateralToken).safeTransfer(recipient, userAmount);
         LibReentrancyGuard._nonReentrantAfter();
 
-        emit Events.PayoutRedemptionFeePaid(recipient, feeReceiver, feeAmount, userAmount);
+        emit Events.PayoutRedemptionFeePaid(recipient, acs.feeReceiver, feeAmount, userAmount);
     }
 
     /**
