@@ -85,7 +85,8 @@ describe("PENTEST · BIZ-001 (MED) — _settleMerge fee-vs-payout solvency guard
 
     const sellerBefore = await collateral.balanceOf(seller.address);
     const buyerBBefore = await collateral.balanceOf(buyerB.address);
-    const feeRcvBefore = await collateral.balanceOf(feeReceiver.address);
+    // SCRUM-236: merge fees stay in the Diamond as accruedFees.
+    const accruedBefore = await ctx.contracts.adminConfig.getAccruedFees(collateral.address);
 
     await settlement.connect(operator).matchOrders(
       takerOrder, takerSig, 0,
@@ -93,15 +94,16 @@ describe("PENTEST · BIZ-001 (MED) — _settleMerge fee-vs-payout solvency guard
       fill, [fill], [takerFee], [makerFee],
     );
 
-    // Each seller received payout - fee; feeReceiver got both fees.
+    // Each seller received payout - fee; accruedFees absorbed both fees.
     expect((await collateral.balanceOf(seller.address)).sub(sellerBefore))
       .to.equal(takerPayout.sub(takerFee));
     expect((await collateral.balanceOf(buyerB.address)).sub(buyerBBefore))
       .to.equal(makerPayout.sub(makerFee));
-    expect((await collateral.balanceOf(feeReceiver.address)).sub(feeRcvBefore))
+    expect((await ctx.contracts.adminConfig.getAccruedFees(collateral.address)).sub(accruedBefore))
       .to.equal(takerFee.add(makerFee));
 
-    // Total out (both net payouts + fees) equals the merged fill — no shortfall.
+    // Total out (both net payouts + the banked fees) equals the merged fill —
+    // no shortfall. The banked portion is owner-claimable via withdrawFees.
     const totalOut = takerPayout.sub(takerFee)
       .add(makerPayout.sub(makerFee))
       .add(takerFee).add(makerFee);

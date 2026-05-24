@@ -32,13 +32,17 @@ describe("SettlementFacet — invariant coverage gaps", function () {
   });
 
   // ──────────────────────────────────────────────────────────────────────
-  // Gap-1 — INV-SOLV-3: complementary settlement never touches the Diamond's
-  // own ERC-20 collateral balance nor its own ERC-1155 position balance.
-  // The Diamond is the ERC-1155 operator + ERC-20 spender, never a from/to.
+  // Gap-1 — INV-SOLV-3 (revised SCRUM-236): complementary settlement is
+  // collateral-neutral on the SWAP leg. The Diamond is NOT involved in the
+  // buyer→seller transfer and its ERC-1155 balance stays flat. SCRUM-236
+  // changed the fee model so the Diamond is the `to` for the two per-party
+  // fees (the swap leg is unchanged); the new accounting therefore expects
+  // `Δ(balanceOf(diamond)) == buyerFee + sellerFee` and
+  // `Δ(accruedFees[token]) == buyerFee + sellerFee`.
   // ──────────────────────────────────────────────────────────────────────
-  describe("Gap-1 — INV-SOLV-3: complementary settle leaves the Diamond's own balances flat", function () {
-    it("Diamond ERC-20 and ERC-1155 balances are unchanged across a complementary matchOrders", async function () {
-      const { settlement, collateral, erc1155Facet } = ctx.contracts;
+  describe("Gap-1 — INV-SOLV-3: complementary settle (swap leg flat; fees bank into Diamond per SCRUM-236)", function () {
+    it("Diamond ERC-1155 balance is flat; Diamond ERC-20 balance grows by Σ fees and accruedFees matches", async function () {
+      const { settlement, collateral, erc1155Facet, adminConfig } = ctx.contracts;
       const { buyer, seller, operator } = ctx.signers;
       const { positionIdA } = ctx.market;
       const { diamondAddress } = ctx;
@@ -52,14 +56,13 @@ describe("SettlementFacet — invariant coverage gaps", function () {
       const takerSig = await signOrder(buyer, takerOrder);
       const makerSig = await signOrder(seller, makerOrder);
 
-      // Live fees on both legs — the fee path also routes only between the
-      // counterparties and feeReceiver, never through the Diamond.
+      // Live fees on both legs. SCRUM-236: the fee path now routes payer →
+      // Diamond and credits accruedFees[token]; the swap leg is unchanged.
       const fee = legFee(price, fill);
 
-      // INV-SOLV-3 spec: the Diamond's own ERC-20 and ERC-1155 balances must
-      // be exactly equal before and after — zero delta, not merely "small".
       const diamondCollBefore = await collateral.balanceOf(diamondAddress);
       const diamondPosABefore = await erc1155Facet.balanceOf(diamondAddress, positionIdA);
+      const accruedBefore = await adminConfig.getAccruedFees(collateral.address);
 
       await settlement.connect(operator).matchOrders(
         takerOrder, takerSig, 0,
@@ -67,8 +70,14 @@ describe("SettlementFacet — invariant coverage gaps", function () {
         fill, [fill], [fee], [fee],
       );
 
-      expect(await collateral.balanceOf(diamondAddress)).to.equal(diamondCollBefore);
+      // Diamond ERC-20 balance gains exactly the two per-party fees (the
+      // banked portion); ERC-1155 balance is unchanged (swap leg flat).
+      expect((await collateral.balanceOf(diamondAddress)).sub(diamondCollBefore))
+        .to.equal(fee.mul(2));
       expect(await erc1155Facet.balanceOf(diamondAddress, positionIdA)).to.equal(diamondPosABefore);
+      // accruedFees ratchet matches the balance delta — INV-FEE-NEW.
+      expect((await adminConfig.getAccruedFees(collateral.address)).sub(accruedBefore))
+        .to.equal(fee.mul(2));
     });
   });
 
@@ -190,7 +199,8 @@ describe("SettlementFacet — invariant coverage gaps", function () {
       const makerSig = await signOrder(buyerB, makerOrder);
 
       const sellerBefore = await collateral.balanceOf(seller.address);
-      const feeRcvBefore = await collateral.balanceOf(feeReceiver.address);
+      // SCRUM-236: merge fees now stay in the Diamond as accruedFees.
+      const accruedBefore = await ctx.contracts.adminConfig.getAccruedFees(collateral.address);
 
       await settlement.connect(operator).matchOrders(
         takerOrder, takerSig, 0,
@@ -201,7 +211,8 @@ describe("SettlementFacet — invariant coverage gaps", function () {
       // INV-SOLV-2: takerNet + makerNet + totalFees == fill.
       expect((await collateral.balanceOf(seller.address)).sub(sellerBefore))
         .to.equal(takerPayout.sub(takerFee));
-      expect((await collateral.balanceOf(feeReceiver.address)).sub(feeRcvBefore))
+      // SCRUM-236: accruedFees absorbs both fees instead of feeReceiver.
+      expect((await ctx.contracts.adminConfig.getAccruedFees(collateral.address)).sub(accruedBefore))
         .to.equal(takerFee.add(makerFee));
     });
 
@@ -287,12 +298,13 @@ describe("SettlementFacet — invariant coverage gaps", function () {
       const makerFee2 = cash2.mul(275).div(10000); // 2.75% of leg 2
       // INV-FEE-4: the taker event reports the SUM of the per-leg taker fees.
       const expectedTakerFee = takerFee1.add(takerFee2);
-      const expectedFeeReceiverDelta = takerFee1.add(takerFee2).add(makerFee1).add(makerFee2);
+      const expectedAccruedDelta = takerFee1.add(takerFee2).add(makerFee1).add(makerFee2);
 
       // Sanity: each fee within the 500-bps fixture cap (the fixture's
       // setMaxFeeRate(MAX_FEE_RATE_BPS)). 4.5% < 5%, so _validateFee passes.
 
-      const feeRcvBefore = await collateral.balanceOf(feeReceiver.address);
+      // SCRUM-236: total fees credit accruedFees, not feeReceiver per-trade.
+      const accruedBefore = await ctx.contracts.adminConfig.getAccruedFees(collateral.address);
 
       const tx = await settlement.connect(operator).matchOrders(
         takerOrder, takerSig, 0,
@@ -314,9 +326,9 @@ describe("SettlementFacet — invariant coverage gaps", function () {
         .to.emit(settlement, "OrderSettled")
         .withArgs(maker2Hash, buyerB.address, f2, makerFee2);
 
-      // INV-FEE-3 + INV-FEE-4: feeReceiver delta == Σ (takerFees + makerFees).
-      expect((await collateral.balanceOf(feeReceiver.address)).sub(feeRcvBefore))
-        .to.equal(expectedFeeReceiverDelta);
+      // INV-FEE-3 (strengthened, SCRUM-236) + INV-FEE-4: accruedFees delta == Σ (takerFees + makerFees).
+      expect((await ctx.contracts.adminConfig.getAccruedFees(collateral.address)).sub(accruedBefore))
+        .to.equal(expectedAccruedDelta);
 
       // The taker order is recorded as fully filled.
       expect(await settlement.getFilledAmount(takerHash)).to.equal(totalFill);

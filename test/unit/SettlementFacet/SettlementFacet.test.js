@@ -306,7 +306,8 @@ describe("SettlementFacet", function () {
       const sellerCollBefore = await collateral.balanceOf(seller.address);
       const sellerPosBefore = await erc1155Facet.balanceOf(seller.address, positionIdA);
       const buyerPosBefore = await erc1155Facet.balanceOf(buyer.address, positionIdA);
-      const feeReceiverBefore = await collateral.balanceOf(feeReceiver.address);
+      // SCRUM-236: fees now accrue inside the Diamond bank (not direct-to-feeReceiver).
+      const accruedBefore = await adminConfig.getAccruedFees(collateral.address);
 
       // SCRUM-224: operator supplies the per-leg fee. Execution is at the maker's
       // price, so cashValue = price * fill / UNIT. The taker is the buyer.
@@ -331,9 +332,9 @@ describe("SettlementFacet", function () {
       // Seller received collateral - seller's fee
       expect(sellerCollAfter.sub(sellerCollBefore)).to.equal(collateralAmount.sub(sellerFee));
 
-      // Fee receiver got total fees
-      const feeReceiverAfter = await collateral.balanceOf(feeReceiver.address);
-      expect(feeReceiverAfter.sub(feeReceiverBefore)).to.equal(totalFees);
+      // SCRUM-236: accruedFees got the full per-trade fees (instead of feeReceiver).
+      const accruedAfter = await adminConfig.getAccruedFees(collateral.address);
+      expect(accruedAfter.sub(accruedBefore)).to.equal(totalFees);
 
       // Position tokens moved from seller to buyer
       const sellerPosAfter = await erc1155Facet.balanceOf(seller.address, positionIdA);
@@ -614,7 +615,8 @@ describe("SettlementFacet", function () {
 
       const buyerCollBefore = await collateral.balanceOf(buyer.address);
       const buyerBCollBefore = await collateral.balanceOf(buyerB.address);
-      const feeReceiverBefore = await collateral.balanceOf(feeReceiver.address);
+      // SCRUM-236: fees accrue inside the Diamond bank.
+      const accruedBefore = await adminConfig.getAccruedFees(collateral.address);
 
       await settlement.connect(operator).matchOrders(
         takerOrder, takerSig, 0,
@@ -627,8 +629,8 @@ describe("SettlementFacet", function () {
         .to.equal(takerCollateral.add(takerFee));
       expect(buyerBCollBefore.sub(await collateral.balanceOf(buyerB.address)))
         .to.equal(makerCollateral.add(makerFee));
-      // feeReceiver got both fees.
-      expect((await collateral.balanceOf(feeReceiver.address)).sub(feeReceiverBefore))
+      // SCRUM-236: accruedFees got both fees (instead of feeReceiver).
+      expect((await adminConfig.getAccruedFees(collateral.address)).sub(accruedBefore))
         .to.equal(takerFee.add(makerFee));
     });
   });
@@ -690,7 +692,9 @@ describe("SettlementFacet", function () {
 
       const sellerCollBefore = await collateral.balanceOf(seller.address);
       const buyerBCollBefore = await collateral.balanceOf(buyerB.address);
-      const feeReceiverBefore = await collateral.balanceOf(feeReceiver.address);
+      // SCRUM-236: fees stay in the Diamond bank on merge — they were never paid
+      // out to feeReceiver per-trade.
+      const accruedBefore = await adminConfig.getAccruedFees(collateral.address);
 
       await settlement.connect(operator).matchOrders(
         takerOrder, takerSig, 0,
@@ -703,8 +707,8 @@ describe("SettlementFacet", function () {
         .to.equal(takerPayout.sub(takerFee));
       expect((await collateral.balanceOf(buyerB.address)).sub(buyerBCollBefore))
         .to.equal(makerPayout.sub(makerFee));
-      // feeReceiver got both fees.
-      expect((await collateral.balanceOf(feeReceiver.address)).sub(feeReceiverBefore))
+      // SCRUM-236: accruedFees got both fees (instead of feeReceiver).
+      expect((await adminConfig.getAccruedFees(collateral.address)).sub(accruedBefore))
         .to.equal(takerFee.add(makerFee));
     });
   });
@@ -831,7 +835,8 @@ describe("SettlementFacet", function () {
       const takerSig = await signOrder(buyer, takerOrder);
       const makerSig = await signOrder(seller, makerOrder);
 
-      const feeReceiverBefore = await collateral.balanceOf(feeReceiver.address);
+      // SCRUM-236: fees credit the in-Diamond bank, not feeReceiver per-trade.
+      const accruedBefore = await adminConfig.getAccruedFees(collateral.address);
 
       await settlement.connect(operator).matchOrders(
         takerOrder, takerSig, 0,
@@ -841,9 +846,9 @@ describe("SettlementFacet", function () {
 
       const takerHash = await sigVerifier.getOrderHash(takerOrder);
       expect(await settlement.getFilledAmount(takerHash)).to.equal(fillAmount);
-      // Both legs' fees routed to feeReceiver.
-      const feeReceiverAfter = await collateral.balanceOf(feeReceiver.address);
-      expect(feeReceiverAfter.sub(feeReceiverBefore)).to.equal(feeAtCap.mul(2));
+      // SCRUM-236: both legs' fees accrued in the bank.
+      const accruedAfter = await adminConfig.getAccruedFees(collateral.address);
+      expect(accruedAfter.sub(accruedBefore)).to.equal(feeAtCap.mul(2));
     });
 
     it("should revert when the taker fee is one wei over the max-rate cap", async function () {
@@ -885,7 +890,10 @@ describe("SettlementFacet", function () {
       const takerSig = await signOrder(buyer, takerOrder);
       const makerSig = await signOrder(seller, makerOrder);
 
+      // SCRUM-236: fee == 0 is a symmetric no-op — neither feeReceiver nor the
+      // in-Diamond bank moves.
       const feeReceiverBefore = await collateral.balanceOf(feeReceiver.address);
+      const accruedBefore = await adminConfig.getAccruedFees(collateral.address);
 
       await settlement.connect(operator).matchOrders(
         takerOrder, takerSig, 0,
@@ -896,6 +904,7 @@ describe("SettlementFacet", function () {
       const takerHash = await sigVerifier.getOrderHash(takerOrder);
       expect(await settlement.getFilledAmount(takerHash)).to.equal(fillAmount);
       expect(await collateral.balanceOf(feeReceiver.address)).to.equal(feeReceiverBefore);
+      expect(await adminConfig.getAccruedFees(collateral.address)).to.equal(accruedBefore);
     });
 
     it("should revert merge when the operator fee exceeds a seller's proceeds", async function () {
@@ -938,10 +947,11 @@ describe("SettlementFacet", function () {
       const collLeg = price.mul(fillAmount).div(UNIT);
       const fee = collLeg.mul(MAX_FEE_RATE_BPS).div(10000);
 
-      const feeReceiverBefore = await collateral.balanceOf(feeReceiver.address);
+      // SCRUM-236: fillOrder credits accruedFees, not feeReceiver directly.
+      const accruedBefore = await adminConfig.getAccruedFees(collateral.address);
       await settlement.connect(operator).fillOrder(order, sig, 0, fillAmount, fee);
-      const feeReceiverAfter = await collateral.balanceOf(feeReceiver.address);
-      expect(feeReceiverAfter.sub(feeReceiverBefore)).to.equal(fee);
+      const accruedAfter = await adminConfig.getAccruedFees(collateral.address);
+      expect(accruedAfter.sub(accruedBefore)).to.equal(fee);
     });
 
     it("should revert with FeeExceedsMaxRate when maxFeeRateBps is unset (fail-closed)", async function () {
