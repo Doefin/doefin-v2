@@ -67,7 +67,7 @@ Three paths only — there is no Cross-Currency settlement path.
 A single `matchOrders()` call can settle one taker against a mix of these match types —
 the match type is determined per maker.
 
-### Fee Model (operator-supplied, Polymarket V2 pattern)
+### Fee Model (operator-supplied + pull-payment bank, SCRUM-236)
 - Trading fees are **not signed and not on-chain**. The off-chain operator computes the
   symmetric bell-curve fee (`fee ∝ min(price, 1-price) * fillAmount`) and passes the
   per-leg fee *amounts* into `matchOrders()` / `fillOrder()`.
@@ -76,11 +76,30 @@ the match type is determined per maker.
   `maxFeeRateBps` of 0 forbids any non-zero fee.
 - `maxFeeRateBps` is set by the admin via `AdminConfigFacet.setMaxFeeRate`, bounded by the
   hard ceiling constant `MAX_FEE_RATE_BPS_CAP = 1000` (10%).
-- Fees are paid to `LibDoefinStorage.AdminConfigStorage.feeReceiver` (configurable by the
-  contract owner via `AdminConfigFacet.setFeeReceiver`). The operator is NOT a fee sink —
-  it is the authorized `msg.sender` for `matchOrders()` / `fillOrder()`, but never receives fees.
+- **Pull-payment bank (SCRUM-236):** trading and resolution fees are NOT transferred to
+  `feeReceiver` per trade. They accrue in the Diamond's per-token accumulator
+  `LibAdminConfigStorage.AdminConfigStorage.accruedFees[token]`. Every settlement /
+  redemption leg emits `Events.FeeAccrued(token, amount, kind)` where `kind` is
+  `LibConstants.FEE_KIND_TRADING` (0) or `FEE_KIND_RESOLUTION` (1). The operator is NOT
+  a fee sink (and never was) — it is the authorised `msg.sender` for
+  `matchOrders()` / `fillOrder()` but never receives fees.
+- **Sweeping fees:** the contract owner calls `AdminConfigFacet.withdrawFees(token, amount)`
+  to move accrued fees from the Diamond bank to `acs.feeReceiver`. Pass
+  `amount = type(uint256).max` to drain the full per-token balance. The function reverts
+  `InvalidTokenAddress`, `ZeroAmount`, `InsufficientAccruedFees(requested, available)`,
+  or `InvalidFeeReceiver` as appropriate. Emits `Events.FeesWithdrawn(token, feeReceiver,
+  amount)`. The entire body sits inside a `LibReentrancyGuard` window. `getAccruedFees(token)`
+  is the matching view. Under SCRUM-213 the owner is a Gnosis Safe; the owner gate
+  composes cleanly.
+- **Co-mingling note:** the Diamond's ERC-20 balance now serves two roles — position-token
+  backing and the fee bank — kept distinguishable by the `accruedFees` accumulator. The
+  master solvency property INV-SOLV-4-revised is
+  `balanceOf(Diamond, token) >= outstandingPairs[token] + accruedFees[token]`. Standard-ERC20
+  precondition applies: allow-listed collaterals must not be fee-on-transfer or rebasing.
 - A separate `resolutionFeeBps` (redemption fee, charged in `ConditionalTokensFacet` when
-  winning positions are redeemed) is distinct from trading fees and still exists.
+  winning positions are redeemed) is distinct from the operator trading-fee surface and
+  still exists; under SCRUM-236 it accrues into the same `accruedFees` bank via
+  `FEE_KIND_RESOLUTION`.
 
 ### Storage (EIP-7201 namespaced — SCRUM-229)
 
