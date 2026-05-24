@@ -171,12 +171,23 @@ contract DoefinInvariantHarness {
     IConditionalTokens internal immutable ctf;
     IERC1155Facet internal immutable erc1155;
 
-    /// @notice Binary market condition id.
+    /// @notice Binary market condition id (trading market — never resolved during fuzzing).
     bytes32 public immutable conditionId;
     /// @notice Outcome-A position id (indexSet = 1).
     uint256 public immutable positionIdA;
     /// @notice Outcome-B position id (indexSet = 2).
     uint256 public immutable positionIdB;
+
+    /// @notice SCRUM-236 — dedicated redemption-only market. A separate condition so
+    ///         fuzz_redeem can resolve and redeem positions without disrupting the
+    ///         trading market driven by fuzz_matchMint / fuzz_matchMerge / etc.
+    bytes32 public immutable redeemConditionId;
+    /// @notice Redemption-market outcome-A position id (indexSet = 1).
+    uint256 public immutable redeemPositionIdA;
+    /// @notice Redemption-market outcome-B position id (indexSet = 2).
+    uint256 public immutable redeemPositionIdB;
+    /// @notice SCRUM-236 — redemption-market questionId, needed by `reportPayouts`.
+    bytes32 internal immutable redeemQuestionId;
 
     // ========================================
     // ACTOR STATE
@@ -203,14 +214,41 @@ contract DoefinInvariantHarness {
     /// @notice Highest nonce ever observed per actor — must be monotonic.
     mapping(address => uint256) internal lastSeenNonce;
 
-    /// @notice Last observed feeReceiver collateral balance — must be non-decreasing.
-    uint256 internal lastFeeReceiverBalance;
+    /// @notice SCRUM-236 — last observed (feeReceiver balance + Diamond accruedFees).
+    ///         Replaces the pre-fee-bank `lastFeeReceiverBalance`. Under the
+    ///         pull-payment model the FEE_RECEIVER's balance only changes when the
+    ///         owner calls `withdrawFees`, but the SUM `accruedFees[collateral] +
+    ///         balanceOf(FEE_RECEIVER)` is the monotone-up quantity that pins the
+    ///         new bank model. A drop here signals either an unauthorised drain
+    ///         path or a fee-accounting bug (the fee bank decreasing without an
+    ///         equal credit to FEE_RECEIVER's balance).
+    uint256 internal lastFeeReceiverPlusAccrued;
 
     /// @notice Net outstanding position tokens for the binary market that are
     ///         backed by Diamond-held collateral (minted via split, not yet merged).
-    ///         Used by the solvency invariant. A complete A+B pair is worth `UNIT`
-    ///         of collateral, so outstanding collateral value = outstandingPairs * UNIT.
+    ///         Used by the solvency invariant. Counted PER WEI (not per UNIT pair)
+    ///         so the harness can assert INV-SOLV-4-revised exactly:
+    ///           balanceOf(Diamond, token) + ROUNDING_TOLERANCE >=
+    ///               outstandingPairs[token] + accruedFees[token]
+    ///         (SCRUM-236 / business-logic review §1 pin-down #1 — the CR-3291973200
+    ///         `(outstandingPairs / UNIT) * UNIT` floor is REMOVED.)
     uint256 internal outstandingPairs;
+
+    /// @notice SCRUM-236 / INV-FEE-NEW — harness-side cumulative counter of every
+    ///         fee credited into `accruedFees[token]` by the contract. Tracked per
+    ///         token so the symmetry invariant
+    ///           sumFeeAccrued[t] == accruedFees[t] + sumFeesWithdrawn[t]
+    ///         holds across the full collateral allow-list. Incremented in the
+    ///         success branch of every `fuzz_*` settlement / redemption wrapper by
+    ///         the SAME truncated value the contract computes (matching solidity
+    ///         floor-division for resolution fees).
+    mapping(address => uint256) internal sumFeeAccrued;
+
+    /// @notice SCRUM-236 / INV-FEE-NEW counterpart — cumulative `withdrawFees`
+    ///         amount per token. Incremented in the success branch of
+    ///         `fuzz_withdrawFees` by the actual `w` (the resolved amount the
+    ///         contract decremented), not by the raw operator input.
+    mapping(address => uint256) internal sumFeesWithdrawn;
 
     // ========================================
     // CONSTRUCTOR
@@ -230,12 +268,22 @@ contract DoefinInvariantHarness {
         collateral = new MockERC20("Harness USDC", "hUSDC", 6);
 
         _configureProtocol();
-        (conditionId, positionIdA, positionIdB) = _seedBinaryMarket();
+        (conditionId, positionIdA, positionIdB) = _seedBinaryMarket(
+            keccak256("doefin-invariant-harness-question"),
+            true /* split seed amount into harness inventory */
+        );
+        (redeemConditionId, redeemPositionIdA, redeemPositionIdB) = _seedBinaryMarket(
+            keccak256("doefin-invariant-harness-redeem-question"),
+            true /* split seed amount so the harness can redeem */
+        );
+        redeemQuestionId = keccak256("doefin-invariant-harness-redeem-question");
         _setupActors();
 
-        // Snapshot the dedicated feeReceiver-sink balance baseline (starts at 0;
-        // FEE_RECEIVER is never minted collateral).
-        lastFeeReceiverBalance = collateral.balanceOf(FEE_RECEIVER);
+        // SCRUM-236: snapshot the (FEE_RECEIVER balance + per-token accruedFees)
+        // baseline. FEE_RECEIVER is never minted collateral and the bank starts at 0,
+        // so the baseline is 0; the ratchet only grows.
+        lastFeeReceiverPlusAccrued = collateral.balanceOf(FEE_RECEIVER)
+            + IAdminConfig(diamond).getAccruedFees(address(collateral));
     }
 
     // ========================================
@@ -354,7 +402,8 @@ contract DoefinInvariantHarness {
     function _adminConfigCut() internal returns (IDiamondCut.FacetCut memory) {
         // SCRUM-223: cross-currency conversion-path selectors removed with the CC stack.
         // SCRUM-224: setMaxFeeRate / getMaxFeeRate added for the operator fee model.
-        bytes4[] memory s = new bytes4[](11);
+        // SCRUM-236: withdrawFees / getAccruedFees added for the pull-payment fee bank.
+        bytes4[] memory s = new bytes4[](13);
         s[0] = AdminConfigFacet.addCollateralToken.selector;
         s[1] = AdminConfigFacet.removeCollateralToken.selector;
         s[2] = AdminConfigFacet.setFeeReceiver.selector;
@@ -366,6 +415,8 @@ contract DoefinInvariantHarness {
         s[8] = AdminConfigFacet.setTokenSymbol.selector;
         s[9] = AdminConfigFacet.setMaxFeeRate.selector;
         s[10] = AdminConfigFacet.getMaxFeeRate.selector;
+        s[11] = AdminConfigFacet.withdrawFees.selector;
+        s[12] = AdminConfigFacet.getAccruedFees.selector;
         return _cut(address(new AdminConfigFacet()), s);
     }
 
@@ -450,14 +501,18 @@ contract DoefinInvariantHarness {
         IAccessControl(diamond).addMarketMaker(address(this));
     }
 
-    /// @dev Creates a binary condition and runs an initial splitPosition so the
-    ///      CTF position registry holds a 2-position complement pair (required
-    ///      by `_determineMatchType` for Mint / Merge routing).
-    function _seedBinaryMarket()
+    /// @dev Creates a binary condition keyed on `questionId` and runs an initial
+    ///      `splitPosition` so the CTF position registry holds a 2-position complement
+    ///      pair (required by `_determineMatchType` for Mint / Merge routing) and so
+    ///      the harness ends up holding both outcome tokens as inventory.
+    /// @dev SCRUM-236: the funding + approval setup runs only on the first market;
+    ///      subsequent calls only mint additional collateral for the split. Both
+    ///      markets share `address(collateral)`, the same operator approval, and the
+    ///      same `setApprovalForAll`.
+    function _seedBinaryMarket(bytes32 questionId, bool /* splitNotUsed */)
         internal
         returns (bytes32 cId, uint256 posA, uint256 posB)
     {
-        bytes32 questionId = keccak256("doefin-invariant-harness-question");
         cId = IConditionManager(diamond).createCondition(
             address(this),
             questionId,
@@ -471,7 +526,8 @@ contract DoefinInvariantHarness {
         posB = ctf.getPositionId(address(collateral), collectionB);
 
         // Fund the harness and split — registers the pair AND leaves the harness
-        // holding both outcome tokens (used as operator inventory for fillOrder).
+        // holding both outcome tokens (used as operator inventory for fillOrder /
+        // fuzz_redeem). Approvals are idempotent so calling them twice is harmless.
         collateral.mint(address(this), HARNESS_FUNDING);
         totalCollateralMinted += HARNESS_FUNDING;
         collateral.approve(diamond, type(uint256).max);
@@ -623,17 +679,31 @@ contract DoefinInvariantHarness {
         return uint128((cashValue * uint256(FEE_BPS)) / 10000);
     }
 
-    /// @dev Ratchet `lastFeeReceiverBalance` up to the running maximum of the
-    ///      dedicated feeReceiver sink. Called at the end of every `fuzz_*`
-    ///      wrapper so `echidna_fee_receiver_only_grows` is a real high-water
-    ///      check: a later call that DECREASES the feeReceiver balance below a
-    ///      value it previously reached falsifies the property. Without this
-    ///      ratchet `lastFeeReceiverBalance` would stay at its constructor
-    ///      value (0) and the invariant would be vacuously true.
+    /// @dev SCRUM-236 — ratchet `lastFeeReceiverPlusAccrued` up to the running maximum
+    ///      of `balanceOf(FEE_RECEIVER) + accruedFees[collateral]`. Called at the end
+    ///      of every `fuzz_*` wrapper. Under the pull-payment model FEE_RECEIVER's
+    ///      balance is now mostly static (it only changes on `withdrawFees`), but the
+    ///      SUM `accrued + paid-out` is the monotone-up quantity: every fee debit
+    ///      increases the bank, every withdraw moves bank -> FEE_RECEIVER without
+    ///      changing the sum. A drop in the sum signals a fee-accounting bug.
     function _syncFeeReceiverHighWater() internal {
-        uint256 bal = collateral.balanceOf(FEE_RECEIVER);
-        if (bal > lastFeeReceiverBalance) {
-            lastFeeReceiverBalance = bal;
+        uint256 sum = collateral.balanceOf(FEE_RECEIVER)
+            + IAdminConfig(diamond).getAccruedFees(address(collateral));
+        if (sum > lastFeeReceiverPlusAccrued) {
+            lastFeeReceiverPlusAccrued = sum;
+        }
+    }
+
+    /// @dev SCRUM-236 / INV-FEE-NEW — credit the harness-side `sumFeeAccrued[t]`
+    ///      counter by the same amount the contract credited to `accruedFees[t]`.
+    ///      Called on the SUCCESS branch of every fuzz settlement / redemption wrapper.
+    ///      The settlement-side fees are operator-supplied amounts (no contract-side
+    ///      rounding); the resolution-side `feeAmount` is the truncated
+    ///      `(payout * feeBps) / BPS_DENOMINATOR`. Callers are responsible for passing
+    ///      the right `amount` per leg.
+    function _recordFeeAccrued(address token, uint256 amount) internal {
+        if (amount > 0) {
+            sumFeeAccrued[token] += amount;
         }
     }
 
@@ -680,6 +750,8 @@ contract DoefinInvariantHarness {
 
         try settlement.matchOrders(taker, takerSig, 0, makers, makerSigs, makerTypes, fill, makerFills, takerFees, makerFees) {
             outstandingPairs += fill;
+            // SCRUM-236: trading fees credit accruedFees by exactly the operator amounts.
+            _recordFeeAccrued(address(collateral), uint256(takerFees[0]) + uint256(makerFees[0]));
         } catch {
             // A revert is an acceptable outcome — invariants check STATE only.
         }
@@ -739,6 +811,7 @@ contract DoefinInvariantHarness {
             if (outstandingPairs >= fill) {
                 outstandingPairs -= fill;
             }
+            _recordFeeAccrued(address(collateral), uint256(takerFees[0]) + uint256(makerFees[0]));
         } catch {
             // Acceptable — invariants check state, not call success.
         }
@@ -789,6 +862,7 @@ contract DoefinInvariantHarness {
 
         try settlement.matchOrders(taker, takerSig, 0, makers, makerSigs, makerTypes, fill, makerFills, takerFees, makerFees) {
             // outstandingPairs unchanged — complementary is a swap.
+            _recordFeeAccrued(address(collateral), uint256(takerFees[0]) + uint256(makerFees[0]));
         } catch {
             // Acceptable.
         }
@@ -834,6 +908,7 @@ contract DoefinInvariantHarness {
 
         try settlement.fillOrder(order, sig, 0, fill, fee) {
             // outstandingPairs unchanged — operator fill is a swap.
+            _recordFeeAccrued(address(collateral), uint256(fee));
         } catch {
             // Acceptable.
         }
@@ -914,6 +989,121 @@ contract DoefinInvariantHarness {
         _syncFeeReceiverHighWater();
     }
 
+    /// @notice SCRUM-236 — fuzz an owner-initiated fee bank sweep.
+    /// @dev The harness is the Diamond owner, so it calls `withdrawFees` directly.
+    ///      The driver clamps `rawAmount` to `[1, accruedFees[collateral]]` so the
+    ///      happy path actually executes most of the time; ~6% of ticks (when
+    ///      `rawAmount % 16 == 0`) take the `type(uint256).max` drain branch instead.
+    ///      Both paths are valid Diamond-as-`from` transfers and exercise the
+    ///      INV-SOLV-4-revised meta-check.
+    /// @param rawAmount Raw fuzzed withdraw amount (bounded internally).
+    function fuzz_withdrawFees(uint128 rawAmount) external {
+        IAdminConfig admin = IAdminConfig(diamond);
+        uint256 accrued = admin.getAccruedFees(address(collateral));
+        if (accrued == 0) {
+            // Nothing to withdraw — exercise the empty-bank revert path, then return.
+            try admin.withdrawFees(address(collateral), type(uint256).max) {
+                // Should never succeed when accrued == 0; fall through.
+            } catch {
+                // Expected ZeroAmount revert.
+            }
+            _syncFeeReceiverHighWater();
+            return;
+        }
+
+        uint256 amount;
+        if (rawAmount % 16 == 0) {
+            // Drain branch — exercises the `type(uint256).max` resolution idiom.
+            amount = type(uint256).max;
+        } else {
+            // Clamp to [1, accrued].
+            amount = (uint256(rawAmount) % accrued) + 1;
+        }
+
+        try admin.withdrawFees(address(collateral), amount) {
+            // On success the contract decremented accruedFees by either `amount` or
+            // (for the drain branch) the FULL pre-call accrued balance.
+            uint256 w = (amount == type(uint256).max) ? accrued : amount;
+            sumFeesWithdrawn[address(collateral)] += w;
+        } catch {
+            // Acceptable — invariants check state.
+        }
+        _syncFeeReceiverHighWater();
+    }
+
+    /// @notice SCRUM-236 — fuzz a winning-position redemption against the dedicated
+    ///         redemption market. Resolves the market the first time it runs (the
+    ///         harness is the oracle) and then redeems whatever outcome-A the
+    ///         harness still holds. Without this driver the resolution-fee branch of
+    ///         INV-FEE-NEW (FEE_KIND_RESOLUTION) would be unexercised.
+    /// @dev `reportPayouts` reverts after first call (`PayoutAlreadySet`), so the
+    ///      try/catch silently absorbs that branch. The redemption-only market is
+    ///      seeded in the constructor; the harness owns `SEED_SPLIT_AMOUNT` of each
+    ///      outcome from that seed split.
+    /// @param rawAmount Raw fuzzed redemption amount (bounded to harness's balance).
+    function fuzz_redeem(uint128 rawAmount) external {
+        // Resolve the redemption market on the first invocation. Subsequent calls
+        // hit `PayoutAlreadySet` and fall through.
+        uint256[] memory payouts = new uint256[](2);
+        payouts[0] = 1; // outcome A wins
+        payouts[1] = 0;
+        try ctf.reportPayouts(redeemQuestionId, payouts) {} catch {}
+
+        uint256 held = erc1155.balanceOf(address(this), redeemPositionIdA);
+        if (held == 0) {
+            _syncFeeReceiverHighWater();
+            return;
+        }
+        // Clamp to held; we cannot redeem more than we have.
+        uint128 maxHeld = held > type(uint128).max ? type(uint128).max : uint128(held);
+        uint128 toRedeem = _boundAmount(rawAmount, maxHeld);
+        if (toRedeem == 0) {
+            _syncFeeReceiverHighWater();
+            return;
+        }
+
+        // The redeemPositions loop walks ALL indexSets the caller still holds; we
+        // can only redeem the actual stake amount (the burn is `stake`, not a
+        // configurable size). Move the un-redeemed portion away first so we redeem
+        // only `toRedeem` this tick.
+        uint256 surplus = held - toRedeem;
+        if (surplus > 0) {
+            // Park the surplus at actor[0] temporarily so the harness's stake equals
+            // toRedeem when redeemPositions runs.
+            erc1155.safeTransferFrom(address(this), actors[0], redeemPositionIdA, surplus, "");
+        }
+
+        // Compute the resolution fee the contract will book: feeAmount = floor(
+        // stake * resolutionFeeBps / BPS_DENOMINATOR). The harness has not set a
+        // non-zero resolutionFeeBps, so this is normally 0 — but the symmetry
+        // assertion still holds (0 == 0). To exercise the fee-positive branch the
+        // resolutionFeeBps would need to be set; left as a future harness tweak.
+        (, uint16 resBps) = IAdminConfig(diamond).getFees();
+        uint256 feeAmount = (uint256(toRedeem) * uint256(resBps)) / 10000;
+
+        uint256[] memory indexSets = new uint256[](1);
+        indexSets[0] = 1; // outcome A
+        try ctf.redeemPositions(address(collateral), bytes32(0), redeemConditionId, indexSets) {
+            // Successful redemption — outcome A pays 1 of payoutDenominator (which
+            // is `sum(payouts) = 1`), so `payout == stake == toRedeem`. The
+            // outstandingPairs ratchet must drop by toRedeem (the pair-backing is
+            // gone), and the resolution fee credits accruedFees by feeAmount.
+            if (outstandingPairs >= toRedeem) {
+                outstandingPairs -= toRedeem;
+            }
+            _recordFeeAccrued(address(collateral), feeAmount);
+        } catch {
+            // Acceptable — invariants check state.
+        }
+
+        // Return the parked surplus so the next fuzz_redeem tick can redeem more.
+        // The transfer back is from actor[0]; the harness is approved as operator.
+        if (surplus > 0) {
+            erc1155.safeTransferFrom(actors[0], address(this), redeemPositionIdA, surplus, "");
+        }
+        _syncFeeReceiverHighWater();
+    }
+
     /// @dev Top up an actor's balance of `positionId` to at least `amount` by
     ///      transferring tokens the harness holds from its seed split. If the
     ///      harness lacks inventory the transfer simply does not happen and the
@@ -954,13 +1144,28 @@ contract DoefinInvariantHarness {
         return totalCollateralMinted - total <= ROUNDING_TOLERANCE;
     }
 
-    /// @notice Diamond solvency: the Diamond's collateral balance must be at
-    ///         least the collateral value of all outstanding minted position
-    ///         pairs (each complete A+B pair redeems for UNIT of collateral).
-    /// @dev If this fails the Diamond cannot honour all outstanding positions.
+    /// @notice INV-SOLV-4-revised (SCRUM-236) — the Diamond's collateral balance must
+    ///         cover BOTH the position-backing (`outstandingPairs`) AND the
+    ///         un-withdrawn fee bank (`accruedFees`) at all times. Together with
+    ///         `echidna_fee_accounting_symmetry` this pins the new co-mingling model:
+    ///         the Diamond's ERC-20 balance now has two roles, and this invariant
+    ///         keeps them distinguishable in the accounting.
+    /// @dev Pin-down #1 (CR-3291973200 subsumption, business-logic review §1):
+    ///      the pre-SCRUM-236 `(outstandingPairs / UNIT) * UNIT` floor is REMOVED.
+    ///      `outstandingPairs` is measured in collateral base units; flooring it
+    ///      would mask up to UNIT - 1 wei of sub-UNIT under-collateralisation.
+    /// @dev Pin-down #2: `accruedFees` is exact (direct accumulator increment, no
+    ///      division on accrual), so `ROUNDING_TOLERANCE` is now attributable
+    ///      entirely to position-backing rounding (the 1-wei surplus per
+    ///      `floorDiv(P*f, unit)` integer division documented in INV-PRICE-1/2);
+    ///      fee accounting contributes no slack.
+    /// @dev Pin-down #3: the invariant assumes any allow-listed collateral is a
+    ///      standard ERC-20 (no fee-on-transfer, no rebasing, no callback hooks).
+    ///      Enforced by governance (the owner-only `addCollateralToken` allow-list).
     function echidna_diamond_solvent() external view returns (bool) {
-        uint256 backing = (outstandingPairs / UNIT) * UNIT;
-        return collateral.balanceOf(diamond) + ROUNDING_TOLERANCE >= backing;
+        uint256 accrued = IAdminConfig(diamond).getAccruedFees(address(collateral));
+        return collateral.balanceOf(diamond) + ROUNDING_TOLERANCE
+            >= outstandingPairs + accrued;
     }
 
     /// @notice No order is ever filled beyond its signed amount.
@@ -987,15 +1192,36 @@ contract DoefinInvariantHarness {
         return true;
     }
 
-    /// @notice The feeReceiver's collateral balance is non-decreasing.
-    /// @dev `FEE_RECEIVER` is a dedicated sink: it is never minted collateral
-    ///      and never acts as a settlement counterparty, so protocol fees are
-    ///      the ONLY inflow and there is no outflow path. Its balance must be
-    ///      strictly monotonic upward — any decrease signals a fee-accounting
-    ///      bug (e.g. a settlement path debiting the feeReceiver). No rounding
-    ///      tolerance is applied: a pure sink genuinely never loses value.
-    function echidna_fee_receiver_only_grows() external view returns (bool) {
-        return collateral.balanceOf(FEE_RECEIVER) >= lastFeeReceiverBalance;
+    /// @notice SCRUM-236 — `(accruedFees[token] + balanceOf(FEE_RECEIVER, token))` is
+    ///         non-decreasing. Replaces the pre-bank `echidna_fee_receiver_only_grows`,
+    ///         which silently broke meaning under the pull-payment model: FEE_RECEIVER's
+    ///         balance only changes on `withdrawFees`, so the old assertion held
+    ///         vacuously while measuring nothing.
+    /// @dev The sum is the right invariant because every fee debit increases the bank
+    ///      (left summand), every withdraw decreases the bank by `w` and increases
+    ///      FEE_RECEIVER's balance by `w` (zero net change in the sum), and there is
+    ///      no other outflow path. Together with `echidna_diamond_solvent` this pins
+    ///      the new fee-bank model — any drop here is a fee-accounting bug.
+    function echidna_fee_receiver_plus_accrued_only_grows() external view returns (bool) {
+        uint256 sum = collateral.balanceOf(FEE_RECEIVER)
+            + IAdminConfig(diamond).getAccruedFees(address(collateral));
+        return sum >= lastFeeReceiverPlusAccrued;
+    }
+
+    /// @notice INV-FEE-NEW (SCRUM-236) — fee-accounting symmetry, per-token:
+    ///           sumFeeAccrued[t] == accruedFees[t] + sumFeesWithdrawn[t]
+    ///         for every token the harness has ever credited (here: just
+    ///         `address(collateral)`, the harness's single allow-listed collateral).
+    /// @dev The harness ratchets `sumFeeAccrued` in the success branch of every
+    ///      settlement / redemption wrapper by the SAME amount the contract booked,
+    ///      and ratchets `sumFeesWithdrawn` in the success branch of
+    ///      `fuzz_withdrawFees`. A violation means the contract booked a fee
+    ///      asymmetrically (debited a payer but credited a different amount, or
+    ///      withdrew without decrementing the bank, or vice versa).
+    function echidna_fee_accounting_symmetry() external view returns (bool) {
+        uint256 accrued = IAdminConfig(diamond).getAccruedFees(address(collateral));
+        return sumFeeAccrued[address(collateral)]
+            == accrued + sumFeesWithdrawn[address(collateral)];
     }
 
     /// @notice The reentrancy guard is back to "not entered" after any top-level
