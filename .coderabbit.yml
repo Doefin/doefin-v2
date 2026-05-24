@@ -46,7 +46,12 @@ reviews:
 
   auto_review:
     enabled: true
-    drafts: false
+    # SCRUM-212: drafts:true so CodeRabbit reviews WIP PRs too. PR #24
+    # (SCRUM-236) was opened as a draft (CI headroom) and CR skipped it
+    # with "Review skipped — Draft detected." We want CR's automated pass
+    # on every PR including drafts so audit-readiness signal is continuous,
+    # not gated on a manual "mark ready" flip.
+    drafts: true
     # base_branches entries are regex-matched (per the v2 schema). `.*`
     # matches every base, so CodeRabbit reviews PRs targeting main,
     # dev, v3/dev, future release branches, etc. Without `.*`, PR #23
