@@ -322,8 +322,28 @@ async function main() {
   // --- Phase 4: Verify ---
   console.log("\n--- Phase 4: Post-deploy verification ---\n");
 
+  // Tolerate RPC propagation lag — load-balanced providers (Alchemy, etc.) can
+  // return stale state from a replica that hasn't seen the just-mined cut tx
+  // yet, causing the first facets() read to revert with FunctionDoesNotExist
+  // even though the cut succeeded on chain. Retry with backoff before failing.
+  async function withRpcStaleRetry(label, fn, { attempts = 6, delayMs = 1500 } = {}) {
+    let lastErr;
+    for (let i = 0; i < attempts; i++) {
+      try {
+        return await fn();
+      } catch (err) {
+        lastErr = err;
+        if (i < attempts - 1) {
+          console.log(`  (${label} attempt ${i + 1}/${attempts} reverted — RPC propagation lag, retrying in ${delayMs}ms)`);
+          await new Promise((r) => setTimeout(r, delayMs));
+        }
+      }
+    }
+    throw lastErr;
+  }
+
   const loupe = await ethers.getContractAt("DiamondLoupeFacet", diamond.address);
-  const facetsRegistered = await loupe.facets();
+  const facetsRegistered = await withRpcStaleRetry("loupe.facets()", () => loupe.facets());
   console.log(`  Facets registered: ${facetsRegistered.length} (expected ${FacetNames.length + 1})`); // +1 for DiamondCutFacet
 
   const ownership = await ethers.getContractAt("OwnershipFacet", diamond.address);
