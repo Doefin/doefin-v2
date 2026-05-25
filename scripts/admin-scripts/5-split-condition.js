@@ -119,8 +119,9 @@ async function main() {
         const unit = await adminConfig.getCollateralUnit(COLLATERAL_TOKEN);
         console.log("✅ Token unit per pair:", ethers.utils.formatEther(unit));
         
-        // Calculate a properly aligned split amount (multiple of unitPerPair)
-        const multiplier = 1000; // We want approximately 1000 tokens
+        // Calculate a properly aligned split amount (multiple of unitPerPair).
+        // SCRUM-238 testnet: MM has 100 mUSDT / 100 mWBTC; keep multiplier modest.
+        const multiplier = 10;
         const SPLIT_AMOUNT = unit.mul(multiplier);
         console.log("💸 Split Amount (aligned):", ethers.utils.formatEther(SPLIT_AMOUNT));
         
