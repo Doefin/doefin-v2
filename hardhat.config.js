@@ -119,4 +119,11 @@ module.exports = {
       },
     ],
   },
+  // Sourcify uses metadata-hash anchoring rather than pure-bytecode equality,
+  // which handles viaIR initcode quirks (and our `bytecodeHash: "none"` setting)
+  // more reliably than Etherscan for the largest facets. Purely additive —
+  // doesn't change compiled bytecode or replace Etherscan verification.
+  sourcify: {
+    enabled: true,
+  },
 };
