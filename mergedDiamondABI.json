@@ -543,6 +543,25 @@
     "type": "function"
   },
   {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "token",
+        "type": "address"
+      }
+    ],
+    "name": "getAccruedFees",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
     "inputs": [],
     "name": "getAllBlockHeaders",
     "outputs": [
@@ -592,25 +611,6 @@
         "internalType": "struct LibDoefinStorage.BlockHeader[]",
         "name": "",
         "type": "tuple[]"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "bytes32",
-        "name": "conditionId",
-        "type": "bytes32"
-      }
-    ],
-    "name": "getAllPositionIdsByCondition",
-    "outputs": [
-      {
-        "internalType": "uint256[]",
-        "name": "positionIds",
-        "type": "uint256[]"
       }
     ],
     "stateMutability": "view",
@@ -1013,7 +1013,7 @@
     "outputs": [
       {
         "internalType": "bytes32",
-        "name": "conditionId",
+        "name": "",
         "type": "bytes32"
       }
     ],
@@ -1500,35 +1500,6 @@
       }
     ],
     "stateMutability": "pure",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "bytes32",
-        "name": "conditionId",
-        "type": "bytes32"
-      },
-      {
-        "internalType": "bytes32",
-        "name": "parentCollectionId",
-        "type": "bytes32"
-      },
-      {
-        "internalType": "address",
-        "name": "collateralToken",
-        "type": "address"
-      }
-    ],
-    "name": "getPositionIdsByMarket",
-    "outputs": [
-      {
-        "internalType": "uint256[]",
-        "name": "positionIds",
-        "type": "uint256[]"
-      }
-    ],
-    "stateMutability": "view",
     "type": "function"
   },
   {
@@ -2856,6 +2827,24 @@
     "type": "function"
   },
   {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "token",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "amount",
+        "type": "uint256"
+      }
+    ],
+    "name": "withdrawFees",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
     "anonymous": false,
     "inputs": [
       {
@@ -3257,7 +3246,7 @@
       {
         "indexed": true,
         "internalType": "address",
-        "name": "receiver",
+        "name": "token",
         "type": "address"
       },
       {
@@ -3265,9 +3254,15 @@
         "internalType": "uint256",
         "name": "amount",
         "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint8",
+        "name": "kind",
+        "type": "uint8"
       }
     ],
-    "name": "FeeCharged",
+    "name": "FeeAccrued",
     "type": "event"
   },
   {
@@ -3287,6 +3282,31 @@
       }
     ],
     "name": "FeeReceiverUpdated",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "token",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "feeReceiver",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "amount",
+        "type": "uint256"
+      }
+    ],
+    "name": "FeesWithdrawn",
     "type": "event"
   },
   {
@@ -4076,6 +4096,11 @@
   },
   {
     "inputs": [],
+    "name": "ConditionNotActive",
+    "type": "error"
+  },
+  {
+    "inputs": [],
     "name": "ConditionNotPrepared",
     "type": "error"
   },
@@ -4120,6 +4145,22 @@
     "type": "error"
   },
   {
+    "inputs": [
+      {
+        "internalType": "uint128",
+        "name": "sumOfMakerFills",
+        "type": "uint128"
+      },
+      {
+        "internalType": "uint128",
+        "name": "takerFillAmount",
+        "type": "uint128"
+      }
+    ],
+    "name": "FillAmountMismatch",
+    "type": "error"
+  },
+  {
     "inputs": [],
     "name": "FunctionDoesNotExist",
     "type": "error"
@@ -4138,6 +4179,22 @@
       }
     ],
     "name": "InitializationFunctionReverted",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "requested",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "available",
+        "type": "uint256"
+      }
+    ],
+    "name": "InsufficientAccruedFees",
     "type": "error"
   },
   {
@@ -4249,11 +4306,6 @@
   {
     "inputs": [],
     "name": "NoSelectorsInFacet",
-    "type": "error"
-  },
-  {
-    "inputs": [],
-    "name": "NotAuthorized",
     "type": "error"
   },
   {

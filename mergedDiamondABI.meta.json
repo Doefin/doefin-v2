@@ -1,7 +1,7 @@
 {
   "contractName": "Diamond",
   "description": "Merged ABI for the Doefin v3 Diamond proxy (all active facets).",
-  "generatedAt": "2026-05-21T20:45:59.245Z",
+  "generatedAt": "2026-05-24T23:11:23.187Z",
   "contracts": [
     "Diamond",
     "DiamondCutFacet",
@@ -10,6 +10,7 @@
     "AccessControlFacet",
     "AdminConfigFacet",
     "SettlementFacet",
+    "SettlementAdminFacet",
     "SignatureVerifierFacet",
     "NonceManagerFacet",
     "ConditionalTokensFacet",
@@ -20,14 +21,14 @@
     "OracleAdapterFacet",
     "MarketDataFacet"
   ],
-  "totalEntries": 218,
+  "totalEntries": 221,
   "entriesByType": {
     "constructor": 1,
     "fallback": 1,
     "receive": 1,
     "function": 94,
-    "event": 39,
-    "error": 82
+    "event": 40,
+    "error": 84
   },
   "perContract": [
     {
@@ -57,13 +58,18 @@
     },
     {
       "contract": "AdminConfigFacet",
-      "added": 25,
+      "added": 32,
       "duplicates": 1
     },
     {
       "contract": "SettlementFacet",
-      "added": 46,
-      "duplicates": 3
+      "added": 37,
+      "duplicates": 5
+    },
+    {
+      "contract": "SettlementAdminFacet",
+      "added": 9,
+      "duplicates": 1
     },
     {
       "contract": "SignatureVerifierFacet",
@@ -77,8 +83,8 @@
     },
     {
       "contract": "ConditionalTokensFacet",
-      "added": 26,
-      "duplicates": 18
+      "added": 24,
+      "duplicates": 20
     },
     {
       "contract": "ConditionManagerFacet",
@@ -107,7 +113,7 @@
     },
     {
       "contract": "MarketDataFacet",
-      "added": 12,
+      "added": 10,
       "duplicates": 3
     }
   ],
@@ -656,6 +662,25 @@
       "type": "function"
     },
     {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "token",
+          "type": "address"
+        }
+      ],
+      "name": "getAccruedFees",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
       "inputs": [],
       "name": "getAllBlockHeaders",
       "outputs": [
@@ -705,25 +730,6 @@
           "internalType": "struct LibDoefinStorage.BlockHeader[]",
           "name": "",
           "type": "tuple[]"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "bytes32",
-          "name": "conditionId",
-          "type": "bytes32"
-        }
-      ],
-      "name": "getAllPositionIdsByCondition",
-      "outputs": [
-        {
-          "internalType": "uint256[]",
-          "name": "positionIds",
-          "type": "uint256[]"
         }
       ],
       "stateMutability": "view",
@@ -1126,7 +1132,7 @@
       "outputs": [
         {
           "internalType": "bytes32",
-          "name": "conditionId",
+          "name": "",
           "type": "bytes32"
         }
       ],
@@ -1613,35 +1619,6 @@
         }
       ],
       "stateMutability": "pure",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "bytes32",
-          "name": "conditionId",
-          "type": "bytes32"
-        },
-        {
-          "internalType": "bytes32",
-          "name": "parentCollectionId",
-          "type": "bytes32"
-        },
-        {
-          "internalType": "address",
-          "name": "collateralToken",
-          "type": "address"
-        }
-      ],
-      "name": "getPositionIdsByMarket",
-      "outputs": [
-        {
-          "internalType": "uint256[]",
-          "name": "positionIds",
-          "type": "uint256[]"
-        }
-      ],
-      "stateMutability": "view",
       "type": "function"
     },
     {
@@ -2969,6 +2946,24 @@
       "type": "function"
     },
     {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "token",
+          "type": "address"
+        },
+        {
+          "internalType": "uint256",
+          "name": "amount",
+          "type": "uint256"
+        }
+      ],
+      "name": "withdrawFees",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
       "anonymous": false,
       "inputs": [
         {
@@ -3370,7 +3365,7 @@
         {
           "indexed": true,
           "internalType": "address",
-          "name": "receiver",
+          "name": "token",
           "type": "address"
         },
         {
@@ -3378,9 +3373,15 @@
           "internalType": "uint256",
           "name": "amount",
           "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint8",
+          "name": "kind",
+          "type": "uint8"
         }
       ],
-      "name": "FeeCharged",
+      "name": "FeeAccrued",
       "type": "event"
     },
     {
@@ -3400,6 +3401,31 @@
         }
       ],
       "name": "FeeReceiverUpdated",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "token",
+          "type": "address"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "feeReceiver",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "amount",
+          "type": "uint256"
+        }
+      ],
+      "name": "FeesWithdrawn",
       "type": "event"
     },
     {
@@ -4189,6 +4215,11 @@
     },
     {
       "inputs": [],
+      "name": "ConditionNotActive",
+      "type": "error"
+    },
+    {
+      "inputs": [],
       "name": "ConditionNotPrepared",
       "type": "error"
     },
@@ -4233,6 +4264,22 @@
       "type": "error"
     },
     {
+      "inputs": [
+        {
+          "internalType": "uint128",
+          "name": "sumOfMakerFills",
+          "type": "uint128"
+        },
+        {
+          "internalType": "uint128",
+          "name": "takerFillAmount",
+          "type": "uint128"
+        }
+      ],
+      "name": "FillAmountMismatch",
+      "type": "error"
+    },
+    {
       "inputs": [],
       "name": "FunctionDoesNotExist",
       "type": "error"
@@ -4251,6 +4298,22 @@
         }
       ],
       "name": "InitializationFunctionReverted",
+      "type": "error"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "requested",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "available",
+          "type": "uint256"
+        }
+      ],
+      "name": "InsufficientAccruedFees",
       "type": "error"
     },
     {
@@ -4362,11 +4425,6 @@
     {
       "inputs": [],
       "name": "NoSelectorsInFacet",
-      "type": "error"
-    },
-    {
-      "inputs": [],
-      "name": "NotAuthorized",
       "type": "error"
     },
     {
