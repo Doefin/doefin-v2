@@ -121,16 +121,25 @@ mask reserves a 256-slot-aligned region, so namespaced structs need no hand-size
 
 ## Branch Strategy
 
-- **Current branch:** `v3/dev` (all v3 development)
-- **Main branch:** `main` (production — don't push directly)
-- **Previous settlement work:** `features/SCRUM-25-On-Chain-Settlement` (merged into `v3/dev`)
+- **Integration branch:** `dev` — all SC development lands here.
+- **Production branch:** `main` — promoted from `dev` via release PRs; never push directly.
+- **Deprecated:** `v3/dev` and `v3/main` are no longer used for SC work. Do not merge into or branch from them. The remote branches still exist but are frozen.
+- **Previous settlement work:** `features/SCRUM-25-On-Chain-Settlement` (historical; merged into the old `v3/dev` before deprecation).
+
+### Cross-repo branch strategy (for context)
+
+The repos have different `dev`/`prod` conventions — keep them straight when coordinating changes:
+
+- **Smart contracts (this repo):** `dev` → `main`. (Migrated off `v3/dev` / `v3/main`.)
+- **Frontend:** `staging` → `prod`. (Migrated off `v3/dev` / `v3/main`.)
+- **Backend:** still on `v3/dev` → `v3/main` for now; will migrate to `dev` / `main` soon.
 
 ## Git Workflow
 
 - **Never add Co-Authored-By or AI attribution** to commit messages. Clean messages only.
 - **Split changes into multiple commits** — one per logical unit (e.g., remove facets, remove libraries, update deploy script, update tests — separate commits).
 - **Branch naming:** `feature/SCRUM-{id}-{Short-Description}` — always ask for a Jira ticket before creating a branch.
-- **Work on:** `v3/dev` for v3 changes. Create feature branches off `v3/dev` for tasks.
+- **Work on:** `dev` for all SC changes. Create feature branches off `dev` and merge back into `dev`.
 
 ## Conventions
 
