@@ -247,8 +247,19 @@ async function main() {
     };
   });
 
-  // 2d. setFeeReceiver(feeReceiver)
-  const setFeeRecvCalldata = adminIface.encodeFunctionData("setFeeReceiver", [FEE_RECEIVER]);
+  // 2d. setFeeReceiver(feeReceiver) — conditional.
+  // DiamondInit.init(_owner) → LibDoefinStorage.initialize(_owner, 500) already
+  // sets feeReceiver = _owner (= SAFE_ADDRESS). AdminConfigFacet.setFeeReceiver
+  // has a NoChangeRequired guard that reverts when the new value matches the
+  // current one, so calling it with SAFE_ADDRESS as both the current and target
+  // value would revert the whole MultiSend bundle (Safe wraps the inner revert
+  // as GS013). Only include the call when the operator explicitly set
+  // FEE_RECEIVER_ADDRESS to something other than SAFE_ADDRESS.
+  const feeReceiverDiffers =
+    FEE_RECEIVER.toLowerCase() !== SAFE_ADDRESS.toLowerCase();
+  const setFeeRecvCalldata = feeReceiverDiffers
+    ? adminIface.encodeFunctionData("setFeeReceiver", [FEE_RECEIVER])
+    : null;
 
   // 2e. setMaxFeeRate(bps) — optional. Without it the chain default stays 0
   //     (fail-closed: any non-zero operator fee reverts FeeExceedsMaxRate).
@@ -264,8 +275,16 @@ async function main() {
     { to: diamond.address, data: cutCalldata, label: "diamondCut (15 facets + init)" },
     { to: diamond.address, data: setOpCalldata, label: `setOperator(${OPERATOR})` },
     ...addCollInnerTxs,
-    { to: diamond.address, data: setFeeRecvCalldata, label: `setFeeReceiver(${FEE_RECEIVER})` },
   ];
+  if (setFeeRecvCalldata !== null) {
+    innerTxs.push({
+      to: diamond.address,
+      data: setFeeRecvCalldata,
+      label: `setFeeReceiver(${FEE_RECEIVER})`,
+    });
+  } else {
+    console.log(`  (skipping setFeeReceiver — DiamondInit already set it to ${SAFE_ADDRESS})`);
+  }
   if (setMaxFeeRateCalldata !== null) {
     innerTxs.push({
       to: diamond.address,
