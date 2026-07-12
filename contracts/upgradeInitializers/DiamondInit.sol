@@ -2,7 +2,7 @@
 // Based on Diamond Standard by Nick Mudge: https://github.com/mudgen/diamond-3-hardhat
 // Uses shared logic from Gnosis Conditional Tokens Framework: https://github.com/gnosis/conditional-tokens-contracts
 
-pragma solidity ^0.8.0;
+pragma solidity ^0.8.6;
 
 /******************************************************************************\
 * Author: Nick Mudge <nick@perfectabstractions.com> (https://twitter.com/mudgen)
@@ -20,17 +20,61 @@ import {IERC165} from "../interfaces/IERC165.sol";
 import {IConditionalTokens} from "../interfaces/IConditionalTokens.sol";
 import {IConditionManager} from "../interfaces/IConditionManager.sol";
 import {IERC1155Facet} from "../interfaces/IERC1155.sol";
+import {IERC1155TokenReceiver} from "../interfaces/IERC1155TokenReceiver.sol";
 import {IAccessControl} from "../interfaces/IAccessControl.sol";
 import {IAdminConfig} from "../interfaces/IAdminConfig.sol";
+import {IDoefinBlockHeaderOracle} from "../interfaces/IDoefinBlockHeaderOracle.sol";
+import {ISignatureVerifier} from "../interfaces/ISignatureVerifier.sol";
+import {INonceManager} from "../interfaces/INonceManager.sol";
+import {ISettlement} from "../interfaces/ISettlement.sol";
+import {ISettlementAdmin} from "../interfaces/ISettlementAdmin.sol";
 
 // It is expected that this contract is customized if you want to deploy your diamond
 // with data from a deployment script. Use the init function to initialize state variables
 // of your diamond. Add parameters to the init function if you need to.
 
+/**
+ * @title DiamondInit
+ * @author Nick Mudge (Modified for Doefin)
+ * @notice Initialization contract for diamond proxy deployment and upgrades
+ * @dev Provides one-time initialization setup for the Doefin diamond including ownership, fees, and interfaces
+ * @dev Called via delegatecall during diamond deployment to configure initial state
+ * @dev Customizable for specific deployment requirements and state variable initialization
+ * @custom:deployment Used during initial diamond proxy deployment phase
+ * @custom:upgrade Can be used for state migrations during diamond upgrades
+ * @custom:pattern Standard EIP-2535 initialization contract pattern
+ */
 contract DiamondInit {
+    /**
+     * @notice Initializes the diamond with owner, fee configuration, and ERC-165 interfaces
+     * @dev Sets the contract owner, initializes the reentrancy guard and admin config,
+     *      and registers the supported ERC-165 interfaces. Called via delegatecall from
+     *      DiamondCutFacet during deployment.
+     * @param _owner Address to be set as the contract owner with administrative privileges
+     * @custom:delegation Executed via delegatecall to maintain diamond storage context
+     * @custom:fees Sets resolutionFeeBps = 500 (5%) — the CTF redemption fee charged by
+     *      ConditionalTokensFacet. Settlement fees are operator-supplied and bounded by
+     *      the admin-set maxFeeRateBps (default 0, fail-closed); they are not configured
+     *      here (SCRUM-224).
+     * @custom:interfaces Registers all supported ERC-165 interfaces for protocol compliance
+     * @custom:deployment One-time setup function for diamond initialization
+     * @custom:owner Sets contract owner for administrative operations
+     */
     // You can add parameters to this function in order to pass in
     // data to set your own state variables
-    function init() external {
+    function init(address _owner) external {
+        LibDiamond.setContractOwner(_owner);
+
+        // Initialize Doefin storage.
+        // SCRUM-224 — v3 settlement uses an operator-supplied fee bounded by the
+        // admin-set `maxFeeRateBps` (default 0, fail-closed; configure via
+        // AdminConfigFacet.setMaxFeeRate). resolutionFeeBps is still used by
+        // ConditionalTokensFacet.redeemPositions().
+        LibDoefinStorage.initialize(
+            _owner, // feeReceiver (used by CTF redemption and fee withdrawal)
+            500 // resolutionFeeBps (5%) — used by ConditionalTokensFacet
+        );
+
         // adding ERC165 data
         LibDiamond.DiamondStorage storage ds = LibDiamond.diamondStorage();
         ds.supportedInterfaces[type(IERC165).interfaceId] = true;
@@ -40,14 +84,15 @@ contract DiamondInit {
         ds.supportedInterfaces[type(IConditionalTokens).interfaceId] = true;
         ds.supportedInterfaces[type(IConditionManager).interfaceId] = true;
         ds.supportedInterfaces[type(IERC1155Facet).interfaceId] = true;
+        ds.supportedInterfaces[type(IERC1155TokenReceiver).interfaceId] = true;
         ds.supportedInterfaces[type(IAccessControl).interfaceId] = true;
         ds.supportedInterfaces[type(IAdminConfig).interfaceId] = true;
-
-        LibDoefinStorage.DiamondStorage storage dfs = LibDoefinStorage.diamondStorage();
-        dfs.adminConfigStorage.feeReceiver = msg.sender;
-        dfs.adminConfigStorage.resolutionFeeBps = 500;
-        dfs.adminConfigStorage.makerTradingFeeBps = 100;
-        dfs.adminConfigStorage.takerTradingFeeBps = 200;
+        ds.supportedInterfaces[type(IDoefinBlockHeaderOracle).interfaceId] = true;
+        // v3 Settlement interfaces
+        ds.supportedInterfaces[type(ISignatureVerifier).interfaceId] = true;
+        ds.supportedInterfaces[type(INonceManager).interfaceId] = true;
+        ds.supportedInterfaces[type(ISettlement).interfaceId] = true;
+        ds.supportedInterfaces[type(ISettlementAdmin).interfaceId] = true;
 
         // add your own state variables
         // EIP-2535 specifies that the `diamondCut` function takes two optional

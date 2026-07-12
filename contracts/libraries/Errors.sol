@@ -1,0 +1,340 @@
+// SPDX-License-Identifier: AGPL-3.0
+// Based on Diamond Standard by Nick Mudge: https://github.com/mudgen/diamond-3-hardhat
+// Uses shared logic from Gnosis Conditional Tokens Framework: https://github.com/gnosis/conditional-tokens-contracts
+
+pragma solidity ^0.8.20;
+
+/**
+ * @title Errors
+ * @notice Custom error definitions for the Doefin protocol
+ * @dev Using custom errors instead of require strings for gas efficiency
+ */
+library Errors {
+    // ========================================
+    // ACCESS CONTROL ERRORS
+    // ========================================
+
+    /// @notice Thrown when caller is not the contract owner
+    error NotContractOwner();
+
+    /// @notice Thrown when caller is not a market maker
+    error NotMarketMaker();
+
+    /// @notice Thrown when caller is not the order maker
+    error NotOrderMaker();
+
+    /// @notice Thrown when maker address is invalid
+    error InvalidMakerAddress();
+
+    /// @notice Thrown when already a market maker
+    error AlreadyMarketMaker();
+
+    // ========================================
+    // ADMIN CONFIG ERRORS
+    // ========================================
+
+    /// @notice Thrown when token address is zero
+    error InvalidTokenAddress();
+
+    /// @notice Thrown when unit per pair is zero
+    error InvalidUnitPerPair();
+
+    /// @notice Thrown when token is already allowed
+    error TokenAlreadyAllowed();
+
+    /// @notice Thrown when token is not allowed
+    error TokenNotAllowed();
+
+    /// @notice Thrown when fee receiver address is zero
+    error InvalidFeeReceiver();
+
+    /// @notice Thrown when fee percentage exceeds maximum (100%)
+    error FeeTooHigh();
+
+    /// @notice Thrown when no change is made for fees/receiver
+    error NoChangeRequired();
+
+    /// @notice Thrown when the admin attempts to set a max fee rate above the hard ceiling
+    error MaxFeeRateExceedsCeiling();
+
+    // ========================================
+    // CONDITION MANAGER ERRORS
+    // ========================================
+
+    /// @notice Thrown when oracle address is zero
+    error InvalidOracleAddress();
+
+    /// @notice Thrown when condition does not exist
+    error ConditionDoesNotExist();
+
+    /// @notice Thrown when condition is already inactive
+    error ConditionAlreadyInactive();
+
+    /// @notice Thrown when not authorized to cancel condition
+    error NotAuthorizedToCancel();
+
+    // ========================================
+    // CONDITIONAL TOKENS ERRORS
+    // ========================================
+
+    /// @notice Thrown when condition is already prepared
+    error ConditionAlreadyPrepared();
+
+    /// @notice Thrown when condition is not prepared
+    error ConditionNotPrepared();
+
+    /// @notice Thrown when condition is already resolved
+    error ConditionAlreadyResolved();
+
+    /// @notice Thrown when condition is not resolved
+    error ConditionNotResolved();
+
+    /// @notice Thrown when payout is already set
+    error PayoutAlreadySet();
+
+    /// @notice Thrown when all payouts are zero
+    error AllZeroPayouts();
+
+    /// @notice Thrown when payout length is invalid
+    error InvalidPayoutLength();
+
+    /// @notice Thrown when outcome slot count is invalid
+    error InvalidOutcomeSlotCount();
+
+    /// @notice Thrown when partition is trivial
+    error TrivialPartition();
+
+    /// @notice Thrown when index set is invalid
+    error InvalidIndexSet();
+
+    /// @notice Thrown when partition is not disjoint
+    error PartitionNotDisjoint();
+
+    /// @notice Thrown when condition is not active
+    error ConditionNotActive();
+
+    // ========================================
+    // COLLATERAL ERRORS
+    // ========================================
+
+    /// @notice Thrown when collateral amount is not aligned to unit
+    error CollateralNotAligned();
+
+    // ========================================
+    // REENTRANCY ERRORS
+    // ========================================
+
+    /// @notice Thrown when a reentrant call is detected
+    error ReentrantCall();
+
+    // ========================================
+    // ORDERBOOK / PRICE ERRORS
+    // ========================================
+
+    /// @notice Thrown when order price exceeds maximum
+    error InvalidPrice();
+
+    // ========================================
+    // POSITION REGISTRY ERRORS
+    // ========================================
+
+    /// @notice Thrown when position ID is invalid
+    error InvalidPositionId();
+
+    /// @notice Thrown when position is not found in condition
+    error PositionNotFound();
+
+    /// @notice Thrown when invalid match between positions
+    error InvalidMatch();
+
+    /// @notice Thrown when complement position is invalid
+    error InvalidComplement();
+
+    /// @notice Thrown when input lengths are mismatched
+    error MismatchedInputLengths();
+
+    // ========================================
+    // ERC1155 ERRORS
+    // ========================================
+
+    /// @notice Thrown when querying balance for zero address
+    error ZeroAddressQuery();
+
+    /// @notice Thrown when transferring to zero address
+    error TransferToZeroAddress();
+
+    /// @notice Thrown when minting to zero address
+    error MintToZeroAddress();
+
+    /// @notice Thrown when caller is not owner nor approved
+    error NotOwnerNorApproved();
+
+    /// @notice Thrown when empty array is provided where non-empty expected
+    error EmptyArray();
+
+    /// @notice Thrown when arrays have mismatched lengths
+    error ArrayLengthMismatch();
+
+    /// @notice Thrown when receiver rejects tokens
+    error ERC1155ReceiverRejectedTokens();
+
+    // ========================================
+    // CRYPTOGRAPHIC ERRORS
+    // ========================================
+
+    /// @notice Thrown when modulus is zero in cryptographic operations
+    error ZeroModulus();
+
+    /// @notice Thrown when ECADD precompile fails
+    error ECAddFailed();
+
+    /// @notice Thrown when parent collection ID is invalid
+    error InvalidParentCollectionId();
+
+    // ========================================
+    // BLOCK HEADER ORACLE ERRORS
+    // ========================================
+    error BlockHeaderOracle_NewChainNotLonger();
+
+    error BlockHeaderOracle_CannotFindForkPoint();
+
+    error BlockHeaderOracle_PrevBlockHashMismatch();
+
+    error BlockHeaderOracle_InvalidTimestamp();
+
+    error BlockHeaderOracle_InvalidBlockHash();
+
+    error BlockHeaderOracle_InvalidInitialHistoryLength();
+
+    /// @notice Thrown when nBits coefficient is zero resulting in invalid target
+    error BlockHeaderOracle_InvalidTargetNBits();
+
+    // ========================================
+    // ORACLE ADAPTER ERRORS
+    // ========================================
+
+    /// @notice Thrown when bucket configuration is invalid
+    error OracleAdapter_InvalidBucketConfiguration();
+
+    /// @notice Thrown when block not found for timestamp
+    error OracleAdapter_BlockNotFoundForTimestamp();
+
+    /// @notice Thrown when block is not in buffer
+    error OracleAdapter_BlockNotInBuffer();
+
+    /// @notice Thrown when question type is invalid
+    error OracleAdapter_InvalidQuestionType();
+
+    /// @notice Thrown when bucket values are not sorted in ascending order
+    error OracleAdapter_BucketsNotSorted();
+
+    /// @notice Thrown when duplicate bucket values are provided
+    error OracleAdapter_DuplicateBucketValue();
+
+    // ========================================
+    // VALIDATION ERRORS
+    // ========================================
+
+    /// @notice Thrown when zero address is provided where non-zero expected
+    error ZeroAddress();
+
+    /// @notice Thrown when amount is zero where non-zero expected
+    error ZeroAmount();
+
+    /// @notice Thrown when value is out of valid range
+    error ValueOutOfRange();
+
+    // ========================================
+    // INITIALIZATION ERRORS
+    // ========================================
+
+    /// @notice Thrown when contract is already initialized
+    error AlreadyInitialized();
+
+    // ========================================
+    // DIAMOND ERRORS
+    // ========================================
+
+    /// @notice Thrown when function does not exist in diamond
+    error FunctionDoesNotExist();
+
+    /// @notice Thrown when no function selectors provided for facet cut
+    error NoSelectorsInFacet();
+
+    /// @notice Thrown when facet address is zero for add operation
+    error AddFacetCannotBeZero();
+
+    /// @notice Thrown when trying to add function that already exists
+    error CannotAddExistingFunction();
+
+    /// @notice Thrown when trying to replace function with same function
+    error CannotReplaceWithSameFunction();
+
+    /// @notice Thrown when remove facet address is not zero
+    error RemoveFacetAddressMustBeZero();
+
+    /// @notice Thrown when trying to remove function that doesn't exist
+    error CannotRemoveNonExistentFunction();
+
+    /// @notice Thrown when trying to remove immutable function
+    error CannotRemoveImmutableFunction();
+
+    /// @notice Thrown when contract code size is zero during initialization
+    error ContractCodeSizeZero();
+
+    // ========================================
+    // SIGNATURE ERRORS
+    // ========================================
+
+    /// @notice Thrown when signature length is invalid
+    error InvalidSignatureLength();
+
+    // ========================================
+    // SETTLEMENT ERRORS (v3)
+    // ========================================
+
+    /// @notice Thrown when EIP-712 order signature verification fails
+    error InvalidOrderSignature(bytes32 orderHash);
+
+    /// @notice Thrown when attempting to fill a cancelled order
+    error OrderCancelled(bytes32 orderHash);
+
+    /// @notice Thrown when order nonce is below the maker's current nonce
+    error OrderNonceInvalid(bytes32 orderHash, uint256 orderNonce, uint256 currentNonce);
+
+    /// @notice Thrown when fill amount exceeds the order's remaining unfilled amount
+    error OrderOverfilled(bytes32 orderHash, uint256 requested, uint256 remaining);
+
+    /// @notice Thrown when settlement is attempted while trading is paused
+    error TradingIsPaused();
+
+    /// @notice Thrown when caller is not the authorized settlement operator
+    error UnauthorizedOperator(address caller);
+
+    /// @notice Thrown when minValidSalt is not strictly greater than the current value
+    error InvalidSaltThreshold();
+
+    /// @notice Thrown when taker and maker are the same address (self-trade prevention)
+    error SelfTrade();
+
+    /// @notice Thrown when an operator-supplied fee exceeds the admin-set maximum rate
+    error FeeExceedsMaxRate();
+
+    /// @notice Thrown when an operator-supplied fee exceeds a party's payout/proceeds
+    error FeeExceedsProceeds();
+
+    /// @notice Thrown when the maker fill amounts do not sum to the taker fill amount
+    error FillAmountMismatch(uint128 sumOfMakerFills, uint128 takerFillAmount);
+
+    // ========================================
+    // FEE BANK ERRORS (SCRUM-236)
+    // ========================================
+
+    /// @notice Thrown when an owner-initiated withdrawFees call requests more than the
+    ///         per-token accrued balance.
+    /// @dev Parameterised for off-chain debuggability — mirrors the
+    ///      FillAmountMismatch(sumOfMakerFills, takerFillAmount) precedent.
+    /// @param requested The amount the caller asked to withdraw
+    /// @param available The current accruedFees[token] balance
+    error InsufficientAccruedFees(uint256 requested, uint256 available);
+}

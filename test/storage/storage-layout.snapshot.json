@@ -1,0 +1,659 @@
+{
+  "struct LibAccessControlStorage.AccessControlStorage": [
+    {
+      "field": "marketMakers",
+      "slot": "0",
+      "offset": 0,
+      "type": "mapping(address => bool)",
+      "bytes": "32"
+    }
+  ],
+  "struct LibAdminConfigStorage.AdminConfigStorage": [
+    {
+      "field": "isAllowed",
+      "slot": "0",
+      "offset": 0,
+      "type": "mapping(address => bool)",
+      "bytes": "32"
+    },
+    {
+      "field": "unitPerPair",
+      "slot": "1",
+      "offset": 0,
+      "type": "mapping(address => uint256)",
+      "bytes": "32"
+    },
+    {
+      "field": "tokenSymbols",
+      "slot": "2",
+      "offset": 0,
+      "type": "mapping(address => string)",
+      "bytes": "32"
+    },
+    {
+      "field": "feeReceiver",
+      "slot": "3",
+      "offset": 0,
+      "type": "address",
+      "bytes": "20"
+    },
+    {
+      "field": "resolutionFeeBps",
+      "slot": "3",
+      "offset": 20,
+      "type": "uint16",
+      "bytes": "2"
+    },
+    {
+      "field": "maxFeeRateBps",
+      "slot": "3",
+      "offset": 22,
+      "type": "uint16",
+      "bytes": "2"
+    },
+    {
+      "field": "accruedFees",
+      "slot": "4",
+      "offset": 0,
+      "type": "mapping(address => uint256)",
+      "bytes": "32"
+    }
+  ],
+  "struct LibDoefinStorage.AppStorage": [
+    {
+      "field": "conditionalTokens",
+      "slot": "0",
+      "offset": 0,
+      "type": "struct LibDoefinStorage.ConditionalTokensStorage",
+      "bytes": "1696"
+    },
+    {
+      "field": "erc1155Storage",
+      "slot": "53",
+      "offset": 0,
+      "type": "struct LibDoefinStorage.ERC1155Storage",
+      "bytes": "704"
+    },
+    {
+      "field": "positionRegistry",
+      "slot": "75",
+      "offset": 0,
+      "type": "struct LibDoefinStorage.PositionRegistryStorage",
+      "bytes": "448"
+    },
+    {
+      "field": "reentrancyStorage",
+      "slot": "89",
+      "offset": 0,
+      "type": "struct LibDoefinStorage.ReentrancyStorage",
+      "bytes": "352"
+    },
+    {
+      "field": "blockHeaderOracleStorage",
+      "slot": "100",
+      "offset": 0,
+      "type": "struct LibDoefinStorage.BlockHeaderOracleStorage",
+      "bytes": "3104"
+    },
+    {
+      "field": "oracleAdapterStorage",
+      "slot": "197",
+      "offset": 0,
+      "type": "struct LibDoefinStorage.OracleAdapterStorage",
+      "bytes": "256"
+    },
+    {
+      "field": "__gap",
+      "slot": "205",
+      "offset": 0,
+      "type": "uint256[51]",
+      "bytes": "1632"
+    }
+  ],
+  "struct LibDoefinStorage.BlockCountQuestion": [
+    {
+      "field": "questionId",
+      "slot": "0",
+      "offset": 0,
+      "type": "bytes32",
+      "bytes": "32"
+    },
+    {
+      "field": "conditionId",
+      "slot": "1",
+      "offset": 0,
+      "type": "bytes32",
+      "bytes": "32"
+    },
+    {
+      "field": "startTimestamp",
+      "slot": "2",
+      "offset": 0,
+      "type": "uint256",
+      "bytes": "32"
+    },
+    {
+      "field": "endTimestamp",
+      "slot": "3",
+      "offset": 0,
+      "type": "uint256",
+      "bytes": "32"
+    },
+    {
+      "field": "countBuckets",
+      "slot": "4",
+      "offset": 0,
+      "type": "uint256[]",
+      "bytes": "32"
+    }
+  ],
+  "struct LibDoefinStorage.BlockHeader": [
+    {
+      "field": "prevBlockHash",
+      "slot": "0",
+      "offset": 0,
+      "type": "bytes32",
+      "bytes": "32"
+    },
+    {
+      "field": "merkleRootHash",
+      "slot": "1",
+      "offset": 0,
+      "type": "bytes32",
+      "bytes": "32"
+    },
+    {
+      "field": "blockHash",
+      "slot": "2",
+      "offset": 0,
+      "type": "bytes32",
+      "bytes": "32"
+    },
+    {
+      "field": "blockNumber",
+      "slot": "3",
+      "offset": 0,
+      "type": "uint256",
+      "bytes": "32"
+    },
+    {
+      "field": "version",
+      "slot": "4",
+      "offset": 0,
+      "type": "uint32",
+      "bytes": "4"
+    },
+    {
+      "field": "timestamp",
+      "slot": "4",
+      "offset": 4,
+      "type": "uint32",
+      "bytes": "4"
+    },
+    {
+      "field": "nBits",
+      "slot": "4",
+      "offset": 8,
+      "type": "uint32",
+      "bytes": "4"
+    },
+    {
+      "field": "nonce",
+      "slot": "4",
+      "offset": 12,
+      "type": "uint32",
+      "bytes": "4"
+    }
+  ],
+  "struct LibDoefinStorage.BlockHeaderOracleStorage": [
+    {
+      "field": "currentBlockHeight",
+      "slot": "0",
+      "offset": 0,
+      "type": "uint256",
+      "bytes": "32"
+    },
+    {
+      "field": "nextBlockIndex",
+      "slot": "1",
+      "offset": 0,
+      "type": "uint256",
+      "bytes": "32"
+    },
+    {
+      "field": "blockHeaders",
+      "slot": "2",
+      "offset": 0,
+      "type": "struct LibDoefinStorage.BlockHeader[17]",
+      "bytes": "2720"
+    },
+    {
+      "field": "__gap",
+      "slot": "87",
+      "offset": 0,
+      "type": "uint256[10]",
+      "bytes": "320"
+    }
+  ],
+  "struct LibDoefinStorage.Condition": [
+    {
+      "field": "questionId",
+      "slot": "0",
+      "offset": 0,
+      "type": "bytes32",
+      "bytes": "32"
+    },
+    {
+      "field": "metadataURI",
+      "slot": "1",
+      "offset": 0,
+      "type": "string",
+      "bytes": "32"
+    },
+    {
+      "field": "oracle",
+      "slot": "2",
+      "offset": 0,
+      "type": "address",
+      "bytes": "20"
+    },
+    {
+      "field": "outcomeSlotCount",
+      "slot": "2",
+      "offset": 20,
+      "type": "uint8",
+      "bytes": "1"
+    },
+    {
+      "field": "active",
+      "slot": "2",
+      "offset": 21,
+      "type": "bool",
+      "bytes": "1"
+    },
+    {
+      "field": "creator",
+      "slot": "3",
+      "offset": 0,
+      "type": "address",
+      "bytes": "20"
+    }
+  ],
+  "struct LibDoefinStorage.ConditionalTokensStorage": [
+    {
+      "field": "payoutNumerators",
+      "slot": "0",
+      "offset": 0,
+      "type": "mapping(bytes32 => uint256[])",
+      "bytes": "32"
+    },
+    {
+      "field": "payoutDenominator",
+      "slot": "1",
+      "offset": 0,
+      "type": "mapping(bytes32 => uint256)",
+      "bytes": "32"
+    },
+    {
+      "field": "conditions",
+      "slot": "2",
+      "offset": 0,
+      "type": "mapping(bytes32 => struct LibDoefinStorage.Condition)",
+      "bytes": "32"
+    },
+    {
+      "field": "__gap",
+      "slot": "3",
+      "offset": 0,
+      "type": "uint256[50]",
+      "bytes": "1600"
+    }
+  ],
+  "struct LibDoefinStorage.DifficultyRangeQuestion": [
+    {
+      "field": "questionId",
+      "slot": "0",
+      "offset": 0,
+      "type": "bytes32",
+      "bytes": "32"
+    },
+    {
+      "field": "conditionId",
+      "slot": "1",
+      "offset": 0,
+      "type": "bytes32",
+      "bytes": "32"
+    },
+    {
+      "field": "targetBlockHeight",
+      "slot": "2",
+      "offset": 0,
+      "type": "uint256",
+      "bytes": "32"
+    },
+    {
+      "field": "buckets",
+      "slot": "3",
+      "offset": 0,
+      "type": "uint256[]",
+      "bytes": "32"
+    }
+  ],
+  "struct LibDoefinStorage.DifficultyThresholdQuestion": [
+    {
+      "field": "questionId",
+      "slot": "0",
+      "offset": 0,
+      "type": "bytes32",
+      "bytes": "32"
+    },
+    {
+      "field": "conditionId",
+      "slot": "1",
+      "offset": 0,
+      "type": "bytes32",
+      "bytes": "32"
+    },
+    {
+      "field": "threshold",
+      "slot": "2",
+      "offset": 0,
+      "type": "uint256",
+      "bytes": "32"
+    },
+    {
+      "field": "targetBlockHeight",
+      "slot": "3",
+      "offset": 0,
+      "type": "uint256",
+      "bytes": "32"
+    }
+  ],
+  "struct LibDoefinStorage.ERC1155Storage": [
+    {
+      "field": "erc1155Balances",
+      "slot": "0",
+      "offset": 0,
+      "type": "mapping(uint256 => mapping(address => uint256))",
+      "bytes": "32"
+    },
+    {
+      "field": "erc1155OperatorApprovals",
+      "slot": "1",
+      "offset": 0,
+      "type": "mapping(address => mapping(address => bool))",
+      "bytes": "32"
+    },
+    {
+      "field": "__gap",
+      "slot": "2",
+      "offset": 0,
+      "type": "uint256[20]",
+      "bytes": "640"
+    }
+  ],
+  "struct LibDoefinStorage.MarketMetadata": [
+    {
+      "field": "collateralToken",
+      "slot": "0",
+      "offset": 0,
+      "type": "address",
+      "bytes": "20"
+    },
+    {
+      "field": "parentCollectionId",
+      "slot": "1",
+      "offset": 0,
+      "type": "bytes32",
+      "bytes": "32"
+    },
+    {
+      "field": "positionIds",
+      "slot": "2",
+      "offset": 0,
+      "type": "uint256[]",
+      "bytes": "32"
+    },
+    {
+      "field": "partitions",
+      "slot": "3",
+      "offset": 0,
+      "type": "uint256[]",
+      "bytes": "32"
+    }
+  ],
+  "struct LibDoefinStorage.MiningDurationQuestion": [
+    {
+      "field": "questionId",
+      "slot": "0",
+      "offset": 0,
+      "type": "bytes32",
+      "bytes": "32"
+    },
+    {
+      "field": "conditionId",
+      "slot": "1",
+      "offset": 0,
+      "type": "bytes32",
+      "bytes": "32"
+    },
+    {
+      "field": "startBlockHeight",
+      "slot": "2",
+      "offset": 0,
+      "type": "uint256",
+      "bytes": "32"
+    },
+    {
+      "field": "blockCount",
+      "slot": "3",
+      "offset": 0,
+      "type": "uint256",
+      "bytes": "32"
+    },
+    {
+      "field": "durationBuckets",
+      "slot": "4",
+      "offset": 0,
+      "type": "uint256[]",
+      "bytes": "32"
+    }
+  ],
+  "struct LibDoefinStorage.OracleAdapterStorage": [
+    {
+      "field": "blockToThresholdQuestions",
+      "slot": "0",
+      "offset": 0,
+      "type": "mapping(uint256 => struct LibDoefinStorage.DifficultyThresholdQuestion[])",
+      "bytes": "32"
+    },
+    {
+      "field": "blockToRangeQuestions",
+      "slot": "1",
+      "offset": 0,
+      "type": "mapping(uint256 => struct LibDoefinStorage.DifficultyRangeQuestion[])",
+      "bytes": "32"
+    },
+    {
+      "field": "blockToDurationQuestions",
+      "slot": "2",
+      "offset": 0,
+      "type": "mapping(uint256 => struct LibDoefinStorage.MiningDurationQuestion[])",
+      "bytes": "32"
+    },
+    {
+      "field": "timestampToBlockCountQuestions",
+      "slot": "3",
+      "offset": 0,
+      "type": "mapping(uint256 => struct LibDoefinStorage.BlockCountQuestion[])",
+      "bytes": "32"
+    },
+    {
+      "field": "timestampToBlockHeight",
+      "slot": "4",
+      "offset": 0,
+      "type": "mapping(uint256 => uint256)",
+      "bytes": "32"
+    },
+    {
+      "field": "blockHeightToTimestamp",
+      "slot": "5",
+      "offset": 0,
+      "type": "mapping(uint256 => uint256)",
+      "bytes": "32"
+    },
+    {
+      "field": "totalQuestionsCreated",
+      "slot": "6",
+      "offset": 0,
+      "type": "uint256",
+      "bytes": "32"
+    },
+    {
+      "field": "totalQuestionsResolved",
+      "slot": "7",
+      "offset": 0,
+      "type": "uint256",
+      "bytes": "32"
+    }
+  ],
+  "struct LibDoefinStorage.PositionRegistryStorage": [
+    {
+      "field": "marketsByKey",
+      "slot": "0",
+      "offset": 0,
+      "type": "mapping(bytes32 => struct LibDoefinStorage.MarketMetadata)",
+      "bytes": "32"
+    },
+    {
+      "field": "marketKeysByCondition",
+      "slot": "1",
+      "offset": 0,
+      "type": "mapping(bytes32 => bytes32[])",
+      "bytes": "32"
+    },
+    {
+      "field": "conditionIdByPositionId",
+      "slot": "2",
+      "offset": 0,
+      "type": "mapping(uint256 => bytes32)",
+      "bytes": "32"
+    },
+    {
+      "field": "marketKeyByPositionId",
+      "slot": "3",
+      "offset": 0,
+      "type": "mapping(uint256 => bytes32)",
+      "bytes": "32"
+    },
+    {
+      "field": "__gap",
+      "slot": "4",
+      "offset": 0,
+      "type": "uint256[10]",
+      "bytes": "320"
+    }
+  ],
+  "struct LibDoefinStorage.ReentrancyStorage": [
+    {
+      "field": "_status",
+      "slot": "0",
+      "offset": 0,
+      "type": "uint256",
+      "bytes": "32"
+    },
+    {
+      "field": "__gap",
+      "slot": "1",
+      "offset": 0,
+      "type": "uint256[10]",
+      "bytes": "320"
+    }
+  ],
+  "struct LibSettlementStorage.SettlementStorage": [
+    {
+      "field": "operator",
+      "slot": "0",
+      "offset": 0,
+      "type": "address",
+      "bytes": "20"
+    },
+    {
+      "field": "tradingPaused",
+      "slot": "0",
+      "offset": 20,
+      "type": "bool",
+      "bytes": "1"
+    },
+    {
+      "field": "orderHashToFilledAmount",
+      "slot": "1",
+      "offset": 0,
+      "type": "mapping(bytes32 => uint256)",
+      "bytes": "32"
+    },
+    {
+      "field": "makerToNonce",
+      "slot": "2",
+      "offset": 0,
+      "type": "mapping(address => uint256)",
+      "bytes": "32"
+    },
+    {
+      "field": "cancelledOrders",
+      "slot": "3",
+      "offset": 0,
+      "type": "mapping(bytes32 => bool)",
+      "bytes": "32"
+    },
+    {
+      "field": "makerPositionToMinSalt",
+      "slot": "4",
+      "offset": 0,
+      "type": "mapping(address => mapping(bytes32 => uint256))",
+      "bytes": "32"
+    },
+    {
+      "field": "registeredOrderSigners",
+      "slot": "5",
+      "offset": 0,
+      "type": "mapping(address => mapping(address => bool))",
+      "bytes": "32"
+    },
+    {
+      "field": "__reserved_scrum89_positionToComplement",
+      "slot": "6",
+      "offset": 0,
+      "type": "bytes32",
+      "bytes": "32"
+    },
+    {
+      "field": "__reserved_scrum89_positionToCondition",
+      "slot": "7",
+      "offset": 0,
+      "type": "bytes32",
+      "bytes": "32"
+    },
+    {
+      "field": "__reserved_scrum89_positionToCollateral",
+      "slot": "8",
+      "offset": 0,
+      "type": "bytes32",
+      "bytes": "32"
+    },
+    {
+      "field": "__reserved_sec004_domainSeparator",
+      "slot": "9",
+      "offset": 0,
+      "type": "bytes32",
+      "bytes": "32"
+    },
+    {
+      "field": "__gap",
+      "slot": "10",
+      "offset": 0,
+      "type": "uint256[49]",
+      "bytes": "1568"
+    }
+  ]
+}

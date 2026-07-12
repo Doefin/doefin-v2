@@ -1,0 +1,103 @@
+# CodeRabbit `path_instructions` additions distilled from the PR-23 triage.
+# Paste these under the existing `reviews.path_instructions:` block in
+# `.coderabbit.yml`. They tell CodeRabbit which generic Solidity / markdown
+# checks the project deliberately does NOT enforce, so future PRs aren't
+# spammed with the same false positives.
+#
+# Source: audit/coderabbit-triage/PR-23.md recurring-pattern sections.
+
+reviews:
+  path_instructions:
+
+    # Pattern #1 — MD040 fence-language tags on audit/docs deliverables.
+    # CR raised 17 individual MD040 nits on this PR alone. We accept the policy
+    # (tag fences) but apply it as a single sweep, not per-comment.
+    - path: "audit/**/*.md"
+      instructions: |
+        Markdown lint MD040 (fenced code blocks must have a language tag) is
+        accepted policy but executed as a SINGLE sweep ticket (CR-DOCS-MD040),
+        not per-finding. DO NOT raise a separate comment for each untagged
+        fence. If the policy or list of untagged blocks needs to evolve,
+        post one consolidated comment on the file naming the line ranges.
+        Also: this corpus is pinned to specific commits (e.g. the per-finding
+        markdown lives in `audit/findings/` at the audit-frozen SHA). Avoid
+        suggesting "rewrite in place" for stale references — the convention is
+        to APPEND a resolution footnote (see `audit/business-logic/invariants.md`
+        for the "supersedes" pattern), not edit the original assertion.
+
+    - path: "docs/**/*.md"
+      instructions: |
+        MD040 same as above — single-sweep, not per-comment.
+
+    # Pattern #2 — Blanket NatSpec @custom:security / @custom:audit / @custom:reverts
+    # on every external/public facet function. The project ONLY enforces this on
+    # the SettlementFacet / SignatureVerifierFacet write paths (where the per-path
+    # instructions cite specific SEC- IDs). View facets carry a lighter NatSpec
+    # standard. Stop asking for the heavy tag set on view-only or thin-pass-through
+    # facets.
+    - path: "contracts/facets/MarketDataFacet.sol"
+      instructions: |
+        Read-only registry lookups. NatSpec policy: `@notice`, `@param`,
+        `@return` REQUIRED; `@custom:security` / `@custom:audit` are NOT required
+        on view-only functions (the audit corpus covers them via
+        `audit/business-logic/invariants.md` cross-references, not per-function
+        tags). Only flag missing tags if a function is a NEW write path or
+        directly enforces a settlement invariant. The A-15 broken-encapsulation
+        check (every read MUST go through `LibPositionRegistry`) IS load-bearing
+        — flag any new function that reads `ds.positionRegistry.*` directly.
+
+    - path: "contracts/facets/AdminConfigFacet.sol"
+      instructions: |
+        NatSpec policy is `@notice` + `@param` + `@return` baseline; the
+        heavy `@custom:security`/`@custom:audit` set is required ONLY on
+        owner-only setters that change a guarded invariant (e.g.
+        `setMaxFeeRate`, `setFeeReceiver`, `setResolutionFeeBps` — these
+        already carry the tag set and the NoChangeRequired no-op revert
+        pattern). View-only getters need only the baseline. The no-op
+        revert pattern (NoChangeRequired) on ALL fee-config setters is
+        load-bearing — flag any setter that overwrites without the guard.
+
+    - path: "contracts/facets/SettlementAdminFacet.sol"
+      instructions: |
+        Governance facet. NatSpec baseline: `@notice` + `@param` + `@return`.
+        `@custom:reverts` for any function that can revert (e.g. owner-check
+        path → `NotContractOwner`). `@custom:security` only when the function
+        crosses the INV-MISC-3 trust boundary. View-only getters: `@notice` +
+        `@return` is sufficient.
+
+    - path: "contracts/facets/NonceManagerFacet.sol"
+      instructions: |
+        NatSpec policy: `@notice` + `@param` + `@return` baseline; full
+        `@custom:reverts` on EVERY external function that can revert (this
+        is load-bearing — the cancellation surface must document every
+        reason an order-cancel can fail). `@custom:security`/`@custom:audit`
+        are NOT required on the bool-returning `isOrderValid` / `getNonce` /
+        `isCancelled` views.
+
+    - path: "contracts/facets/OracleAdapterFacet.sol"
+      instructions: |
+        View-only adapter against the Bitcoin block-header oracle. NatSpec
+        policy: `@notice` + `@param` + `@return` baseline. The
+        `@custom:security` / `@custom:audit` blanket set is NOT required —
+        this surface is not on the v3 settlement audit gate (it is a
+        condition-resolution helper, not a price oracle).
+
+    # Pattern #3 — Absolute filesystem paths in audit/ artifacts. CR is correct
+    # that `/Users/<dev>/...` shouldn't be checked in. Applied as a single
+    # janitor sweep (CR-DOCS-ABSPATH), not per-file.
+    - path: "audit/**"
+      instructions: |
+        Local-filesystem absolute paths (`/Users/...`, `/home/...`, etc.) are
+        not allowed in committed artifacts under `audit/`. If a CR comment
+        flags one, point at the CR-DOCS-ABSPATH sweep and don't apply per-file.
+
+    # Pattern #4 — GitHub Actions hardening (SHA-pin actions,
+    # persist-credentials: false, workflow-level permissions). CR is correct;
+    # bundle as one ticket (CR-CI-HARDEN), not per-workflow.
+    - path: ".github/workflows/**"
+      instructions: |
+        Hardening policy: workflow-level `permissions: { contents: read }` by
+        default; SHA-pin every `actions/*` and third-party action; add
+        `persist-credentials: false` to every `actions/checkout` step. These
+        are tracked as ONE ticket (CR-CI-HARDEN) — do not raise per-step
+        Major issues; one summary per file is enough.

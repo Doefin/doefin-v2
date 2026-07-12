@@ -1,0 +1,32 @@
+# Doefin v3 security toolchain — one long-lived container, reused via docker exec.
+#
+#   docker compose -f security/docker-compose.yml up -d --build   # build + start
+#   docker compose -f security/docker-compose.yml exec audit bash  # shell in
+#   docker compose -f security/docker-compose.yml down -v          # stop + clean
+#
+# Or use the npm wrappers: npm run audit:build / audit:up / audit:shell / audit:down
+services:
+  audit:
+    build:
+      context: ..
+      dockerfile: security/Dockerfile
+    image: doefin-audit:local
+    container_name: doefin-audit
+    # Native solc binaries are amd64-only — run the whole toolchain as amd64
+    # (emulated on Apple Silicon).
+    platform: linux/amd64
+    working_dir: /src
+    volumes:
+      # Contract source — read-only: a tool can never mutate contract code.
+      - ../contracts:/src/contracts:ro
+      - ../hardhat.config.js:/src/hardhat.config.js:ro
+      - ../package.json:/src/package.json:ro
+      # Tool configs + helper scripts (read-write so a runner may tweak configs).
+      - ../security:/src/security
+      # Audit artifacts — bind-mounted so host-side audit agents read tool output.
+      - ../audit/output:/src/audit/output
+      # Persisted Hardhat solc-compiler cache (container HOME is /home/ethsec).
+      - hh-cache:/home/ethsec/.cache
+    command: tail -f /dev/null
+volumes:
+  hh-cache:

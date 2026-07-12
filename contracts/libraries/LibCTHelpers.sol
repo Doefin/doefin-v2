@@ -2,7 +2,9 @@
 // Based on Diamond Standard by Nick Mudge: https://github.com/mudgen/diamond-3-hardhat
 // Uses shared logic from Gnosis Conditional Tokens Framework: https://github.com/gnosis/conditional-tokens-contracts
 
-pragma solidity ^0.8.6;
+pragma solidity ^0.8.20;
+
+import {Errors} from "./Errors.sol";
 
 library LibCTHelpers {
     uint256 constant P = 21888242871839275222246405745257275088696311157297823662689037894645226208583;
@@ -16,10 +18,7 @@ library LibCTHelpers {
         return keccak256(abi.encodePacked(oracle, questionId, outcomeSlotCount));
     }
 
-    function getPositionId(
-        address collateralToken,
-        bytes32 collectionId
-    ) internal pure returns (uint256) {
+    function getPositionId(address collateralToken, bytes32 collectionId) internal pure returns (uint256) {
         return uint256(keccak256(abi.encodePacked(collateralToken, collectionId)));
     }
 
@@ -52,11 +51,16 @@ library LibCTHelpers {
             if ((odd && y2 % 2 == 0) || (!odd && y2 % 2 == 1)) {
                 y2 = P - y2;
             }
-            require(mulmod(y2, y2, P) == yy, "Invalid parentCollectionId");
+
+            if (mulmod(y2, y2, P) != yy) {
+                revert Errors.InvalidParentCollectionId();
+            }
 
             // ECADD precompile (0x06)
             (bool success, bytes memory ret) = address(6).staticcall(abi.encode(x1, y1, x2, y2));
-            require(success, "ECADD failed");
+            if (!success) {
+                revert Errors.ECAddFailed();
+            }
             (x1, y1) = abi.decode(ret, (uint256, uint256));
         }
 
@@ -71,8 +75,14 @@ library LibCTHelpers {
         return expMod(a, (P + 1) / 4, P);
     }
 
-    function expMod(uint256 base, uint256 exponent, uint256 modulus) internal pure returns (uint256 result) {
-        require(modulus != 0, "Modulus is zero");
+    function expMod(
+        uint256 base,
+        uint256 exponent,
+        uint256 modulus
+    ) internal pure returns (uint256 result) {
+        if (modulus == 0) {
+            revert Errors.ZeroModulus();
+        }
         result = 1;
         base = base % modulus;
         while (exponent > 0) {

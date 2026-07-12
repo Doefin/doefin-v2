@@ -1,0 +1,10 @@
+{
+  "compile_force_framework": "hardhat",
+  "detectors_to_exclude": "naming-convention,solc-version,pragma",
+  "exclude_informational": false,
+  "exclude_low": false,
+  "exclude_medium": false,
+  "exclude_high": false,
+  "exclude_optimization": false,
+  "filter_paths": "node_modules,contracts/mock/,contracts/audit/,contracts/interfaces/,contracts/Diamond.sol,contracts/upgradeInitializers/,contracts/facets/DiamondCutFacet.sol,contracts/facets/DiamondLoupeFacet.sol,contracts/facets/OwnershipFacet.sol,contracts/libraries/LibDiamond.sol,contracts/facets/ConditionalTokensFacet.sol,contracts/facets/ConditionManagerFacet.sol,contracts/libraries/LibConditionMetadata.sol,contracts/libraries/LibCTHelpers.sol,contracts/libraries/LibCTFCondition.sol,contracts/facets/DoefinV1BlockHeaderOracleFacet.sol,contracts/libraries/BlockHeaderUtils.sol,contracts/libraries/LibDoefinBlockHeaderOracle.sol"
+}

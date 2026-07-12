@@ -5,84 +5,117 @@
 pragma solidity ^0.8.6;
 
 import {LibDoefinStorage} from "../libraries/LibDoefinStorage.sol";
+import {LibAdminConfigStorage} from "../libraries/LibAdminConfigStorage.sol";
+import {LibConstants} from "../libraries/LibConstants.sol";
 import {LibCTHelpers} from "../libraries/LibCTHelpers.sol";
 import {LibERC1155} from "../libraries/LibERC1155.sol";
 import {IConditionalTokens} from "../interfaces/IConditionalTokens.sol";
 import {LibCTFCondition} from "../libraries/LibCTFCondition.sol";
-import {LibAccessControl} from "../libraries/LibAccessControl.sol";
+import {LibDiamond} from "../libraries/LibDiamond.sol";
+import {LibReentrancyGuard} from "../libraries/LibReentrancyGuard.sol";
+import {Errors} from "../libraries/Errors.sol";
+import {Events} from "../libraries/Events.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
+/**
+ * @title ConditionalTokensFacet
+ * @author Doefin
+ * @notice Diamond facet implementing Gnosis Conditional Token Framework (CTF) functionality
+ * @dev Provides core CTF operations: condition preparation, position splitting/merging, and payout redemption
+ * @dev Integrates with Doefin's fee system and supports both direct and parent position redemptions
+ * @dev Based on Gnosis CTF contracts with custom fee handling and enhanced security features
+ */
 contract ConditionalTokensFacet is IConditionalTokens {
     using SafeERC20 for IERC20;
 
+    /**
+     * @notice Prepares a new condition for outcome prediction
+     * @dev Creates a condition that can be used to split collateral into outcome positions
+     * @dev Only contract owner can prepare conditions to maintain quality control
+     * @dev Generates a unique condition ID based on oracle, question, and outcome count
+     * @param oracle The address authorized to resolve this condition
+     * @param questionId Unique identifier for the question being asked
+     * @param outcomeSlotCount Number of possible outcomes (must be >= 2)
+     * @custom:emits ConditionPreparation with condition details
+     * @custom:reverts NotContractOwner if caller is not contract owner
+     * @custom:security Owner-only access prevents spam conditions
+     * @custom:note Condition must be resolved by the specified oracle to enable redemptions
+     */
     function prepareCondition(address oracle, bytes32 questionId, uint8 outcomeSlotCount) external override {
-        require(LibAccessControl.isOwner(msg.sender), "AccessControl: must be owner");
+        LibDiamond.enforceIsContractOwner();
         bytes32 conditionId = LibCTFCondition.prepareCondition(oracle, questionId, outcomeSlotCount);
 
-        emit ConditionPreparation(conditionId, oracle, questionId, outcomeSlotCount);
+        emit Events.ConditionPreparation(conditionId, oracle, questionId, outcomeSlotCount);
     }
 
+    /**
+     * @notice Reports the payout vector for a resolved condition
+     * @dev Only the designated oracle can report payouts to resolve the condition
+     * @dev Payout values determine redemption ratios for each outcome position
+     * @dev Array length must match the outcomeSlotCount from condition preparation
+     * @param questionId The unique identifier for the question being resolved
+     * @param payouts Array of payout numerators for each outcome (denominator is sum of all)
+     * @custom:emits PayoutReported (via LibCTFCondition implementation)
+     * @custom:reverts if msg.sender is not the oracle the condition was prepared for
+     * @custom:reverts InvalidPayouts if payout array doesn't match expected format
+     * @custom:security Oracle-only access ensures trusted resolution
+     * @custom:note Payouts are normalized: winning outcome = 1, losing outcomes = 0 for binary markets
+     */
     function reportPayouts(bytes32 questionId, uint256[] calldata payouts) external override {
-        require(payouts.length <= type(uint8).max, "Too many outcome slots");
-        uint8 outcomeSlotCount = uint8(payouts.length);
-        require(outcomeSlotCount > 1, "ConditionalTokens: invalid payout length");
-
-        bytes32 conditionId = LibCTHelpers.getConditionId(msg.sender, questionId, outcomeSlotCount);
-        LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
-        uint256[] storage numerators = ds.conditionalTokens.payoutNumerators[conditionId];
-
-        require(numerators.length == outcomeSlotCount, "ConditionalTokens: condition not prepared");
-        require(ds.conditionalTokens.payoutDenominator[conditionId] == 0, "ConditionalTokens: already resolved");
-
-        uint256 den = 0;
-        for (uint256 i = 0; i < outcomeSlotCount; i++) {
-            uint256 num = payouts[i];
-            require(numerators[i] == 0, "ConditionalTokens: payout already set");
-            numerators[i] = num;
-            den += num;
+        // Convert calldata to memory for library call
+        uint256[] memory payoutsMemory = new uint256[](payouts.length);
+        for (uint256 i = 0; i < payouts.length; i++) {
+            payoutsMemory[i] = payouts[i];
         }
 
-        require(den > 0, "ConditionalTokens: all zero payouts");
-        ds.conditionalTokens.payoutDenominator[conditionId] = den;
-
-        emit ConditionResolution(conditionId, msg.sender, questionId, outcomeSlotCount, numerators);
+        // Call library function with msg.sender as oracle
+        LibCTFCondition._reportPayouts(msg.sender, questionId, payoutsMemory);
     }
 
+    /**
+     * @notice Splits collateral tokens into conditional outcome positions
+     * @dev Converts collateral tokens into ERC1155 position tokens representing possible outcomes
+     * @dev User must have approved this contract to spend their collateral tokens
+     * @dev Position tokens can be traded before condition resolution
+     * @param collateralToken The ERC20 token being used as collateral
+     * @param parentCollectionId The parent collection (typically 0x0 for root positions)
+     * @param conditionId The condition identifier determining possible outcomes
+     * @param partition Array specifying which outcomes to create positions for
+     * @param amount Amount of collateral tokens to split into positions
+     * @custom:emits PositionSplit with split details
+     * @custom:reverts InsufficientBalance if user doesn't have enough collateral
+     * @custom:reverts InsufficientAllowance if approval is insufficient
+     * @custom:note Partition array determines which outcome positions are minted
+     * @custom:gas Cost scales with number of outcomes in partition
+     */
     function splitPosition(
         address collateralToken,
         bytes32 parentCollectionId,
         bytes32 conditionId,
-        uint256 amount,
-        uint256[] calldata partition
+        uint256[] calldata partition,
+        uint256 amount
     ) external override {
-        _validateCollateral(collateralToken, amount);
+        LibCTFCondition._splitPosition(msg.sender, collateralToken, parentCollectionId, conditionId, amount, partition);
 
-        (uint256 fullIndexSet, uint256 freeIndexSet, uint256[] memory positionIds, uint256[] memory amounts) = _validateAndBuildPartitionPositions(
-            collateralToken,
-            parentCollectionId,
-            conditionId,
-            partition,
-            amount
-        );
-
-        if (freeIndexSet == 0) {
-            if (parentCollectionId == bytes32(0)) {
-                IERC20(collateralToken).safeTransferFrom(msg.sender, address(this), amount);
-            } else {
-                uint256 parentPosId = LibCTHelpers.getPositionId(collateralToken, parentCollectionId);
-                LibERC1155._burn(msg.sender, parentPosId, amount);
-            }
-        } else {
-            uint256 mergedSet = fullIndexSet ^ freeIndexSet;
-            uint256 mergedPosId = _getPositionId(collateralToken, parentCollectionId, conditionId, mergedSet);
-            LibERC1155._burn(msg.sender, mergedPosId, amount);
-        }
-
-        LibERC1155._batchMint(msg.sender, positionIds, amounts, "");
-
-        emit PositionSplit(msg.sender, collateralToken, parentCollectionId, conditionId, partition, amount);
+        emit Events.PositionSplit(msg.sender, collateralToken, parentCollectionId, conditionId, partition, amount);
     }
 
+    /**
+     * @notice Merges conditional outcome positions back into collateral tokens
+     * @dev Opposite of splitPosition - burns position tokens and returns collateral
+     * @dev User must own sufficient position tokens for all outcomes in the partition
+     * @dev Only possible with complete sets of positions covering all outcomes
+     * @param collateralToken The ERC20 token that will be returned
+     * @param parentCollectionId The parent collection (must match original split)
+     * @param conditionId The condition identifier (must match original split)
+     * @param partition Array specifying which position tokens to merge
+     * @param amount Amount of position tokens to merge back to collateral
+     * @custom:emits PositionsMerge with merge details
+     * @custom:reverts InsufficientBalance if user doesn't own enough position tokens
+     * @custom:reverts InvalidPartition if partition doesn't represent complete set
+     * @custom:note Merge requires holding all outcome positions in equal amounts
+     * @custom:gas Cheaper than individual sales when market outcome is uncertain
+     */
     function mergePositions(
         address collateralToken,
         bytes32 parentCollectionId,
@@ -90,44 +123,42 @@ contract ConditionalTokensFacet is IConditionalTokens {
         uint256[] calldata partition,
         uint256 amount
     ) external override {
-        (uint256 fullIndexSet, uint256 freeIndexSet, uint256[] memory positionIds, uint256[] memory amounts) = _validateAndBuildPartitionPositions(
-            collateralToken,
-            parentCollectionId,
-            conditionId,
-            partition,
-            amount
-        );
+        LibCTFCondition._mergePositions(msg.sender, collateralToken, parentCollectionId, conditionId, partition, amount);
 
-        LibERC1155._batchBurn(msg.sender, positionIds, amounts);
-
-        if (freeIndexSet == 0) {
-            if (parentCollectionId == bytes32(0)) {
-                IERC20(collateralToken).safeTransfer(msg.sender, amount);
-            } else {
-                uint256 parentPosId = LibCTHelpers.getPositionId(collateralToken, parentCollectionId);
-                LibERC1155._mint(msg.sender, parentPosId, amount, "");
-            }
-        } else {
-            uint256 mergedSet = fullIndexSet ^ freeIndexSet;
-            uint256 mergedPosId = _getPositionId(collateralToken, parentCollectionId, conditionId, mergedSet);
-            LibERC1155._mint(msg.sender, mergedPosId, amount, "");
-        }
-
-        emit PositionsMerge(msg.sender, collateralToken, parentCollectionId, conditionId, partition, amount);
+        emit Events.PositionsMerge(msg.sender, collateralToken, parentCollectionId, conditionId, partition, amount);
     }
 
+    /**
+     * @notice Redeems position tokens for collateral after condition resolution
+     * @dev Burns winning position tokens and transfers collateral minus resolution fees
+     * @dev Supports both direct collateral redemption and parent position minting
+     * @dev Only works after condition has been resolved with reported payouts
+     * @param collateralToken The ERC20 token to redeem (must match position)
+     * @param parentCollectionId The parent collection (0x0 for direct redemption)
+     * @param conditionId The resolved condition identifier
+     * @param indexSets Array of outcome index sets representing positions to redeem
+     * @custom:emits PayoutRedemption with redemption details
+     * @custom:emits PayoutRedemptionFeePaid if resolution fee applied
+     * @custom:emits PayoutRedeemedToParentPosition for parent collection redemptions
+     * @custom:reverts ConditionNotResolved if condition hasn't been resolved
+     * @custom:reverts ConditionNotPrepared if condition was never prepared
+     * @custom:reverts InvalidIndexSet if index set is invalid
+     * @custom:security Reentrancy protection on external token transfers
+     * @custom:note Resolution fees are deducted from payout amount
+     * @custom:gas Cost scales with number of position types being redeemed
+     */
     function redeemPositions(
         address collateralToken,
         bytes32 parentCollectionId,
         bytes32 conditionId,
         uint256[] calldata indexSets
     ) external override {
-        LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
         uint256 den = ds.conditionalTokens.payoutDenominator[conditionId];
-        require(den > 0, "ConditionalTokens: condition not resolved");
+        if (den == 0) revert Errors.ConditionNotResolved();
 
         uint8 outcomeSlotCount = uint8(ds.conditionalTokens.payoutNumerators[conditionId].length);
-        require(outcomeSlotCount > 0, "ConditionalTokens: condition not prepared");
+        if (outcomeSlotCount == 0) revert Errors.ConditionNotPrepared();
 
         uint256 totalPayout = 0;
 
@@ -135,7 +166,7 @@ contract ConditionalTokensFacet is IConditionalTokens {
 
         for (uint256 i = 0; i < indexSets.length; i++) {
             uint256 indexSet = indexSets[i];
-            require(indexSet > 0 && indexSet < fullIndexSet, "ConditionalTokens: invalid index set");
+            if (indexSet == 0 || indexSet >= fullIndexSet) revert Errors.InvalidIndexSet();
 
             uint256 posId = _getPositionId(collateralToken, parentCollectionId, conditionId, indexSet);
             uint256 stake = LibERC1155.balanceOf(msg.sender, posId);
@@ -162,45 +193,86 @@ contract ConditionalTokensFacet is IConditionalTokens {
             } else {
                 uint256 parentPosId = LibCTHelpers.getPositionId(collateralToken, parentCollectionId);
                 LibERC1155._mint(msg.sender, parentPosId, totalPayout, "");
-                emit PayoutRedeemedToParentPosition(msg.sender, collateralToken, parentCollectionId, conditionId, parentPosId, totalPayout);
+                emit Events.PayoutRedeemedToParentPosition(msg.sender, collateralToken, parentCollectionId, conditionId, parentPosId, totalPayout);
             }
         }
 
-        emit PayoutRedemption(msg.sender, collateralToken, parentCollectionId, conditionId, indexSets, totalPayout);
+        emit Events.PayoutRedemption(msg.sender, collateralToken, parentCollectionId, conditionId, indexSets, totalPayout);
     }
 
-    function _validateCollateral(address collateralToken, uint256 amount) internal view {
-        LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
-
-        require(ds.adminConfigStorage.isAllowed[collateralToken], "ConditionalTokens: Collateral not allowed");
-
-        uint256 unit = ds.adminConfigStorage.unitPerPair[collateralToken];
-        require(amount % unit == 0, "ConditionalTokens: Collateral amount not aligned to unit");
-    }
-
+    /**
+     * @notice Handles payout transfers with resolution-fee accrual into the in-Diamond fee bank.
+     * @dev SCRUM-236 — the pre-bank flow checked `feeReceiver != 0` *before* the zero-fee
+     *      short-circuit, which bricked `redeemPositions` on a fresh-deploy default
+     *      (`feeReceiver == address(0) && resolutionFeeBps == 0`) — the original
+     *      CR-3291973203 finding. Under the pull-payment model the resolution fee no
+     *      longer requires a `feeReceiver` at redemption time: it accrues to
+     *      `acs.accruedFees[token]` and is swept later by `AdminConfigFacet.withdrawFees`.
+     *      That eliminates the bypass-DoS class entirely: the `feeReceiver` check moves
+     *      to `withdrawFees`. The fee-zero case is now a true no-op (no SSTORE, no event).
+     * @dev Uses the existing reentrancy guard for the external user transfer. The
+     *      accrual is a single SSTORE before the transfer (CEI ordering); no external
+     *      call to `feeReceiver` happens on this path.
+     * @param collateralToken The ERC20 token being transferred
+     * @param recipient The address receiving the payout
+     * @param amount The gross payout amount before fees
+     * @custom:emits PayoutRedemptionFeePaid if a fee is accrued.
+     * @custom:emits FeeAccrued (kind = FEE_KIND_RESOLUTION) if a fee is accrued.
+     * @custom:security Protected against reentrancy on the user payout transfer.
+     * @custom:audit CR-3291973203 — zero-fee + zero-feeReceiver no longer reverts.
+     */
     function _handlePayoutTransfer(address collateralToken, address recipient, uint256 amount) internal {
-        LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
+        LibAdminConfigStorage.AdminConfigStorage storage acs = LibAdminConfigStorage.adminConfigStorage();
+        uint16 feeBps = acs.resolutionFeeBps;
 
-        address feeReceiver = ds.adminConfigStorage.feeReceiver;
-        uint256 feeBps = ds.adminConfigStorage.resolutionFeeBps;
-
-        require(feeReceiver != address(0), "ConditionalTokens: invalid feeReceiver");
-
+        // SCRUM-236: fee-zero is a true symmetric no-op. No SSTORE on `accruedFees`,
+        // no `FeeAccrued` emission — required for INV-FEE-NEW symmetry under fee == 0
+        // AND for the CR-3291973203 regression check (a zero-fee redeem must not revert
+        // and must not emit a spurious zero-amount event).
         if (feeBps == 0) {
+            LibReentrancyGuard._nonReentrantBefore();
             IERC20(collateralToken).safeTransfer(recipient, amount);
-
+            LibReentrancyGuard._nonReentrantAfter();
             return;
         }
 
-        uint256 feeAmount = (amount * feeBps) / 10_000;
+        uint256 feeAmount = (amount * feeBps) / LibConstants.BPS_DENOMINATOR;
         uint256 userAmount = amount - feeAmount;
 
-        IERC20(collateralToken).safeTransfer(feeReceiver, feeAmount);
-        IERC20(collateralToken).safeTransfer(recipient, userAmount);
+        // SCRUM-236: the resolution fee already sits in the Diamond's ERC20 balance
+        // (the redeemed payout was internal); just book it into `accruedFees` and
+        // pay the user their net. The `feeAmount > 0` guard prevents a spurious
+        // FeeAccrued for the extreme rounding case where `amount * feeBps` truncates
+        // to zero (e.g. a 1-wei payout with feeBps < BPS_DENOMINATOR).
+        if (feeAmount > 0) {
+            acs.accruedFees[collateralToken] += feeAmount;
+            emit Events.FeeAccrued(collateralToken, feeAmount, LibConstants.FEE_KIND_RESOLUTION);
+        }
 
-        emit PayoutRedemptionFeePaid(recipient, feeReceiver, feeAmount, userAmount);
+        // Keep the existing PayoutRedemptionFeePaid event so off-chain redemption
+        // analytics still see the per-redeem fee attribution. The address passed as
+        // `feeReceiver` is the current `acs.feeReceiver` snapshot; if it is zero
+        // the event simply carries the zero address (the funds are safely in the bank
+        // and the owner can set a receiver before the next `withdrawFees`).
+        LibReentrancyGuard._nonReentrantBefore();
+        IERC20(collateralToken).safeTransfer(recipient, userAmount);
+        LibReentrancyGuard._nonReentrantAfter();
+
+        emit Events.PayoutRedemptionFeePaid(recipient, acs.feeReceiver, feeAmount, userAmount);
     }
 
+    /**
+     * @notice Calculates position ID for a given collateral token and collection
+     * @dev Internal helper for position identification in conditional token system
+     * @dev Position IDs are deterministic based on token, collection, and index set
+     * @param collateralToken The ERC20 token backing the position
+     * @param parentCollectionId The parent collection identifier
+     * @param conditionId The condition this position belongs to
+     * @param indexSet The outcome index set this position represents
+     * @return The unique ERC1155 position token ID
+     * @custom:note Position IDs are globally unique across all conditions and tokens
+     * @custom:view Pure calculation with no storage access
+     */
     function _getPositionId(
         address collateralToken,
         bytes32 parentCollectionId,
@@ -211,49 +283,39 @@ contract ConditionalTokensFacet is IConditionalTokens {
         return LibCTHelpers.getPositionId(collateralToken, collId);
     }
 
-    function _validateAndBuildPartitionPositions(
-        address collateralToken,
-        bytes32 parentCollectionId,
-        bytes32 conditionId,
-        uint256[] calldata partition,
-        uint256 amount
-    ) internal view returns (uint256 fullIndexSet, uint256 freeIndexSet, uint256[] memory positionIds, uint256[] memory amounts) {
-        require(partition.length > 1, "ConditionalTokens: trivial partition");
-        LibDoefinStorage.DiamondStorage storage ds = LibDoefinStorage.diamondStorage();
-
-        uint8 outcomeSlotCount = uint8(ds.conditionalTokens.payoutNumerators[conditionId].length);
-        require(outcomeSlotCount > 0, "ConditionalTokens: condition not prepared");
-
-        fullIndexSet = (1 << outcomeSlotCount) - 1;
-        freeIndexSet = fullIndexSet;
-
-        positionIds = new uint256[](partition.length);
-        amounts = new uint256[](partition.length);
-
-        for (uint256 i = 0; i < partition.length; i++) {
-            uint256 indexSet = partition[i];
-            require(indexSet > 0 && indexSet < fullIndexSet, "ConditionalTokens: invalid index set");
-            require((indexSet & freeIndexSet) == indexSet, "ConditionalTokens: partition not disjoint");
-            freeIndexSet ^= indexSet;
-
-            positionIds[i] = _getPositionId(collateralToken, parentCollectionId, conditionId, indexSet);
-            amounts[i] = amount;
-        }
-    }
-
+    /**
+     * @notice Calculates condition ID for given oracle, question, and outcome count
+     * @dev Public helper function for deterministic condition ID generation
+     * @dev Condition IDs are globally unique across all questions and oracles
+     * @param oracle The address authorized to resolve the condition
+     * @param questionId The unique question identifier
+     * @param outcomeSlotCount The number of possible outcomes
+     * @return The unique condition identifier
+     * @custom:note Useful for off-chain applications to predict condition IDs
+     * @custom:pure Deterministic calculation with no storage dependencies
+     */
     function getConditionId(address oracle, bytes32 questionId, uint8 outcomeSlotCount) external pure returns (bytes32) {
         return LibCTHelpers.getConditionId(oracle, questionId, outcomeSlotCount);
     }
 
-    function getCollectionId(bytes32 parentCollectionId, bytes32 conditionId, uint indexSet) external view returns (bytes32) {
+    function getCollectionId(bytes32 parentCollectionId, bytes32 conditionId, uint256 indexSet) external view returns (bytes32) {
         return LibCTHelpers.getCollectionId(parentCollectionId, conditionId, indexSet);
     }
 
-    function getPositionId(address collateralToken, bytes32 collectionId) external pure returns (uint) {
+    function getPositionId(address collateralToken, bytes32 collectionId) external pure returns (uint256) {
         return LibCTHelpers.getPositionId(collateralToken, collectionId);
     }
 
+    /**
+     * @notice Retrieves payout numerators for a resolved condition
+     * @dev Returns the payout distribution reported by the oracle for condition resolution
+     * @dev Payout denominators are calculated as the sum of all numerators
+     * @param conditionId The condition identifier to query
+     * @return Array of payout numerators for each outcome (empty if unresolved)
+     * @custom:view Read-only access to resolution data
+     * @custom:note For binary markets: winning outcome = [1,0] or [0,1], ties = [1,1]
+     */
     function getPayoutNumerators(bytes32 conditionId) external view override returns (uint256[] memory) {
-        return LibDoefinStorage.diamondStorage().conditionalTokens.payoutNumerators[conditionId];
+        return LibDoefinStorage.appStorage().conditionalTokens.payoutNumerators[conditionId];
     }
 }
