@@ -1,5 +1,11 @@
 # Oracle reorg-replay underflow — production incident data (2026-09-15)
 
+> **Status (SCRUM-521):** fixed in `DoefinV1BlockHeaderOracleFacet.submitBatchBlocks` on this branch.
+> Regression suite: `test/integration/OracleReorgIndexUnderflow.test.js` (loads this fixture through
+> `scripts/lib/oracle-fixture.js`). Deployment: `scripts/upgrades/upgrade-scrum521-oracle-reorg-underflow.js`
+> (single-selector Replace), rehearsed on a mainnet fork by `scripts/upgrades/rehearse-scrum521-fork.js`;
+> the held production batch is replayed by `scripts/oracle-replay-batch.js`. Audit ledger: **SEC-015**.
+
 Real Bitcoin block headers that reproduce the state the **Base-mainnet** block header oracle has been
 stuck in since **2026-09-15 15:45 UTC**, plus a scenario matrix that places the orphaned block in
 **every one of the 17 ring-buffer slots** so the defect (and its fix) can be tested exhaustively.
@@ -95,7 +101,9 @@ for (const sc of scenarios) {
 
 ## Expected results
 
-Verified on the **current, unfixed** facet (`5891be3`, 2026-09-22): every row below matched.
+Verified on the **unfixed** facet (`5891be3`, 2026-09-22): every row below matched. With the SCRUM-521 fix
+applied, all 17 slots succeed (the regression suite asserts the "After fix" column, plus depths 2, 3 and 6
+at every slot, the negative cases, and the catch-up across the wrap).
 
 | Orphan slot `s` | `nextBlockIndex` at replay | Before fix | After fix |
 |---|---|---|---|
@@ -119,13 +127,23 @@ of positions. The fix in the task doc (`+ NUM_OF_BLOCK_HEADERS` before subtracti
 `_findForkPoint` already does) makes every `d < 17` replayable; `d >= 17` must still revert
 `CannotFindForkPoint`.
 
-## Suggested test flow
+## How this fixture is exercised
 
-1. **Before the fix**: run the 17 scenarios and assert the "Before fix" column — slots 0 and 16
-   panic, the rest succeed. This is the regression test that would have caught the incident.
-2. Apply the fix to `submitBatchBlocks`.
-3. **After the fix**: rerun and assert the "After fix" column for all 17 slots, plus the negative
-   cases from `test/data/reorg_test/` (`NewChainNotLonger`, `CannotFindForkPoint`) to confirm
-   nothing else moved.
-4. Extra coverage with the same data: after a successful replay at `s = 16`, keep submitting
-   967147…967160 with `submitNextBlock` (14 blocks) and confirm the pointer runs 3 → 16 → 0 cleanly.
+`test/integration/OracleReorgIndexUnderflow.test.js` (runs in CI with the full suite):
+
+1. **Fixture sanity** — 967110..967160 is contiguous and linked; the orphan is a sibling of the canonical 967143.
+2. **17 slots × depth 1** — the recipe above, then the exact held batch `[967143 canonical, 967144, 967145, 967146]`;
+   asserts the "After fix" column (height 967146, `nextBlockIndex = (s+4) mod 17`, canonical 967143 in slot `s`,
+   orphan gone, whole 17-slot window linked, `BlockReorged` once).
+3. **17 slots × depths 2, 3, 6** — replacement chains anchored deeper (`967144-d .. 967146`, all real headers);
+   same post-state. Depth 6 is the deepest whose median-time window is made only of verified predecessors
+   (`17 - 6 = 11`); deeper replays hit a separate, pre-existing buffer limitation (`audit/follow-ups.md`
+   SCRUM-521-DEEP-REORG-MTP).
+4. **Negatives (production state, slot 16)** — equal-length replacement → `NewChainNotLonger`; fork below the
+   buffer (anchored at 967127) and a mis-numbered first header → `CannotFindForkPoint`; broken linkage after the
+   fork point → `PrevBlockHashMismatch` (rewind no longer panics). State untouched after each revert.
+5. **Recovery + catch-up** — replay from the production state, then `submitNextBlock` 967147..967160 and confirm
+   the pointer walks 3 → 16 → 0; a depth-0 batch after the replay still takes the plain-extension path.
+
+On the pre-fix facet the suite fails 19 cases, all `Panic(0x11)`: every depth-`d` replay in a slot where
+`nextBlockIndex <= d` (16 cases) plus the three cases that depend on a successful replay.
