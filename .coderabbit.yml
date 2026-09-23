@@ -514,11 +514,16 @@ reviews:
         A fixed-in-code finding whose production rollout or Phase-6 re-verify
         is still outstanding is `status: confirmed` + `decision: fix` +
         `reverify: pending` (the narrative goes on the `fix-commit` line).
-        Flag: a value outside these enums, a missing severity / repro /
-        location / recommendation, or a record that contradicts
-        `audit/findings-ledger.md`. Do NOT ask for RESOLVED / ACCEPTED /
-        IN-FLIGHT / DOCUMENTED — that vocabulary is not the protocol's
-        (PR #26 CR-4081027067).
+        Flag:
+        - a value outside these enums, or a missing severity / repro /
+          location / recommendation
+        - a record that contradicts `audit/findings-ledger.md`
+        - findings unfixed AND classified CRITICAL/HIGH
+        - a lifecycle field changed without a corresponding code commit
+          (fix-commit line)
+        - a new finding without a SCRUM ticket reference
+        Do NOT ask for RESOLVED / ACCEPTED / IN-FLIGHT / DOCUMENTED — that
+        vocabulary is not the protocol's (PR #26 CR-4081027067).
 
     - path: "audit/business-logic/**"
       instructions: |
