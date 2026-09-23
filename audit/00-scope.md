@@ -36,9 +36,14 @@ from in-scope code through* an excluded file is IN scope.
 - **CTF (Gnosis import):** `ConditionalTokensFacet`, `ConditionManagerFacet`,
   `LibConditionMetadata`, `LibCTHelpers`, `LibCTFCondition`, `IConditionalTokens`,
   `IConditionManager`.
-- **Block-header v1 (superseded):** `DoefinV1BlockHeaderOracle` (deployed as
+- ~~**Block-header v1 (superseded):** `DoefinV1BlockHeaderOracle` (deployed as
   `DoefinV1BlockHeaderOracleFacet`), `BlockHeaderUtils`, `LibDoefinBlockHeaderOracle`,
-  `IDoefinBlockHeaderOracle`.
+  `IDoefinBlockHeaderOracle`.~~ **Correction (SCRUM-521, 2026-09-23): this exclusion was
+  wrong.** The block-header oracle is not superseded — it is the live settlement-triggering
+  authority on Base mainnet, and its `submitBatchBlocks` reorg-rewind underflow (SEC-015)
+  froze the mainnet oracle on 2026-09-15. The SCSVS V10 lens (V10.1–V10.5) covers it and
+  V10.3 names exactly the missed check. These four files are **in scope** for every future
+  pass (see `audit/follow-ups.md` SCRUM-521-AUDIT-SCOPE).
 - **Diamond reference (template):** `Diamond.sol`, `LibDiamond`, `DiamondInit`,
   `DiamondCutFacet`, `DiamondLoupeFacet`, `OwnershipFacet`, `IDiamondCut`, `IDiamondLoupe`,
   `IERC173`.

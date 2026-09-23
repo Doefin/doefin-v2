@@ -147,3 +147,45 @@ These tests in `test/audit/` were written against pre-fix behaviour and will nee
   with `feeRateBps = 200`, which now exceeds `MAX_FEE_RATE_BPS = 100`. Either update the
   fixture to use a `feeRateBps <= 100` or sign `feeRateBps = 0` for cases not testing
   fee logic.
+
+---
+
+# SCRUM-521 — SEC-015: `submitBatchBlocks` reorg-rewind underflow (production incident 2026-09-15)
+
+**Branch:** `feature/SCRUM-521-fix-submit-batch-blocks-ring-buffer-underflow-blocking-mainnet-oracle` (off `dev`).
+**Scope:** the one arithmetic defect that froze the Base-mainnet block-header oracle, its regression matrix, the
+single-selector deployment tooling, and the audit-scope correction that let it escape. No new errors, events,
+storage or selectors.
+
+| ID | Severity | Files changed | Test | Note |
+|---|---|---|---|---|
+| SEC-015 | HIGH | `contracts/facets/DoefinV1BlockHeaderOracleFacet.sol` — `submitBatchBlocks` rewind: `depth = currentBlockHeight - forkHeight`; prev-header slot `(nextBlockIndex + numHeaders - depth - 1) % numHeaders`; pointer `(nextBlockIndex + numHeaders - depth) % numHeaders` (+ NatSpec `@dev` / `@custom:reverts`) | `test/integration/OracleReorgIndexUnderflow.test.js` — real headers 967110-967160 + the orphaned 967143 read back from mainnet (`test/data/reorg_index_underflow/`, loader `scripts/lib/oracle-fixture.js`): orphan in each of the 17 ring slots × replay depths {1, 2, 3, 6} (68 replays), negatives (`NewChainNotLonger`, `CannotFindForkPoint` ×2, `PrevBlockHashMismatch`), recovery from the production state + `submitNextBlock` catch-up across the 16 → 0 wrap, depth-0 extension after a replay | Negative-control verified: on the pre-fix facet **19 cases fail, all `Panic(0x11)`** — every depth-`d` replay in a slot where `nextBlockIndex <= d` (16) plus the 3 cases that depend on a successful replay; with the fix **75 passing**. `_findForkPoint` bounds `depth <= 16`, so the `+ NUM_OF_BLOCK_HEADERS` idiom (already used by `_findForkPoint` and `LibDoefinBlockHeaderOracle.getBlockHeaderByNumber`) keeps every intermediate non-negative with the modulus unchanged. `NewChainNotLonger`, `BlockReorged`, `_applyChain` untouched. |
+
+**Deployment tooling (same branch):** `scripts/upgrades/upgrade-scrum521-oracle-reorg-underflow.js` — Replace cut of
+the `submitBatchBlocks` selector only (`0x7ea1b3d8`), Safe-routed on public networks, owner-impersonated on a fork,
+DiamondLoupe post-check + oracle-state-unchanged check; `scripts/oracle-replay-batch.js` — submits the held
+`[967143 canonical .. 967146]` batch only from the exact incident state, after a simulation that distinguishes
+"fix not live" (`Panic(0x11)`); `scripts/upgrades/rehearse-scrum521-fork.js` — end-to-end rehearsal on a Base-mainnet
+fork. npm: `upgrade:scrum521:{baseSepolia,base,rehearse}`, `oracle:replay:{baseSepolia,base}`.
+
+**Audit-scope correction:** `audit/00-scope.md` and `audit-exclusion-guidance.md` had excluded the block-header oracle
+as "v1 (superseded)"; it is the live settlement-triggering oracle. Re-scoped IN; SC08 in
+`audit/findings/manual-findings.md` flipped from Pass to Findings; `.coderabbit.yml` path instruction for the facet
+updated to review ring-buffer arithmetic (wrap-safe idiom only); follow-ups SCRUM-521-BE-GUARD / -AUDIT-SCOPE /
+-DEEP-REORG-MTP in `audit/follow-ups.md`.
+
+## Verification
+
+- `npx hardhat compile` — clean (solcjs 0.8.20 on the arm64/no-Rosetta dev machine; CI uses native solc on Linux).
+- `npx hardhat size-contracts` — `DoefinV1BlockHeaderOracle` 9.091 KiB deployed (+0.022 KiB), `BlockHeaderUtils`
+  0.426 KiB; the only contract over the limit is the audit-only `DoefinInvariantHarness`, unchanged.
+- `npx hardhat test test/integration/OracleReorgIndexUnderflow.test.js` — **75 passing** (pre-fix facet: 56 passing,
+  19 failing, all `Panic(0x11)`).
+- `npx hardhat test` (full suite) — **680 passing, 21 pending, 0 failing** (10 min); the storage-layout snapshot gate
+  (`test/storage/storage-layout-snapshot.test.js`) matches the committed snapshot, as expected for a code-only change.
+- `npm run upgrade:scrum521:rehearse` (fork of Base mainnet, 2026-09-23, fork block 51680704) — **PASSED**: live
+  state `height 967143 / nextBlockIndex 0 / tip = orphan …8e0c9e34…314c` reproduced; the held batch reverts
+  `Panic(0x11)` on the current facet `0x966584f4…3121`; cut (158,344 gas, Safe `0x42B0c347…3486` impersonated)
+  routes only `submitBatchBlocks` to the new facet, the other 11 oracle selectors and the oracle state are
+  untouched; replay 557,801 gas → `BlockReorged` ×1, height 967146, `nextBlockIndex 3`,
+  `getBlockHeaderByNumber(967143)` canonical `…895ebcc5…bea37f`; catch-up 967147-967160 walks the pointer 4 → 16 → 0.

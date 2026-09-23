@@ -13,7 +13,9 @@ This note tells auditors which components to ignore when reviewing the core prot
 	- [contracts/libraries/LibCTHelpers.sol](contracts/libraries/LibCTHelpers.sol)
 	- [contracts/libraries/LibCTFCondition.sol](contracts/libraries/LibCTFCondition.sol)
 
-- **Block Header v1 (superseded)**
+- **Block Header v1 — ~~superseded~~ RE-SCOPED IN (SCRUM-521, 2026-09-23).** Not superseded: this is the
+  live settlement-triggering oracle on Base mainnet. Excluding it hid SEC-015 (reorg-rewind underflow,
+  production incident 2026-09-15). Treat the files below as IN scope; the SCSVS V10 lens applies.
 	- [contracts/facets/DoefinV1BlockHeaderOracleFacet.sol](contracts/facets/DoefinV1BlockHeaderOracleFacet.sol)
 	- [contracts/libraries/BlockHeaderUtils.sol](contracts/libraries/BlockHeaderUtils.sol)
 	- [contracts/libraries/LibDoefinBlockHeaderOracle.sol](contracts/libraries/LibDoefinBlockHeaderOracle.sol)
