@@ -19,20 +19,26 @@
  * Env:
  *   DIAMOND_ADDRESS   optional on base / baseSepolia (per-network default)
  *   PRIVATE_KEY       sender EOA (gas only)
- *   REPLAY_THROUGH    last height to submit, 967146 (default, the exact held batch) … 967160
+ *   REPLAY_THROUGH    last height to submit, 967146 (default, the exact held batch) … 967159
+ *                     (967159 = the last height at which 967143 is still inside the 17-slot window,
+ *                     which the post-state check reads)
  *   DRY_RUN=true      simulate only
  */
 
 const hre = require("hardhat");
 const { networkConfig, resolveDiamond, readOracleState, printState } = require("./upgrades/upgrade-scrum521-oracle-reorg-underflow.js");
-const { ORPHAN, ORPHAN_HEIGHT, CANONICAL_143, HELD_BATCH_TIP, FIXTURE_LAST, RING, headers, sameHash } = require("./lib/oracle-fixture.js");
+const { ORPHAN, ORPHAN_HEIGHT, CANONICAL_143, HELD_BATCH_TIP, RING, headers, sameHash } = require("./lib/oracle-fixture.js");
 
 const BLOCK_REORGED_TOPIC = ethers.utils.id("BlockReorged(bytes32)");
 const BLOCK_SUBMITTED_TOPIC = ethers.utils.id("BlockSubmitted(bytes32,uint32)");
 
+// Last height the replay may reach: after it the post-state check still reads 967143, and
+// getBlockHeaderByNumber(967143) reverts ValueOutOfRange once height >= ORPHAN_HEIGHT + RING.
+const LAST_RETAINED = ORPHAN_HEIGHT + RING - 1; // 967159
+
 async function replayHeldBatch({ diamond, signer, through = HELD_BATCH_TIP, dryRun = false }) {
-  if (!Number.isInteger(through) || through < HELD_BATCH_TIP || through > FIXTURE_LAST) {
-    throw new Error(`REPLAY_THROUGH must be in ${HELD_BATCH_TIP}..${FIXTURE_LAST}, got ${through}`);
+  if (!Number.isInteger(through) || through < HELD_BATCH_TIP || through > LAST_RETAINED) {
+    throw new Error(`REPLAY_THROUGH must be in ${HELD_BATCH_TIP}..${LAST_RETAINED}, got ${through}`);
   }
   const oracle = (await ethers.getContractAt("IDoefinBlockHeaderOracle", diamond)).connect(signer);
   const before = await readOracleState(oracle);
