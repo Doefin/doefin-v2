@@ -19,6 +19,8 @@
     "upgrade:scrum521:rehearse": "npx hardhat run scripts/upgrades/rehearse-scrum521-fork.js",
     "oracle:replay:baseSepolia": "npx hardhat run scripts/oracle-replay-batch.js --network baseSepolia",
     "oracle:replay:base": "npx hardhat run scripts/oracle-replay-batch.js --network base",
+    "oracle:status:baseSepolia": "npx hardhat run scripts/oracle-status.js --network baseSepolia",
+    "oracle:status:base": "npx hardhat run scripts/oracle-status.js --network base",
     "verify:baseSepolia": "npx hardhat run scripts/verify-settlement-deployment.js --network baseSepolia",
     "setup:testMarket": "npx hardhat run scripts/setup-test-market.js --network baseSepolia",
     "node": "npx hardhat node",
