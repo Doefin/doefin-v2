@@ -395,7 +395,7 @@ domain:         security
 severity:       high
 status:         confirmed
 decision:       fix
-reverify:       pending — Phase-6 re-verify not run (fixed in code: regression matrix green, mainnet-fork rehearsal green; production cut + held-batch replay pending)
+reverify:       pending
 location:       contracts/facets/DoefinV1BlockHeaderOracleFacet.sol:125-135 (pre-fix numbering)
 source:         production incident 2026-09-15 (block-indexer CRITICAL `unreplayable_on_chain`); doefin-backend/docs/smart-contract-task-oracle-reorg-index-underflow.md
 duplicate-of:   -
@@ -407,7 +407,7 @@ impact:         Self-locking liveness failure. On 2026-09-15 the oracle stored a
 poc:            `test/data/reorg_index_underflow/` — real headers 967110-967160 + the orphan read back from mainnet; `test/integration/OracleReorgIndexUnderflow.test.js` on the pre-fix facet: 19 failing cases, all `Panic(0x11)` (depth-d replay fails in every slot where `nextBlockIndex <= d`).
 recommendation: Add the buffer size before subtracting (`depth = currentBlockHeight - forkHeight`; `(nextBlockIndex + numHeaders - depth - 1) % numHeaders`; `(nextBlockIndex + numHeaders - depth) % numHeaders`). Ship as a single-selector `diamondCut` Replace of `submitBatchBlocks`, then replay the held batch. Bring the block-header oracle INTO audit scope and run the V10 lens over it.
 upgrade-safe:   yes — no storage-layout change, no selector change
-fix-commit:     SCRUM-521 (`feature/SCRUM-521-fix-submit-batch-blocks-ring-buffer-underflow-blocking-mainnet-oracle`)
+fix-commit:     SCRUM-521 (`feature/SCRUM-521-fix-submit-batch-blocks-ring-buffer-underflow-blocking-mainnet-oracle`, PR #26) — fixed in code (regression matrix green, mainnet-fork rehearsal green); Phase-6 re-verify not run; production cut + held-batch replay pending, so `reverify` stays `pending` until `audit/reverify/verdict.md` records them
 fix-test:       test/integration/OracleReorgIndexUnderflow.test.js (17 slots × depths {1,2,3,6} + negatives + catch-up across the wrap); scripts/upgrades/rehearse-scrum521-fork.js (mainnet-fork rehearsal against the live stuck state)
 
 ---

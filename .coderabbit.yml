@@ -504,12 +504,21 @@ reviews:
     # ── Audit docs — flag drift, recommend not re-deriving ──
     - path: "audit/findings/**"
       instructions: |
-        Audit findings. Each finding should have: status (RESOLVED /
-        ACCEPTED / IN-FLIGHT / DOCUMENTED), severity, repro / attack
-        model, fix link (commit SHA). Flag:
-        - findings unfixed AND classified CRITICAL/HIGH
-        - finding status changed without a corresponding code commit
-        - new finding without a SCRUM ticket reference
+        Audit findings. Every record is one block per finding in the schema of
+        `security/audit-protocol.md` ("Findings ledger — one block per
+        finding"). The lifecycle is carried by three separate enum fields, so
+        check THOSE, not an ad-hoc status vocabulary:
+          status:    new | confirmed | false-positive | duplicate | needs-info | wont-fix
+          decision:  fix | defer | accept-risk | n/a
+          reverify:  pending | fixed-clean | fixed-with-new-issue | not-fixed
+        A fixed-in-code finding whose production rollout or Phase-6 re-verify
+        is still outstanding is `status: confirmed` + `decision: fix` +
+        `reverify: pending` (the narrative goes on the `fix-commit` line).
+        Flag: a value outside these enums, a missing severity / repro /
+        location / recommendation, or a record that contradicts
+        `audit/findings-ledger.md`. Do NOT ask for RESOLVED / ACCEPTED /
+        IN-FLIGHT / DOCUMENTED — that vocabulary is not the protocol's
+        (PR #26 CR-4081027067).
 
     - path: "audit/business-logic/**"
       instructions: |
