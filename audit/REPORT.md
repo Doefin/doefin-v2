@@ -126,6 +126,12 @@ All confined to `SettlementFacet.sol`; no storage-layout or selector change (all
 - **Admin misconfiguration** — `unitPerPair` / allowlist are owner-set; SEC-002's gate now fails-closed on a removed token, but a *wrong non-zero* `unitPerPair` is still mispriced. Recommend a deploy-time config checklist.
 - **Cross-repo EIP-712 coupling** — `LibDoefinOrder` matches the backend encoder byte-for-byte today; GAS-001 (if taken) and any struct change must be coordinated across both repos.
 - **Out-of-scope** — CTF and block-header v1 were excluded; the 1 pre-existing failing test (`BatchSubmissionBugRepro`) is in CTF code and should be triaged by that suite's owner before launch. **Post-report (2026-09-23):** the block-header exclusion was wrong — it hid **SEC-015** (HIGH, `submitBatchBlocks` reorg-rewind underflow), which froze the Base-mainnet oracle on 2026-09-15. Fixed in SCRUM-521; the oracle is now in scope (`audit/00-scope.md`).
+- **SEC-015 — code fix vs production recovery (2026-09-23)** — "fixed" above means fixed *in code*: regression matrix green,
+  and the cut + replay rehearsed on a Base-mainnet **fork**. The live oracle stays frozen at the orphaned 967143 until both
+  production steps have run: the Safe-routed single-selector cut (`npm run upgrade:scrum521:base`), then the held-batch
+  replay (`npm run oracle:replay:base`). The cut alone does not advance the oracle. block-indexer's `unreplayable_on_chain`
+  guard will not resubmit the batch by itself, so the replay is a required step (guard removal: `audit/follow-ups.md`
+  SCRUM-521-BE-GUARD). Record the cut and replay tx hashes in `audit/fixes/changelog.md` once executed.
 
 ---
 

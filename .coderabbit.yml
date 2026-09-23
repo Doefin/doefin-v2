@@ -402,9 +402,9 @@ reviews:
 
     - path: "contracts/libraries/BlockHeaderUtils.sol"
       instructions: |
-        Bitcoin block-header math (PoW, hash, median). Excluded from
-        deep review per audit-exclusion-guidance.md, but flag any
-        change to the difficulty / hash-chain logic.
+        Bitcoin block-header math (PoW, hash, median). IN SCOPE since
+        SCRUM-521 (was wrongly excluded as "superseded"). Flag any change
+        to the difficulty / hash-chain logic.
 
     # ── Mocks + audit harness — test-only ──
     - path: "contracts/mock/**"

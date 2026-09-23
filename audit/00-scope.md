@@ -28,6 +28,13 @@ The v3 settlement core and the admin/access/oracle-adapter facets, plus their li
 `LibERC1155`, `LibAccessControl`, `LibReentrancyGuard`, `LibOracleAdapter`,
 `LibPositionRegistry`, `Errors`, `Events`.
 
+**Addendum (SCRUM-521, 2026-09-23) — re-scoped IN:** the Bitcoin block-header oracle —
+`DoefinV1BlockHeaderOracle` (deployed as `DoefinV1BlockHeaderOracleFacet`), `BlockHeaderUtils`,
+`LibDoefinBlockHeaderOracle`, `IDoefinBlockHeaderOracle`. Formerly excluded as "Block-header v1
+(superseded)" (struck through under *Out of scope* below, kept as the historical record). Every
+domain pass covers them from now on; security works SCSVS V10.1–V10.5
+(`audit/follow-ups.md` SCRUM-521-AUDIT-SCOPE).
+
 ## Out of scope (per `audit-exclusion-guidance.md`)
 
 Findings located in these files are marked OUT OF SCOPE, not rated. A finding *reachable

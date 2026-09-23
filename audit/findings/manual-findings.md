@@ -22,6 +22,13 @@ All HIGH findings are **compromised-operator-context** or **silent-misconfigurat
 by an unprivileged caller without a trust assumption, hence not CRITICAL. They are still mainnet-blocking
 per the rubric (HIGH = loss of funds / integrity behind a precondition).
 
+> **Post-audit qualification (SCRUM-521, 2026-09-23):** the paragraph above describes SEC-001 and SEC-002
+> only. SEC-015 needs neither a compromised operator nor a misconfiguration: a naturally occurring Bitcoin
+> reorg is enough (a depth-`d` replay while `nextBlockIndex <= d` — for the common depth-1 orphan, ring
+> slot 16 or 0), and header submission is permissionless. It is HIGH rather than CRITICAL because the
+> impact is liveness — no market can resolve on any later block until the facet cut and the replay —
+> with no unprivileged fund loss (see the SEC-015 record below and `audit/findings-ledger.md`).
+
 ---
 
 ## Findings
@@ -388,7 +395,7 @@ domain:         security
 severity:       high
 status:         confirmed
 decision:       fix
-reverify:       fixed — SCRUM-521 (regression matrix green; mainnet-fork rehearsal green)
+reverify:       pending — Phase-6 re-verify not run (fixed in code: regression matrix green, mainnet-fork rehearsal green; production cut + held-batch replay pending)
 location:       contracts/facets/DoefinV1BlockHeaderOracleFacet.sol:125-135 (pre-fix numbering)
 source:         production incident 2026-09-15 (block-indexer CRITICAL `unreplayable_on_chain`); doefin-backend/docs/smart-contract-task-oracle-reorg-index-underflow.md
 duplicate-of:   -
