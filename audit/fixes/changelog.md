@@ -189,3 +189,16 @@ updated to review ring-buffer arithmetic (wrap-safe idiom only); follow-ups SCRU
   routes only `submitBatchBlocks` to the new facet, the other 11 oracle selectors and the oracle state are
   untouched; replay 557,801 gas → `BlockReorged` ×1, height 967146, `nextBlockIndex 3`,
   `getBlockHeaderByNumber(967143)` canonical `…895ebcc5…bea37f`; catch-up 967147-967160 walks the pointer 4 → 16 → 0.
+
+## SCRUM-521 rollout log
+
+| Step | When (UTC) | Evidence |
+|---|---|---|
+| Base Sepolia cut | 2026-09-23 12:12 | Safe-routed single-selector Replace on `0x2f03d475…Ae3f`: `submitBatchBlocks` (`0x7ea1b3d8`) → fixed facet `0x32F61D47…4De` (linked to a fresh `BlockHeaderUtils` `0x2AE70d19…7d7D`); the other 11 oracle selectors stay on `0xF69e3109…8Aa3`. Cut tx `0xd1223e2a…ceec`, Safe tx `0x37da6c65…e7e3`. Oracle state unchanged by the cut (height 968269, `nextBlockIndex 4`). Record: `deployments/baseSepolia/scrum521-oracle-upgrade-2026-09-23T12-12-38-854Z.json`. Post-cut verification: new facet runtime bytecode byte-identical to the local fixed build (library address substituted), routing confirmed via DiamondLoupe, and the oracle advanced canonically through the new facet afterwards (`npm run oracle:status:baseSepolia` at 13:08 UTC: #968276, 0 blocks behind the Bitcoin tip, tip canonical). Both new contracts verified on Sourcify (exact match: `0x2AE70d19…7d7D` job `ace554b8…`, `0x32F61D47…4De` job `77666201…`). Basescan verification did **not** happen: the `ETHERSCAN_API_KEY` in `.env` is rejected by the Etherscan v2 API, so the script's verify step was skipped with a warning (the CR-HARDHAT-VERIFY failure mode) — re-run `npx hardhat verify --network baseSepolia --libraries <file exporting { BlockHeaderUtils: "0x2AE70d19Bb26cCC16700a4B66DaF8A3c73A47d7D" }> 0x32F61D479483fB244a780afd5E45E4c8244fE4De` with a valid key, or import from Sourcify on Basescan. |
+| Base mainnet cut | pending | `npm run upgrade:scrum521:base` |
+| Mainnet held-batch replay | pending | `npm run oracle:replay:base`; then `npm run oracle:status:base` must report the tip canonical and the lag shrinking |
+| block-indexer guard removal (same window) | pending | SCRUM-521-BE-GUARD |
+
+**Monitoring tool added:** `scripts/oracle-status.js` (`npm run oracle:status:{baseSepolia,base}`) — stored tip / pointer /
+facet behind `submitBatchBlocks`, lag vs the Bitcoin tip and canonical check via mempool.space; exits 1 on an orphaned tip
+(the SEC-015 signature), 2 on lag > `ORACLE_STATUS_MAX_LAG`.
