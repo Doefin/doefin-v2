@@ -109,6 +109,20 @@ contract DoefinV1BlockHeaderOracle is IDoefinBlockHeaderOracle {
     }
 
     /// @inheritdoc IDoefinBlockHeaderOracle
+    /// @dev Reorg replay: `_findForkPoint` locates the first header's parent in the ring
+    ///      buffer (fork height `f`, depth `d = currentBlockHeight - f`, `0 <= d <= 16`),
+    ///      the pointer and height are rewound to `f`, and `_applyChain` overwrites the
+    ///      slots after it. The rewind uses the wrap-safe idiom
+    ///      `(nextBlockIndex + NUM_OF_BLOCK_HEADERS - d) % NUM_OF_BLOCK_HEADERS`.
+    ///      SCRUM-521: the previous checked left-to-right form
+    ///      `nextBlockIndex + forkHeight - currentBlockHeight` underflowed (Panic 0x11)
+    ///      whenever `nextBlockIndex <= d`, which froze the Base-mainnet oracle on an
+    ///      orphaned block on 2026-09-15.
+    /// @custom:reverts BlockHeaderOracle_CannotFindForkPoint if the first header's parent is
+    ///      not in the buffer or its `blockNumber` is not the parent's height + 1
+    /// @custom:reverts BlockHeaderOracle_NewChainNotLonger if `f + newBlockHeaders.length <= currentBlockHeight`
+    /// @custom:reverts BlockHeaderOracle_PrevBlockHashMismatch, BlockHeaderOracle_InvalidTimestamp or
+    ///      BlockHeaderOracle_InvalidBlockHash from `_verifyBlockHeader` on any header of the batch
     function submitBatchBlocks(LibDoefinStorage.BlockHeader[] calldata newBlockHeaders) external {
         LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
         LibDoefinStorage.BlockHeader memory latestBlockHeaderInBatch = newBlockHeaders[newBlockHeaders.length - 1];
@@ -122,16 +136,21 @@ contract DoefinV1BlockHeaderOracle is IDoefinBlockHeaderOracle {
             emit Events.BlockReorged(latestBlockHeaderInBatch.merkleRootHash);
         }
 
-        LibDoefinStorage.BlockHeader memory prevBlockHeader = forkHeight == ds.blockHeaderOracleStorage.currentBlockHeight
+        // SCRUM-521: rewind by `depth` slots. `_findForkPoint` only returns fork points inside
+        // the buffer, so `depth <= NUM_OF_BLOCK_HEADERS - 1`; adding the buffer size before
+        // subtracting keeps every intermediate value non-negative in checked math — the same
+        // idiom `_findForkPoint` and `LibDoefinBlockHeaderOracle.getBlockHeaderByNumber` use.
+        uint256 numHeaders = LibDoefinStorage.NUM_OF_BLOCK_HEADERS;
+        uint256 depth = ds.blockHeaderOracleStorage.currentBlockHeight - forkHeight; // 0 on a plain extension
+
+        LibDoefinStorage.BlockHeader memory prevBlockHeader = depth == 0
             ? getLatestBlockHeader()
             : ds.blockHeaderOracleStorage.blockHeaders[
-                (ds.blockHeaderOracleStorage.nextBlockIndex + forkHeight - ds.blockHeaderOracleStorage.currentBlockHeight - 1) %
-                    LibDoefinStorage.NUM_OF_BLOCK_HEADERS
+                (ds.blockHeaderOracleStorage.nextBlockIndex + numHeaders - depth - 1) % numHeaders
             ];
 
         ds.blockHeaderOracleStorage.nextBlockIndex =
-            (ds.blockHeaderOracleStorage.nextBlockIndex + forkHeight - ds.blockHeaderOracleStorage.currentBlockHeight) %
-            LibDoefinStorage.NUM_OF_BLOCK_HEADERS;
+            (ds.blockHeaderOracleStorage.nextBlockIndex + numHeaders - depth) % numHeaders;
         ds.blockHeaderOracleStorage.currentBlockHeight = forkHeight;
 
         _applyChain(prevBlockHeader, newBlockHeaders);

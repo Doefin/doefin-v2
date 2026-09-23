@@ -253,13 +253,23 @@ reviews:
 
     - path: "contracts/facets/DoefinV1BlockHeaderOracleFacet.sol"
       instructions: |
-        Bitcoin block-header oracle. Excluded from deep review per
-        audit-exclusion-guidance.md, but flag:
+        Bitcoin block-header oracle — the LIVE settlement-triggering
+        authority on Base mainnet. IN SCOPE since SCRUM-521: it was
+        wrongly excluded as "superseded", which hid SEC-015 (the
+        submitBatchBlocks reorg-rewind underflow that froze the mainnet
+        oracle on 2026-09-15). Review closely and flag:
         - changes to block-header validation (PoW, hash-chaining, median
           timestamp) — these are consensus-shaped
-        - the ring-buffer arithmetic in `_applyChain` and any view
-          function that reads it (we already routed the views through
-          LibDoefinBlockHeaderOracle — flag if a new direct-read appears)
+        - ANY ring-buffer index expression that subtracts before adding
+          `NUM_OF_BLOCK_HEADERS` — the only accepted idiom is
+          `(i + NUM_OF_BLOCK_HEADERS - k) % NUM_OF_BLOCK_HEADERS`
+          (SEC-015; `_findForkPoint`, the `submitBatchBlocks` rewind,
+          `_applyChain`, `medianBlockTime`)
+        - any view function that reads the buffer directly (views are
+          routed through LibDoefinBlockHeaderOracle — flag a new
+          direct-read)
+        - reorg-path changes must keep test/integration/
+          OracleReorgIndexUnderflow.test.js green (17 slots x depths)
 
     - path: "contracts/facets/DiamondCutFacet.sol"
       instructions: |
@@ -392,9 +402,9 @@ reviews:
 
     - path: "contracts/libraries/BlockHeaderUtils.sol"
       instructions: |
-        Bitcoin block-header math (PoW, hash, median). Excluded from
-        deep review per audit-exclusion-guidance.md, but flag any
-        change to the difficulty / hash-chain logic.
+        Bitcoin block-header math (PoW, hash, median). IN SCOPE since
+        SCRUM-521 (was wrongly excluded as "superseded"). Flag any change
+        to the difficulty / hash-chain logic.
 
     # ── Mocks + audit harness — test-only ──
     - path: "contracts/mock/**"
@@ -494,12 +504,26 @@ reviews:
     # ── Audit docs — flag drift, recommend not re-deriving ──
     - path: "audit/findings/**"
       instructions: |
-        Audit findings. Each finding should have: status (RESOLVED /
-        ACCEPTED / IN-FLIGHT / DOCUMENTED), severity, repro / attack
-        model, fix link (commit SHA). Flag:
+        Audit findings. Every record is one block per finding in the schema of
+        `security/audit-protocol.md` ("Findings ledger — one block per
+        finding"). The lifecycle is carried by three separate enum fields, so
+        check THOSE, not an ad-hoc status vocabulary:
+          status:    new | confirmed | false-positive | duplicate | needs-info | wont-fix
+          decision:  fix | defer | accept-risk | n/a
+          reverify:  pending | fixed-clean | fixed-with-new-issue | not-fixed
+        A fixed-in-code finding whose production rollout or Phase-6 re-verify
+        is still outstanding is `status: confirmed` + `decision: fix` +
+        `reverify: pending` (the narrative goes on the `fix-commit` line).
+        Flag:
+        - a value outside these enums, or a missing severity / poc /
+          location / recommendation
+        - a record that contradicts `audit/findings-ledger.md`
         - findings unfixed AND classified CRITICAL/HIGH
-        - finding status changed without a corresponding code commit
-        - new finding without a SCRUM ticket reference
+        - a lifecycle field changed without a corresponding code commit
+          (fix-commit line)
+        - a new finding without a SCRUM ticket reference
+        Do NOT ask for RESOLVED / ACCEPTED / IN-FLIGHT / DOCUMENTED — that
+        vocabulary is not the protocol's (PR #26 CR-4081027067).
 
     - path: "audit/business-logic/**"
       instructions: |

@@ -1,0 +1,27 @@
+{
+  "ticket": "SCRUM-521",
+  "network": "baseSepolia",
+  "chainId": 84532,
+  "diamond": "0x2f03d47520fb8bc8aDAab392BF280D99De7cAe3f",
+  "owner": "0x01249C1cCb65d67f6490D6FC45ee0592d5c3cC37",
+  "cutRoute": "safe",
+  "selector": "0x7ea1b3d8",
+  "oldFacet": "0xF69e31093D95bCA19C02117d27afe58aC6F18Aa3",
+  "newFacet": "0x32F61D479483fB244a780afd5E45E4c8244fE4De",
+  "blockHeaderUtils": "0x2AE70d19Bb26cCC16700a4B66DaF8A3c73A47d7D",
+  "cutTxHash": "0xd1223e2a7d89c3161f97f15e09948142cbcceb43301570c1bfc75fadf407ceec",
+  "safeTxHash": "0x37da6c65512de36f09142a7a1138ac201dfa65f45c7b0b1def5e3ae76314e7e3",
+  "oracleStateBefore": {
+    "height": 968269,
+    "nextBlockIndex": 4,
+    "tipNumber": 968269,
+    "tipHash": "0x00000000000000000001e3320299e1acf8fe364aff486022a24409d8e66f714a"
+  },
+  "oracleStateAfter": {
+    "height": 968269,
+    "nextBlockIndex": 4,
+    "tipNumber": 968269,
+    "tipHash": "0x00000000000000000001e3320299e1acf8fe364aff486022a24409d8e66f714a"
+  },
+  "timestamp": "2026-09-23T12:12:38.854Z"
+}

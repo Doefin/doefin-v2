@@ -13,7 +13,7 @@
 | Severity | Count | IDs |
 |---|---|---|
 | Critical | 0 | — |
-| High | 2 | SEC-001, SEC-002 |
+| High | 3 | SEC-001, SEC-002, SEC-015 (post-audit — production incident 2026-09-15, oracle out of original scope) |
 | Medium | 5 | SEC-003, SEC-004, SEC-005, SEC-006, SEC-007 |
 | Low | 4 | SEC-008, SEC-009, SEC-010, SEC-011 |
 | Informational | 3 | SEC-012, SEC-013, SEC-014 |
@@ -21,6 +21,13 @@
 All HIGH findings are **compromised-operator-context** or **silent-misconfiguration** — none are reachable
 by an unprivileged caller without a trust assumption, hence not CRITICAL. They are still mainnet-blocking
 per the rubric (HIGH = loss of funds / integrity behind a precondition).
+
+> **Post-audit qualification (SCRUM-521, 2026-09-23):** the paragraph above describes SEC-001 and SEC-002
+> only. SEC-015 needs neither a compromised operator nor a misconfiguration: a naturally occurring Bitcoin
+> reorg is enough (a depth-`d` replay while `nextBlockIndex <= d` — for the common depth-1 orphan, ring
+> slot 16 or 0), and header submission is permissionless. It is HIGH rather than CRITICAL because the
+> impact is liveness — no market can resolve on any later block until the facet cut and the replay —
+> with no unprivileged fund loss (see the SEC-015 record below and `audit/findings-ledger.md`).
 
 ---
 
@@ -381,6 +388,30 @@ fix-test:       -
 
 ---
 
+### SEC-015: `submitBatchBlocks` reorg-rewind index underflows (Panic 0x11) whenever `nextBlockIndex <= depth` — froze the Base-mainnet oracle (post-audit, production incident)
+
+id:             SEC-015
+domain:         security
+severity:       high
+status:         confirmed
+decision:       fix
+reverify:       pending
+location:       contracts/facets/DoefinV1BlockHeaderOracleFacet.sol:125-135 (pre-fix numbering)
+source:         production incident 2026-09-15 (block-indexer CRITICAL `unreplayable_on_chain`); doefin-backend/docs/smart-contract-task-oracle-reorg-index-underflow.md
+duplicate-of:   -
+conflicts-with: -
+regression-of:  - (never covered: the oracle was excluded from the audit scope as "Block-header v1 (superseded)")
+title:          Reorg replay rewinds the ring buffer with checked left-to-right arithmetic that underflows in 2 of 17 pointer positions (depth 1)
+description:    `(nextBlockIndex + forkHeight - currentBlockHeight - 1) % 17` and `(nextBlockIndex + forkHeight - currentBlockHeight) % 17` evaluate as `(nextBlockIndex - depth) - 1` and `nextBlockIndex - depth` in checked uint256 math and revert `Panic(0x11)` whenever `nextBlockIndex <= depth`. `_findForkPoint` and `LibDoefinBlockHeaderOracle.getBlockHeaderByNumber` already use the wrap-safe `(nextBlockIndex + NUM_OF_BLOCK_HEADERS - i - 1) % NUM_OF_BLOCK_HEADERS`. SCSVS V10.3 (`doefin-backend/security/lenses/scsvs.md`) calls for exactly this check. `ComprehensiveReorgTest` only replays at `nextBlockIndex = 13`.
+impact:         Self-locking liveness failure. On 2026-09-15 the oracle stored an orphaned 967143 in slot 16 (pointer wrapped to 0); every replay since reverts, no PoW-valid child of the orphan exists, `initializeBlockHeaderOracle` is one-shot and there is no admin reset. Base mainnet (`0x71C424Ef79819c852952e517c082C4d17f89Fdf9`) frozen at the orphan for 7+ days; no market can resolve on any later block. Only a facet replacement clears it.
+poc:            `test/data/reorg_index_underflow/` — real headers 967110-967160 + the orphan read back from mainnet; `test/integration/OracleReorgIndexUnderflow.test.js` on the pre-fix facet: 19 failing cases, all `Panic(0x11)` (depth-d replay fails in every slot where `nextBlockIndex <= d`).
+recommendation: Add the buffer size before subtracting (`depth = currentBlockHeight - forkHeight`; `(nextBlockIndex + numHeaders - depth - 1) % numHeaders`; `(nextBlockIndex + numHeaders - depth) % numHeaders`). Ship as a single-selector `diamondCut` Replace of `submitBatchBlocks`, then replay the held batch. Bring the block-header oracle INTO audit scope and run the V10 lens over it.
+upgrade-safe:   yes — no storage-layout change, no selector change
+fix-commit:     ad9fa51a00a0cd0279caa74e995a252f82871702 (ad9fa51 — SCRUM-521, PR #26; regression suite 24f6ac8, replay-script hardening 8c713b4 + a0a969e) — fixed in code (regression matrix green, mainnet-fork rehearsal green); Phase-6 re-verify not run; production cut + held-batch replay pending, so `reverify` stays `pending` until `audit/reverify/verdict.md` records them
+fix-test:       test/integration/OracleReorgIndexUnderflow.test.js (17 slots × depths {1,2,3,6} + negatives + catch-up across the wrap); scripts/upgrades/rehearse-scrum521-fork.js (mainnet-fork rehearsal against the live stuck state)
+
+---
+
 ## Regression checklist verdict (`audit/00-scope.md`)
 
 Re-confirmed against the pinned commit `015097c`. The code has moved since the SC-008 reviews
@@ -442,7 +473,7 @@ order-validation layer that rejects mismatched-`collateralToken` pairs reduce re
 | SC05 Reentrancy | Pass | `nonReentrant` (shared `LibReentrancyGuard`, Diamond storage) wraps `matchOrders`/`fillOrder`. `_splitPositionInternal`/`_mergePositionsInternal` deliberately skip the guard and make **no external calls** (`sender == address(this)` skips `safeTransfer*`); `LibERC1155` acceptance checks on self-mint call the Diamond's own `ERC1155ReceiverFacet` (pure, returns selector). No cross-facet re-entry path found. See Verified Safe. |
 | SC06 Unchecked External Calls | Pass | All ERC-20 calls via OZ `SafeERC20`. EIP-1271 `staticcall` return is length- and magic-checked (`SettlementFacet:290`). `IERC20Metadata.symbol()` wrapped in `try/catch` (`AdminConfigFacet:46`). |
 | SC07 Flash Loan Attacks | Pass (in scope) | No price-dependent or balance-dependent logic in settlement; positions are CTF ERC-1155, value is fixed at `unitPerPair`. |
-| SC08 Integer Over/Underflow | Pass | Solidity 0.8.20 checked math. `_computeFee` casts widen to `uint256` before multiply. One robustness gap: `collateralAmount - fee` can underflow-panic (folded into SEC-003). `LibOracleAdapter.getTimestampBucket` divide-before-multiply is intentional bucketing (Verified Safe). |
+| SC08 Integer Over/Underflow | **Findings** | Solidity 0.8.20 checked math. `_computeFee` casts widen to `uint256` before multiply. `collateralAmount - fee` underflow-panic folded into SEC-003. `LibOracleAdapter.getTimestampBucket` divide-before-multiply is intentional bucketing (Verified Safe). **SEC-015 (post-audit, 2026-09-15 production incident):** `DoefinV1BlockHeaderOracleFacet.submitBatchBlocks` reorg-rewind `(nextBlockIndex + forkHeight - currentBlockHeight[- 1]) % 17` underflows (Panic 0x11) whenever `nextBlockIndex <= depth` — froze the mainnet oracle. Missed because the block-header oracle was scoped out as "superseded"; the previous Pass here was therefore only valid for the in-scope facets. Fixed SCRUM-521. |
 | SC09 Insecure Randomness | n/a | No randomness used. |
 | SC10 Denial of Service | **Findings** | SEC-008 (permissionless `updatePrice` can hold `tradingPaused`). `matchOrders` loops over `makerOrders` — gas-bounded by the operator's own calldata, no unbounded external loop in settlement. |
 

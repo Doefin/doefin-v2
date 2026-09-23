@@ -8,13 +8,13 @@ Produced by triage from: 4 domain reviews, Slither (27 raw), Mythril (3), Echidn
 | Severity | Count | IDs |
 |---|---|---|
 | Critical | 0 | — |
-| High | 2 | SEC-001, SEC-002 |
+| High | 3 | SEC-001, SEC-002, SEC-015 (post-audit — production incident 2026-09-15, fixed SCRUM-521) |
 | Medium | 7 | SEC-003, SEC-004, SEC-005, SEC-006, SEC-007, BIZ-001, GAS-001 |
 | Low | 12 | SEC-008, SEC-009, SEC-010, SEC-011, BIZ-002, BIZ-004, BIZ-005, BIZ-006, CPX-003, CPX-005, CPX-006, CPX-007 |
 | Informational | 6 | SEC-012, SEC-013, SEC-014, BIZ-008, CPX-A2, CPX-A4567 |
 | Gas (≤ MEDIUM) | 6 | GAS-002 (M), GAS-005 (M), GAS-003/004/006/007 (L) |
 
-**Total confirmed: 27** (excludes 4 `duplicate`). **Mainnet-blocking: SEC-001, SEC-002.**
+**Total confirmed: 28** (excludes 4 `duplicate`). **Mainnet-blocking: SEC-001, SEC-002** (fixed). **Post-audit production incident: SEC-015** (block-header oracle, out of the original scope — fixed SCRUM-521).
 
 **Dedup map (raw → canonical):**
 - SEC-005 + CPX-001 + REMAINING-1 + Slither `assembly`×3 + `low-level-calls`×1 → **SEC-005**
@@ -38,6 +38,13 @@ Produced by triage from: 4 domain reviews, Slither (27 raw), Mythril (3), Echidn
 - **description:** `_validateOrder` checks cancelled/nonce/salt/expiration only — no `isAllowed[collateralToken]` gate, no non-zero `unitPerPair` check. A removed token has `unit==0` (div-by-zero panic); worse, a zero-fee order (`feeRateBps==0` early-returns in `_computeFee` *before* its `price>unit` guard) against a mis-set `unitPerPair` settles at a wrong price with no revert.
 - **impact:** Compromised operator settles trades for an unwhitelisted/removed/mis-`unit` token; the whitelist is silently not enforced. Compounds SEC-001. HIGH.
 - **recommendation:** Central gate in `_validateOrder`: `if (!ds.adminConfigStorage.isAllowed[order.collateralToken]) revert Errors.TokenNotAllowed(); if (ds.adminConfigStorage.unitPerPair[order.collateralToken] == 0) revert Errors.InvalidUnitPerPair();`. Implement with BIZ-004 and BIZ-006 (same `_validateOrder` site).
+
+### SEC-015 — HIGH — confirmed — fix — `submitBatchBlocks` reorg-rewind index underflows (Panic 0x11) whenever `nextBlockIndex <= depth`; froze the Base-mainnet oracle
+- **location:** `contracts/facets/DoefinV1BlockHeaderOracleFacet.sol:125-135` (pre-fix) · **source:** production incident 2026-09-15 (block-indexer CRITICAL `unreplayable_on_chain`; SCRUM-521) · **swc:** SWC-101 · **scsvs:** V10.3 (`doefin-backend/security/lenses/scsvs.md` — "verify ring-buffer index arithmetic cannot underflow/wrap") · **owasp:** SC08 · **upgrade-safe:** yes (no storage-layout change; single-selector Replace cut)
+- **description:** On a reorg replay `_findForkPoint` returns `forkHeight` (depth `d = currentBlockHeight - forkHeight`, `1 <= d <= 16`). The prev-header lookup `(nextBlockIndex + forkHeight - currentBlockHeight - 1) % 17` and the pointer rewind `(nextBlockIndex + forkHeight - currentBlockHeight) % 17` are evaluated left-to-right in checked `uint256` math, i.e. as `(nextBlockIndex - d) - 1` and `nextBlockIndex - d`, and revert `Panic(0x11)` whenever `nextBlockIndex <= d`. For the common depth-1 orphan that is `nextBlockIndex ∈ {0, 1}` — the orphan sitting in ring slot 16 or 0 (2 of 17 positions); depth `d` fails in `(d + 1) / 17` of states. Sibling code (`_findForkPoint`, `LibDoefinBlockHeaderOracle.getBlockHeaderByNumber`) already uses the wrap-safe `(nextBlockIndex + NUM_OF_BLOCK_HEADERS - i - 1) % NUM_OF_BLOCK_HEADERS`.
+- **impact:** Self-locking liveness failure of the settlement-triggering oracle. 2026-09-15 15:36 UTC block-indexer stored a Bitcoin 967143 that was orphaned 19 s later, landing in slot 16 (`nextBlockIndex` 15 → 0). Every replay since reverts; the linear path needs a PoW-valid child of the orphan (none exists); `initializeBlockHeaderOracle` is one-shot; no admin reset. Base mainnet (Diamond `0x71C424Ef79819c852952e517c082C4d17f89Fdf9`) has been pinned at the orphaned 967143 for 7+ days — **no market can resolve on any later block**. Base Sepolia escaped by timing only. HIGH (protocol-wide liveness; no unprivileged fund loss).
+- **why the audit missed it:** the block-header oracle was scoped OUT as "Block-header v1 (superseded)" (`audit/00-scope.md`, `audit-exclusion-guidance.md`) although it is the live production oracle; SCSVS V10.3 names exactly this check; `ComprehensiveReorgTest` only replays at `nextBlockIndex = 13`.
+- **recommendation / fix (SCRUM-521):** `depth = currentBlockHeight - forkHeight`; prev-header slot `(nextBlockIndex + numHeaders - depth - 1) % numHeaders`; pointer `(nextBlockIndex + numHeaders - depth) % numHeaders`. `NewChainNotLonger`, `BlockReorged`, `_applyChain` untouched. Regression: `test/integration/OracleReorgIndexUnderflow.test.js` — the real 967110-967160 headers with the orphan in every one of the 17 slots × depths {1, 2, 3, 6} (68 replays) + negatives; 19 cases fail on the pre-fix facet, all `Panic(0x11)`. Deploy via single-selector `diamondCut` Replace (`scripts/upgrades/upgrade-scrum521-oracle-reorg-underflow.js`, rehearsed on a mainnet fork by `scripts/upgrades/rehearse-scrum521-fork.js`), then replay the held batch (`scripts/oracle-replay-batch.js`). Recovery runbook: cut → `npm run oracle:replay:base` → deploy the block-indexer build without the `unreplayable_on_chain` guard in the same rollout window. The guard cannot see the facet version and re-arms on the next orphan that lands in ring slot 16/0 (see `audit/follow-ups.md` SCRUM-521-BE-GUARD).
 
 ---
 

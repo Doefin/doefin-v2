@@ -193,10 +193,23 @@ Key integration points:
 
 | Key | Value |
 |-----|-------|
-| Diamond | `0xb05a5f3272F83BB748CcDA59c71Ac197dfA60F17` |
+| Diamond | `0x2f03d47520fb8bc8aDAab392BF280D99De7cAe3f` (Safe-owned; the earlier EOA-owned `0xb05a5f3272F83BB748CcDA59c71Ac197dfA60F17` is retired and its oracle is frozen) |
 | Chain ID | 84532 |
+| Owner (Safe) | `0x01249C1cCb65d67f6490D6FC45ee0592d5c3cC37` |
 | Operator | `0xc99BdBE077BD060646aF7902b7612ecdDB7B2901` |
-| Collateral | `0x55Dd0aBC9d270fAfF4Ad629627cAfD6907D4D4Ed` |
+| Collateral | mUSDT `0x290F9Aa4641E58A5E098e8860161Ab6B5df5C557`, mWBTC `0x41f8d70aC28C340c5D3038FB987ab2CC985b13A9` |
+
+## Current Deployment (Base mainnet)
+
+| Key | Value |
+|-----|-------|
+| Diamond | `0x71C424Ef79819c852952e517c082C4d17f89Fdf9` |
+| Chain ID | 8453 |
+| Owner (Safe) | `0x42B0c3471AE41780cFC4b6cEf8B06A103Cd83486` |
+| Operator | `0xc99BdBE077BD060646aF7902b7612ecdDB7B2901` |
+
+Addresses verified on-chain 2026-09-23 (`owner()`, `getOperator()`, `isAllowedCollateral()`); the deploy
+ledger for mainnet is `deployments/base/recovery-2026-05-25.json`.
 
 ## Current Task
 

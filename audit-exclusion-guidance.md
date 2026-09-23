@@ -1,7 +1,18 @@
 # Audit Exclusion Guidance
 
 ## Purpose
-This note tells auditors which components to ignore when reviewing the core protocol. The items below are excluded from the audit scope and should be omitted from code review, threat modeling, and test coverage expectations.
+This note tells auditors which components to ignore when reviewing the core protocol. The items under **Components to Exclude** are excluded from the audit scope and should be omitted from code review, threat modeling, and test coverage expectations. Components under **Re-scoped IN** were excluded in an earlier revision and are now in scope.
+
+## Re-scoped IN — NOT excluded (SCRUM-521, 2026-09-23)
+- **Bitcoin block-header oracle** (formerly excluded as "Block Header v1 (superseded)"). It was never
+  superseded: it is the live settlement-triggering oracle on Base mainnet (`.claude/CLAUDE.md` → Architecture →
+  Oracle). The former exclusion hid SEC-015 (reorg-rewind underflow, production incident 2026-09-15). Review,
+  threat-model and cover these files like any other in-scope contract; the SCSVS V10 lens applies. The
+  tool-level exclusions that still skip them are tracked in `audit/follow-ups.md` SCRUM-521-AUDIT-SCOPE.
+	- [contracts/facets/DoefinV1BlockHeaderOracleFacet.sol](contracts/facets/DoefinV1BlockHeaderOracleFacet.sol)
+	- [contracts/libraries/BlockHeaderUtils.sol](contracts/libraries/BlockHeaderUtils.sol)
+	- [contracts/libraries/LibDoefinBlockHeaderOracle.sol](contracts/libraries/LibDoefinBlockHeaderOracle.sol)
+	- [contracts/interfaces/IDoefinBlockHeaderOracle.sol](contracts/interfaces/IDoefinBlockHeaderOracle.sol)
 
 ## Components to Exclude (Audit Only)
 - **CTF (imported from Gnosis CTF)**
@@ -12,12 +23,6 @@ This note tells auditors which components to ignore when reviewing the core prot
 	- [contracts/libraries/LibConditionMetadata.sol](contracts/libraries/LibConditionMetadata.sol)
 	- [contracts/libraries/LibCTHelpers.sol](contracts/libraries/LibCTHelpers.sol)
 	- [contracts/libraries/LibCTFCondition.sol](contracts/libraries/LibCTFCondition.sol)
-
-- **Block Header v1 (superseded)**
-	- [contracts/facets/DoefinV1BlockHeaderOracleFacet.sol](contracts/facets/DoefinV1BlockHeaderOracleFacet.sol)
-	- [contracts/libraries/BlockHeaderUtils.sol](contracts/libraries/BlockHeaderUtils.sol)
-	- [contracts/libraries/LibDoefinBlockHeaderOracle.sol](contracts/libraries/LibDoefinBlockHeaderOracle.sol)
-	- [contracts/interfaces/IDoefinBlockHeaderOracle.sol](contracts/interfaces/IDoefinBlockHeaderOracle.sol)
 
 - **Diamond reference (from diamond-hardhat template)**
 	- [contracts/Diamond.sol](contracts/Diamond.sol)
@@ -46,7 +51,9 @@ This note tells auditors which components to ignore when reviewing the core prot
 
 ## Rationale
 - The CTF flow is third-party (Gnosis CTF) and excluded from audit to avoid re-reviewing upstream code; exclusion is audit-only and does not imply removal from deployment artifacts.
-- Block header v1 components are superseded by newer oracle integrations and should not be part of the current audit scope.
+- ~~Block header v1 components are superseded by newer oracle integrations and should not be part of the current audit scope.~~
+  **Withdrawn (SCRUM-521, 2026-09-23):** the block-header oracle is not superseded and is no longer excluded — see
+  "Re-scoped IN" above.
 - Diamond base components come from the diamond-hardhat reference and are treated as upstream; exclude from this audit to focus on custom logic.
 - Mock contracts are test-only and not part of production deployments — the exclusion covers the entire `contracts/mock/` folder, so any mock added later is excluded by default even if not yet named above.
 - `DoefinInvariantHarness.sol` exists only to drive Echidna/Medusa property fuzzing; it is never deployed and is excluded from review consistent with `audit/00-scope.md`.

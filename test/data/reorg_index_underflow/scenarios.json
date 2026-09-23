@@ -1,0 +1,670 @@
+{
+  "description": "One scenario per ring slot the orphaned block can occupy. Drive nextBlockIndex with submitNextBlock after initializeBlockHeaderOracle; the orphan is always the last header written before the replay.",
+  "ringBufferSize": 17,
+  "orphanHeight": 967143,
+  "scenarios": [
+    {
+      "orphanSlot": 0,
+      "init": {
+        "from": 967126,
+        "to": 967142,
+        "initialBlockHeight": 967126
+      },
+      "extendMainChain": {
+        "from": 967143,
+        "to": 967142,
+        "count": 0
+      },
+      "thenSubmitOrphan": 967143,
+      "stateWithOrphan": {
+        "currentBlockHeight": 967143,
+        "nextBlockIndex": 1,
+        "orphanSlot": 0
+      },
+      "replayBatch": {
+        "blocks": [
+          967143,
+          967144,
+          967145,
+          967146
+        ],
+        "forkHeight": 967142,
+        "depth": 1,
+        "note": "canonical 967143 + 967144..967146 from blocks-mainchain; identical to the batch production has been retrying since 2026-09-15 15:45 UTC"
+      },
+      "expectedBeforeFix": "Panic(0x11) arithmetic underflow",
+      "expectedAfterFix": {
+        "result": "success",
+        "currentBlockHeight": 967146,
+        "nextBlockIndex": 4,
+        "blockHeaderByNumber_967143": "0x00000000000000000000895ebcc581479d57ea4f86d94e1eb3c5429955bea37f",
+        "slotNowHolding967143": 0
+      },
+      "matchesProductionIncident": false
+    },
+    {
+      "orphanSlot": 1,
+      "init": {
+        "from": 967125,
+        "to": 967141,
+        "initialBlockHeight": 967125
+      },
+      "extendMainChain": {
+        "from": 967142,
+        "to": 967142,
+        "count": 1
+      },
+      "thenSubmitOrphan": 967143,
+      "stateWithOrphan": {
+        "currentBlockHeight": 967143,
+        "nextBlockIndex": 2,
+        "orphanSlot": 1
+      },
+      "replayBatch": {
+        "blocks": [
+          967143,
+          967144,
+          967145,
+          967146
+        ],
+        "forkHeight": 967142,
+        "depth": 1,
+        "note": "canonical 967143 + 967144..967146 from blocks-mainchain; identical to the batch production has been retrying since 2026-09-15 15:45 UTC"
+      },
+      "expectedBeforeFix": "success",
+      "expectedAfterFix": {
+        "result": "success",
+        "currentBlockHeight": 967146,
+        "nextBlockIndex": 5,
+        "blockHeaderByNumber_967143": "0x00000000000000000000895ebcc581479d57ea4f86d94e1eb3c5429955bea37f",
+        "slotNowHolding967143": 1
+      },
+      "matchesProductionIncident": false
+    },
+    {
+      "orphanSlot": 2,
+      "init": {
+        "from": 967124,
+        "to": 967140,
+        "initialBlockHeight": 967124
+      },
+      "extendMainChain": {
+        "from": 967141,
+        "to": 967142,
+        "count": 2
+      },
+      "thenSubmitOrphan": 967143,
+      "stateWithOrphan": {
+        "currentBlockHeight": 967143,
+        "nextBlockIndex": 3,
+        "orphanSlot": 2
+      },
+      "replayBatch": {
+        "blocks": [
+          967143,
+          967144,
+          967145,
+          967146
+        ],
+        "forkHeight": 967142,
+        "depth": 1,
+        "note": "canonical 967143 + 967144..967146 from blocks-mainchain; identical to the batch production has been retrying since 2026-09-15 15:45 UTC"
+      },
+      "expectedBeforeFix": "success",
+      "expectedAfterFix": {
+        "result": "success",
+        "currentBlockHeight": 967146,
+        "nextBlockIndex": 6,
+        "blockHeaderByNumber_967143": "0x00000000000000000000895ebcc581479d57ea4f86d94e1eb3c5429955bea37f",
+        "slotNowHolding967143": 2
+      },
+      "matchesProductionIncident": false
+    },
+    {
+      "orphanSlot": 3,
+      "init": {
+        "from": 967123,
+        "to": 967139,
+        "initialBlockHeight": 967123
+      },
+      "extendMainChain": {
+        "from": 967140,
+        "to": 967142,
+        "count": 3
+      },
+      "thenSubmitOrphan": 967143,
+      "stateWithOrphan": {
+        "currentBlockHeight": 967143,
+        "nextBlockIndex": 4,
+        "orphanSlot": 3
+      },
+      "replayBatch": {
+        "blocks": [
+          967143,
+          967144,
+          967145,
+          967146
+        ],
+        "forkHeight": 967142,
+        "depth": 1,
+        "note": "canonical 967143 + 967144..967146 from blocks-mainchain; identical to the batch production has been retrying since 2026-09-15 15:45 UTC"
+      },
+      "expectedBeforeFix": "success",
+      "expectedAfterFix": {
+        "result": "success",
+        "currentBlockHeight": 967146,
+        "nextBlockIndex": 7,
+        "blockHeaderByNumber_967143": "0x00000000000000000000895ebcc581479d57ea4f86d94e1eb3c5429955bea37f",
+        "slotNowHolding967143": 3
+      },
+      "matchesProductionIncident": false
+    },
+    {
+      "orphanSlot": 4,
+      "init": {
+        "from": 967122,
+        "to": 967138,
+        "initialBlockHeight": 967122
+      },
+      "extendMainChain": {
+        "from": 967139,
+        "to": 967142,
+        "count": 4
+      },
+      "thenSubmitOrphan": 967143,
+      "stateWithOrphan": {
+        "currentBlockHeight": 967143,
+        "nextBlockIndex": 5,
+        "orphanSlot": 4
+      },
+      "replayBatch": {
+        "blocks": [
+          967143,
+          967144,
+          967145,
+          967146
+        ],
+        "forkHeight": 967142,
+        "depth": 1,
+        "note": "canonical 967143 + 967144..967146 from blocks-mainchain; identical to the batch production has been retrying since 2026-09-15 15:45 UTC"
+      },
+      "expectedBeforeFix": "success",
+      "expectedAfterFix": {
+        "result": "success",
+        "currentBlockHeight": 967146,
+        "nextBlockIndex": 8,
+        "blockHeaderByNumber_967143": "0x00000000000000000000895ebcc581479d57ea4f86d94e1eb3c5429955bea37f",
+        "slotNowHolding967143": 4
+      },
+      "matchesProductionIncident": false
+    },
+    {
+      "orphanSlot": 5,
+      "init": {
+        "from": 967121,
+        "to": 967137,
+        "initialBlockHeight": 967121
+      },
+      "extendMainChain": {
+        "from": 967138,
+        "to": 967142,
+        "count": 5
+      },
+      "thenSubmitOrphan": 967143,
+      "stateWithOrphan": {
+        "currentBlockHeight": 967143,
+        "nextBlockIndex": 6,
+        "orphanSlot": 5
+      },
+      "replayBatch": {
+        "blocks": [
+          967143,
+          967144,
+          967145,
+          967146
+        ],
+        "forkHeight": 967142,
+        "depth": 1,
+        "note": "canonical 967143 + 967144..967146 from blocks-mainchain; identical to the batch production has been retrying since 2026-09-15 15:45 UTC"
+      },
+      "expectedBeforeFix": "success",
+      "expectedAfterFix": {
+        "result": "success",
+        "currentBlockHeight": 967146,
+        "nextBlockIndex": 9,
+        "blockHeaderByNumber_967143": "0x00000000000000000000895ebcc581479d57ea4f86d94e1eb3c5429955bea37f",
+        "slotNowHolding967143": 5
+      },
+      "matchesProductionIncident": false
+    },
+    {
+      "orphanSlot": 6,
+      "init": {
+        "from": 967120,
+        "to": 967136,
+        "initialBlockHeight": 967120
+      },
+      "extendMainChain": {
+        "from": 967137,
+        "to": 967142,
+        "count": 6
+      },
+      "thenSubmitOrphan": 967143,
+      "stateWithOrphan": {
+        "currentBlockHeight": 967143,
+        "nextBlockIndex": 7,
+        "orphanSlot": 6
+      },
+      "replayBatch": {
+        "blocks": [
+          967143,
+          967144,
+          967145,
+          967146
+        ],
+        "forkHeight": 967142,
+        "depth": 1,
+        "note": "canonical 967143 + 967144..967146 from blocks-mainchain; identical to the batch production has been retrying since 2026-09-15 15:45 UTC"
+      },
+      "expectedBeforeFix": "success",
+      "expectedAfterFix": {
+        "result": "success",
+        "currentBlockHeight": 967146,
+        "nextBlockIndex": 10,
+        "blockHeaderByNumber_967143": "0x00000000000000000000895ebcc581479d57ea4f86d94e1eb3c5429955bea37f",
+        "slotNowHolding967143": 6
+      },
+      "matchesProductionIncident": false
+    },
+    {
+      "orphanSlot": 7,
+      "init": {
+        "from": 967119,
+        "to": 967135,
+        "initialBlockHeight": 967119
+      },
+      "extendMainChain": {
+        "from": 967136,
+        "to": 967142,
+        "count": 7
+      },
+      "thenSubmitOrphan": 967143,
+      "stateWithOrphan": {
+        "currentBlockHeight": 967143,
+        "nextBlockIndex": 8,
+        "orphanSlot": 7
+      },
+      "replayBatch": {
+        "blocks": [
+          967143,
+          967144,
+          967145,
+          967146
+        ],
+        "forkHeight": 967142,
+        "depth": 1,
+        "note": "canonical 967143 + 967144..967146 from blocks-mainchain; identical to the batch production has been retrying since 2026-09-15 15:45 UTC"
+      },
+      "expectedBeforeFix": "success",
+      "expectedAfterFix": {
+        "result": "success",
+        "currentBlockHeight": 967146,
+        "nextBlockIndex": 11,
+        "blockHeaderByNumber_967143": "0x00000000000000000000895ebcc581479d57ea4f86d94e1eb3c5429955bea37f",
+        "slotNowHolding967143": 7
+      },
+      "matchesProductionIncident": false
+    },
+    {
+      "orphanSlot": 8,
+      "init": {
+        "from": 967118,
+        "to": 967134,
+        "initialBlockHeight": 967118
+      },
+      "extendMainChain": {
+        "from": 967135,
+        "to": 967142,
+        "count": 8
+      },
+      "thenSubmitOrphan": 967143,
+      "stateWithOrphan": {
+        "currentBlockHeight": 967143,
+        "nextBlockIndex": 9,
+        "orphanSlot": 8
+      },
+      "replayBatch": {
+        "blocks": [
+          967143,
+          967144,
+          967145,
+          967146
+        ],
+        "forkHeight": 967142,
+        "depth": 1,
+        "note": "canonical 967143 + 967144..967146 from blocks-mainchain; identical to the batch production has been retrying since 2026-09-15 15:45 UTC"
+      },
+      "expectedBeforeFix": "success",
+      "expectedAfterFix": {
+        "result": "success",
+        "currentBlockHeight": 967146,
+        "nextBlockIndex": 12,
+        "blockHeaderByNumber_967143": "0x00000000000000000000895ebcc581479d57ea4f86d94e1eb3c5429955bea37f",
+        "slotNowHolding967143": 8
+      },
+      "matchesProductionIncident": false
+    },
+    {
+      "orphanSlot": 9,
+      "init": {
+        "from": 967117,
+        "to": 967133,
+        "initialBlockHeight": 967117
+      },
+      "extendMainChain": {
+        "from": 967134,
+        "to": 967142,
+        "count": 9
+      },
+      "thenSubmitOrphan": 967143,
+      "stateWithOrphan": {
+        "currentBlockHeight": 967143,
+        "nextBlockIndex": 10,
+        "orphanSlot": 9
+      },
+      "replayBatch": {
+        "blocks": [
+          967143,
+          967144,
+          967145,
+          967146
+        ],
+        "forkHeight": 967142,
+        "depth": 1,
+        "note": "canonical 967143 + 967144..967146 from blocks-mainchain; identical to the batch production has been retrying since 2026-09-15 15:45 UTC"
+      },
+      "expectedBeforeFix": "success",
+      "expectedAfterFix": {
+        "result": "success",
+        "currentBlockHeight": 967146,
+        "nextBlockIndex": 13,
+        "blockHeaderByNumber_967143": "0x00000000000000000000895ebcc581479d57ea4f86d94e1eb3c5429955bea37f",
+        "slotNowHolding967143": 9
+      },
+      "matchesProductionIncident": false
+    },
+    {
+      "orphanSlot": 10,
+      "init": {
+        "from": 967116,
+        "to": 967132,
+        "initialBlockHeight": 967116
+      },
+      "extendMainChain": {
+        "from": 967133,
+        "to": 967142,
+        "count": 10
+      },
+      "thenSubmitOrphan": 967143,
+      "stateWithOrphan": {
+        "currentBlockHeight": 967143,
+        "nextBlockIndex": 11,
+        "orphanSlot": 10
+      },
+      "replayBatch": {
+        "blocks": [
+          967143,
+          967144,
+          967145,
+          967146
+        ],
+        "forkHeight": 967142,
+        "depth": 1,
+        "note": "canonical 967143 + 967144..967146 from blocks-mainchain; identical to the batch production has been retrying since 2026-09-15 15:45 UTC"
+      },
+      "expectedBeforeFix": "success",
+      "expectedAfterFix": {
+        "result": "success",
+        "currentBlockHeight": 967146,
+        "nextBlockIndex": 14,
+        "blockHeaderByNumber_967143": "0x00000000000000000000895ebcc581479d57ea4f86d94e1eb3c5429955bea37f",
+        "slotNowHolding967143": 10
+      },
+      "matchesProductionIncident": false
+    },
+    {
+      "orphanSlot": 11,
+      "init": {
+        "from": 967115,
+        "to": 967131,
+        "initialBlockHeight": 967115
+      },
+      "extendMainChain": {
+        "from": 967132,
+        "to": 967142,
+        "count": 11
+      },
+      "thenSubmitOrphan": 967143,
+      "stateWithOrphan": {
+        "currentBlockHeight": 967143,
+        "nextBlockIndex": 12,
+        "orphanSlot": 11
+      },
+      "replayBatch": {
+        "blocks": [
+          967143,
+          967144,
+          967145,
+          967146
+        ],
+        "forkHeight": 967142,
+        "depth": 1,
+        "note": "canonical 967143 + 967144..967146 from blocks-mainchain; identical to the batch production has been retrying since 2026-09-15 15:45 UTC"
+      },
+      "expectedBeforeFix": "success",
+      "expectedAfterFix": {
+        "result": "success",
+        "currentBlockHeight": 967146,
+        "nextBlockIndex": 15,
+        "blockHeaderByNumber_967143": "0x00000000000000000000895ebcc581479d57ea4f86d94e1eb3c5429955bea37f",
+        "slotNowHolding967143": 11
+      },
+      "matchesProductionIncident": false
+    },
+    {
+      "orphanSlot": 12,
+      "init": {
+        "from": 967114,
+        "to": 967130,
+        "initialBlockHeight": 967114
+      },
+      "extendMainChain": {
+        "from": 967131,
+        "to": 967142,
+        "count": 12
+      },
+      "thenSubmitOrphan": 967143,
+      "stateWithOrphan": {
+        "currentBlockHeight": 967143,
+        "nextBlockIndex": 13,
+        "orphanSlot": 12
+      },
+      "replayBatch": {
+        "blocks": [
+          967143,
+          967144,
+          967145,
+          967146
+        ],
+        "forkHeight": 967142,
+        "depth": 1,
+        "note": "canonical 967143 + 967144..967146 from blocks-mainchain; identical to the batch production has been retrying since 2026-09-15 15:45 UTC"
+      },
+      "expectedBeforeFix": "success",
+      "expectedAfterFix": {
+        "result": "success",
+        "currentBlockHeight": 967146,
+        "nextBlockIndex": 16,
+        "blockHeaderByNumber_967143": "0x00000000000000000000895ebcc581479d57ea4f86d94e1eb3c5429955bea37f",
+        "slotNowHolding967143": 12
+      },
+      "matchesProductionIncident": false
+    },
+    {
+      "orphanSlot": 13,
+      "init": {
+        "from": 967113,
+        "to": 967129,
+        "initialBlockHeight": 967113
+      },
+      "extendMainChain": {
+        "from": 967130,
+        "to": 967142,
+        "count": 13
+      },
+      "thenSubmitOrphan": 967143,
+      "stateWithOrphan": {
+        "currentBlockHeight": 967143,
+        "nextBlockIndex": 14,
+        "orphanSlot": 13
+      },
+      "replayBatch": {
+        "blocks": [
+          967143,
+          967144,
+          967145,
+          967146
+        ],
+        "forkHeight": 967142,
+        "depth": 1,
+        "note": "canonical 967143 + 967144..967146 from blocks-mainchain; identical to the batch production has been retrying since 2026-09-15 15:45 UTC"
+      },
+      "expectedBeforeFix": "success",
+      "expectedAfterFix": {
+        "result": "success",
+        "currentBlockHeight": 967146,
+        "nextBlockIndex": 0,
+        "blockHeaderByNumber_967143": "0x00000000000000000000895ebcc581479d57ea4f86d94e1eb3c5429955bea37f",
+        "slotNowHolding967143": 13
+      },
+      "matchesProductionIncident": false
+    },
+    {
+      "orphanSlot": 14,
+      "init": {
+        "from": 967112,
+        "to": 967128,
+        "initialBlockHeight": 967112
+      },
+      "extendMainChain": {
+        "from": 967129,
+        "to": 967142,
+        "count": 14
+      },
+      "thenSubmitOrphan": 967143,
+      "stateWithOrphan": {
+        "currentBlockHeight": 967143,
+        "nextBlockIndex": 15,
+        "orphanSlot": 14
+      },
+      "replayBatch": {
+        "blocks": [
+          967143,
+          967144,
+          967145,
+          967146
+        ],
+        "forkHeight": 967142,
+        "depth": 1,
+        "note": "canonical 967143 + 967144..967146 from blocks-mainchain; identical to the batch production has been retrying since 2026-09-15 15:45 UTC"
+      },
+      "expectedBeforeFix": "success",
+      "expectedAfterFix": {
+        "result": "success",
+        "currentBlockHeight": 967146,
+        "nextBlockIndex": 1,
+        "blockHeaderByNumber_967143": "0x00000000000000000000895ebcc581479d57ea4f86d94e1eb3c5429955bea37f",
+        "slotNowHolding967143": 14
+      },
+      "matchesProductionIncident": false
+    },
+    {
+      "orphanSlot": 15,
+      "init": {
+        "from": 967111,
+        "to": 967127,
+        "initialBlockHeight": 967111
+      },
+      "extendMainChain": {
+        "from": 967128,
+        "to": 967142,
+        "count": 15
+      },
+      "thenSubmitOrphan": 967143,
+      "stateWithOrphan": {
+        "currentBlockHeight": 967143,
+        "nextBlockIndex": 16,
+        "orphanSlot": 15
+      },
+      "replayBatch": {
+        "blocks": [
+          967143,
+          967144,
+          967145,
+          967146
+        ],
+        "forkHeight": 967142,
+        "depth": 1,
+        "note": "canonical 967143 + 967144..967146 from blocks-mainchain; identical to the batch production has been retrying since 2026-09-15 15:45 UTC"
+      },
+      "expectedBeforeFix": "success",
+      "expectedAfterFix": {
+        "result": "success",
+        "currentBlockHeight": 967146,
+        "nextBlockIndex": 2,
+        "blockHeaderByNumber_967143": "0x00000000000000000000895ebcc581479d57ea4f86d94e1eb3c5429955bea37f",
+        "slotNowHolding967143": 15
+      },
+      "matchesProductionIncident": false
+    },
+    {
+      "orphanSlot": 16,
+      "init": {
+        "from": 967110,
+        "to": 967126,
+        "initialBlockHeight": 967110
+      },
+      "extendMainChain": {
+        "from": 967127,
+        "to": 967142,
+        "count": 16
+      },
+      "thenSubmitOrphan": 967143,
+      "stateWithOrphan": {
+        "currentBlockHeight": 967143,
+        "nextBlockIndex": 0,
+        "orphanSlot": 16
+      },
+      "replayBatch": {
+        "blocks": [
+          967143,
+          967144,
+          967145,
+          967146
+        ],
+        "forkHeight": 967142,
+        "depth": 1,
+        "note": "canonical 967143 + 967144..967146 from blocks-mainchain; identical to the batch production has been retrying since 2026-09-15 15:45 UTC"
+      },
+      "expectedBeforeFix": "Panic(0x11) arithmetic underflow",
+      "expectedAfterFix": {
+        "result": "success",
+        "currentBlockHeight": 967146,
+        "nextBlockIndex": 3,
+        "blockHeaderByNumber_967143": "0x00000000000000000000895ebcc581479d57ea4f86d94e1eb3c5429955bea37f",
+        "slotNowHolding967143": 16
+      },
+      "matchesProductionIncident": true
+    }
+  ]
+}
