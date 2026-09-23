@@ -515,7 +515,7 @@ reviews:
         is still outstanding is `status: confirmed` + `decision: fix` +
         `reverify: pending` (the narrative goes on the `fix-commit` line).
         Flag:
-        - a value outside these enums, or a missing severity / repro /
+        - a value outside these enums, or a missing severity / poc /
           location / recommendation
         - a record that contradicts `audit/findings-ledger.md`
         - findings unfixed AND classified CRITICAL/HIGH
