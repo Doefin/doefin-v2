@@ -2,14 +2,14 @@ name: Slither
 
 on:
   pull_request:
-    branches: [main, "v3/dev"]
+    branches: [main, dev]
     paths:
       - "contracts/**"
       - "hardhat.config.*"
       - "package.json"
       - ".github/workflows/slither.yml"
   push:
-    branches: [main, "v3/dev"]
+    branches: [main, dev]
     paths:
       - "contracts/**"
 
