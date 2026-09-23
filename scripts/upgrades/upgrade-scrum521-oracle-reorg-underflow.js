@@ -68,6 +68,8 @@ const NETWORKS = {
 
 const FacetCutAction = { Add: 0, Replace: 1, Remove: 2 };
 const BANNER_PAUSE_MS = 5000;
+const POST_CHECK_ATTEMPTS = 10;
+const POST_CHECK_DELAY_MS = 3000;
 
 function networkConfig() {
   const name = hre.network.name;
@@ -298,9 +300,20 @@ async function runUpgrade(opts = {}) {
 
   // ---------------------------------------------------------------- post-check
   console.log("\n--- Step 4: post-check ---");
-  const routed = await loupe.facetAddress(target.selector);
+  // Load-balanced RPCs often answer the first read after a transaction from a replica that
+  // is a few hundred ms behind (the 2026-09-23 mainnet run tripped on exactly this). Poll
+  // until the new routing is visible before concluding anything.
+  let routed = await loupe.facetAddress(target.selector);
+  for (let attempt = 1; routed.toLowerCase() !== newFacet.toLowerCase() && attempt <= POST_CHECK_ATTEMPTS; attempt++) {
+    console.log(`  … routing not visible yet (read ${attempt}: ${routed}); retrying in ${POST_CHECK_DELAY_MS / 1000}s`);
+    await new Promise((r) => setTimeout(r, POST_CHECK_DELAY_MS));
+    routed = await loupe.facetAddress(target.selector);
+  }
   if (routed.toLowerCase() !== newFacet.toLowerCase()) {
-    throw new Error(`submitBatchBlocks routes to ${routed}, expected ${newFacet}`);
+    throw new Error(
+      `submitBatchBlocks still routes to ${routed} after ${POST_CHECK_ATTEMPTS} reads, expected ${newFacet}. ` +
+        `The cut tx ${cutTxHash} was mined; re-check with npm run oracle:status:${cfg.name} before assuming failure.`
+    );
   }
   console.log(`  ✔ submitBatchBlocks → ${routed}`);
   for (const s of others) {
