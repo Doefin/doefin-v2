@@ -31,7 +31,7 @@ const BLOCK_REORGED_TOPIC = ethers.utils.id("BlockReorged(bytes32)");
 const BLOCK_SUBMITTED_TOPIC = ethers.utils.id("BlockSubmitted(bytes32,uint32)");
 
 async function replayHeldBatch({ diamond, signer, through = HELD_BATCH_TIP, dryRun = false }) {
-  if (through < HELD_BATCH_TIP || through > FIXTURE_LAST) {
+  if (!Number.isInteger(through) || through < HELD_BATCH_TIP || through > FIXTURE_LAST) {
     throw new Error(`REPLAY_THROUGH must be in ${HELD_BATCH_TIP}..${FIXTURE_LAST}, got ${through}`);
   }
   const oracle = (await ethers.getContractAt("IDoefinBlockHeaderOracle", diamond)).connect(signer);
@@ -39,13 +39,15 @@ async function replayHeldBatch({ diamond, signer, through = HELD_BATCH_TIP, dryR
   printState("Oracle before", before);
 
   if (before.height >= ORPHAN_HEIGHT) {
-    let held143 = null;
-    try {
-      held143 = (await oracle.getBlockHeaderByNumber(ORPHAN_HEIGHT)).blockHash;
-    } catch (_) {
-      /* 967143 already out of the 17-slot window */
+    // 967143 leaves the window exactly when getBlockHeaderByNumber would revert ValueOutOfRange:
+    // blockNumber <= currentHeight - NUM_OF_BLOCK_HEADERS  <=>  height >= ORPHAN_HEIGHT + RING.
+    if (before.height >= ORPHAN_HEIGHT + RING) {
+      console.log(`  ${ORPHAN_HEIGHT} is outside the ${RING}-slot window (height ${before.height}) — the orphan was replaced; nothing to replay.`);
+      return { recovered: true, before, after: before };
     }
-    if (held143 === null || sameHash(held143, CANONICAL_143.blockHash)) {
+    // In-window read: any error here (RPC timeout, rate limit, provider fault) must propagate.
+    const held143 = (await oracle.getBlockHeaderByNumber(ORPHAN_HEIGHT)).blockHash;
+    if (sameHash(held143, CANONICAL_143.blockHash)) {
       console.log(`  Oracle already holds the canonical chain (height ${before.height}) — nothing to replay.`);
       return { recovered: true, before, after: before };
     }
