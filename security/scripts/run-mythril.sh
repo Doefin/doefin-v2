@@ -7,7 +7,7 @@ OUT=audit/output/mythril
 mkdir -p "$OUT"
 TIMEOUT="${MYTHRIL_TIMEOUT:-900}"
 
-FACETS="SettlementFacet SignatureVerifierFacet NonceManagerFacet"
+FACETS="SettlementFacet SignatureVerifierFacet NonceManagerFacet DoefinV1BlockHeaderOracleFacet ConditionManagerFacet"
 for f in $FACETS; do
   echo "[mythril] analyzing $f (execution-timeout ${TIMEOUT}s)"
   myth analyze "contracts/facets/$f.sol" \
