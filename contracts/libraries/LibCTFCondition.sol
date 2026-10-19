@@ -91,7 +91,15 @@ library LibCTFCondition {
             amount
         );
 
-        LibPositionRegistry.registerPositionPairs(positionIds, partition, conditionId, parentCollectionId, collateralToken);
+        // CTF-001 / CTF-002: only a canonical root split defines a settlement market — no parent,
+        // a full partition, ascending singletons [1, 2, 4, …]. Any other split (partial, reordered,
+        // nested) is ordinary CTF use and leaves the registry alone, so no caller can choose a
+        // market's outcome set, outcome order, parent collection or condition mapping. Settlement
+        // treats a registered pair as complete outcomes; a registered partial set let a Merge pay
+        // full collateral for an incomplete one.
+        if (_isCanonicalRootPartition(parentCollectionId, freeIndexSet, partition)) {
+            LibPositionRegistry.registerPositionPairs(positionIds, partition, conditionId, parentCollectionId, collateralToken);
+        }
 
         LibReentrancyGuard._nonReentrantBefore();
         if (freeIndexSet == 0) {
@@ -275,6 +283,21 @@ library LibCTFCondition {
             amounts[i] = amount;
             unchecked { ++i; } // GAS-007: counter is bounded by partition.length
         }
+    }
+
+    /// @dev True for a split from collateral (no parent) over every outcome, listed as ascending
+    ///      singletons: partition[i] == 1 << i. `freeIndexSet == 0` means the partition is full.
+    function _isCanonicalRootPartition(
+        bytes32 parentCollectionId,
+        uint256 freeIndexSet,
+        uint256[] memory partition
+    ) internal pure returns (bool) {
+        if (parentCollectionId != bytes32(0) || freeIndexSet != 0) return false;
+        for (uint256 i = 0; i < partition.length;) {
+            if (partition[i] != uint256(1) << i) return false;
+            unchecked { ++i; }
+        }
+        return true;
     }
 
     function _getPositionId(

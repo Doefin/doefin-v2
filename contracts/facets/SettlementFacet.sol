@@ -343,11 +343,12 @@ contract SettlementFacet is ISettlement {
      *      (`payoutDenominator == 0`). Without these gates a compromised operator could
      *      (1) route still-validly-signed orders against a cancelled market and drain
      *      buyers' collateral for tokens with no economic backing, or (2) settle
-     *      losers' open orders post-resolution at pre-resolution prices. The check is
-     *      skipped when the positionId is not in the registry (conditionId == 0) —
-     *      unregistered positions are rejected downstream by `_determineMatchType` /
-     *      the CTF split/merge paths, and `ConditionNotActive` would be a misnomer for
-     *      that case.
+     *      losers' open orders post-resolution at pre-resolution prices.
+     * @custom:security CTF-003 — the position must be registered, in a root market (no parent
+     *      collection) whose collateral is `order.collateralToken`; otherwise InvalidMatch.
+     *      Unregistered positions used to skip the SCRUM-235 gate (complementary trades
+     *      need no registry lookup), and nested / other-collateral positions were settled
+     *      against the Diamond's own root holdings.
      */
     function _validateOrder(
         LibSettlementStorage.SettlementStorage storage ss,
@@ -380,16 +381,24 @@ contract SettlementFacet is ISettlement {
         // BIZ-004: a price above one whole token (unit) is never valid.
         if (uint256(order.pricePerToken) > unit) revert Errors.InvalidPrice();
 
-        // SCRUM-235: the order's CTF condition must still be active and unresolved.
-        // The check is gated on `conditionId != 0` to preserve the existing
-        // "unregistered position -> InvalidMatch" surface (see NatSpec above).
+        // CTF-003: the position must belong to a registered market, and that market must be a
+        // root market (no parent collection) settled in the order's own collateral. Settlement
+        // splits / merges root positions of `order.collateralToken`; a nested-market or
+        // other-collateral position would otherwise be paid from the Diamond's own holdings, and
+        // an unregistered one skipped the cancelled / resolved gate below.
         LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
+        bytes32 marketKey = ds.positionRegistry.marketKeyByPositionId[uint256(order.positionId)];
+        if (marketKey == bytes32(0)) revert Errors.InvalidMatch();
+        LibDoefinStorage.MarketMetadata storage market = ds.positionRegistry.marketsByKey[marketKey];
+        if (market.collateralToken != order.collateralToken || market.parentCollectionId != bytes32(0)) {
+            revert Errors.InvalidMatch();
+        }
+
+        // SCRUM-235: the order's CTF condition must still be active and unresolved.
         bytes32 conditionId = ds.positionRegistry.conditionIdByPositionId[uint256(order.positionId)];
-        if (conditionId != bytes32(0)) {
-            LibCTFCondition.enforceConditionIsActive(conditionId);
-            if (ds.conditionalTokens.payoutDenominator[conditionId] != 0) {
-                revert Errors.ConditionAlreadyResolved();
-            }
+        LibCTFCondition.enforceConditionIsActive(conditionId);
+        if (ds.conditionalTokens.payoutDenominator[conditionId] != 0) {
+            revert Errors.ConditionAlreadyResolved();
         }
     }
 
@@ -892,6 +901,12 @@ contract SettlementFacet is ISettlement {
         partition = new uint256[](2);
         partition[0] = _getIndexSetIn(takerPositionId, ds);
         partition[1] = _getIndexSetIn(makerPositionId, ds);
+        // CTF-001: fail closed unless the two index sets partition every outcome of the condition —
+        // a Mint must create, and a Merge must burn, a complete set worth exactly `fill` collateral.
+        uint256 fullIndexSet = (uint256(1) << ds.conditionalTokens.payoutNumerators[conditionId].length) - 1;
+        if (partition[0] & partition[1] != 0 || (partition[0] | partition[1]) != fullIndexSet) {
+            revert Errors.InvalidMatch();
+        }
     }
 
     /**
