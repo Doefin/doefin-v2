@@ -165,7 +165,10 @@ contract ConditionManagerFacet is IConditionManager {
         uint8 outcomeSlotCount,
         string calldata metadataURI
     ) external override returns (bytes32 conditionId) {
-        LibAccessControl.enforceIsMarketMaker();
+        // CTF-006: this path lets the caller appoint any resolver, which then reports any payout
+        // vector — owner (Safe) only. Market makers create oracle-backed markets through
+        // createConditionWithMetadata, whose resolver is always this Diamond.
+        LibDiamond.enforceIsContractOwner();
         if (outcomeSlotCount <= 1) {
             revert Errors.InvalidOutcomeSlotCount();
         }
@@ -229,5 +232,24 @@ contract ConditionManagerFacet is IConditionManager {
 
         cond.active = false;
         emit Events.ConditionCancelled(conditionId, msg.sender);
+    }
+
+    /**
+     * @notice Resolve a cancelled, unresolved condition as void: every outcome pays an equal share,
+     *         so holders recover their collateral (a full set redeems to its full amount).
+     * @dev CTF-005 — owner (Safe) only, and only after `cancelCondition`, so a live market cannot be
+     *      voided in one step. A pending oracle question for the condition is skipped when its
+     *      settlement block arrives (LibOracleAdapter), so voiding cannot freeze the oracle.
+     * @param conditionId The condition to void
+     * @custom:emits ConditionVoided, ConditionResolution
+     * @custom:reverts ConditionDoesNotExist, ConditionStillActive, ConditionAlreadyResolved
+     */
+    function voidCondition(bytes32 conditionId) external override {
+        LibDiamond.enforceIsContractOwner();
+        LibDoefinStorage.Condition storage cond = LibDoefinStorage.appStorage().conditionalTokens.conditions[conditionId];
+        if (cond.creator == address(0)) revert Errors.ConditionDoesNotExist();
+        if (cond.active) revert Errors.ConditionStillActive();
+        LibCTFCondition._voidPayouts(conditionId, cond.oracle, cond.questionId);
+        emit Events.ConditionVoided(conditionId, msg.sender);
     }
 }

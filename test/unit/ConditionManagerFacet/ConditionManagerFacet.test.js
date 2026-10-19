@@ -65,7 +65,7 @@ describe("ConditionManagerFacet", function () {
 
       await expect(
         conditionManagerFacet
-          .connect(marketMaker)
+          .connect(owner)
           .createCondition(
             oracle.address,
             questionId,
@@ -80,7 +80,7 @@ describe("ConditionManagerFacet", function () {
           questionId,
           outcomeSlotCount,
           ipfsHash,
-          marketMaker.address
+          owner.address // CTF-006: legacy createCondition is owner-only
         );
 
       // Verify condition exists
@@ -104,7 +104,7 @@ describe("ConditionManagerFacet", function () {
 
       await expect(
         conditionManagerFacet
-          .connect(marketMaker)
+          .connect(owner)
           .createCondition(
             oracle.address,
             questionId,
@@ -119,7 +119,7 @@ describe("ConditionManagerFacet", function () {
           questionId,
           outcomeSlotCount,
           ipfsHash,
-          marketMaker.address
+          owner.address // CTF-006: legacy createCondition is owner-only
         );
 
       const condition = await conditionManagerFacet.getCondition(expectedConditionId);
@@ -143,7 +143,7 @@ describe("ConditionManagerFacet", function () {
       );
 
       await conditionManagerFacet
-        .connect(marketMaker)
+        .connect(owner)
         .createCondition(
           oracle.address,
           questionId1,
@@ -152,7 +152,7 @@ describe("ConditionManagerFacet", function () {
         );
 
       await conditionManagerFacet
-        .connect(marketMaker)
+        .connect(owner)
         .createCondition(
           oracle2.address,
           questionId2,
@@ -168,7 +168,7 @@ describe("ConditionManagerFacet", function () {
       expect(conditionId1).to.not.equal(conditionId2);
     });
 
-    it("should revert if non-market-maker tries to create condition", async () => {
+    it("should revert if a non-owner (even a market maker) tries to create a legacy condition (CTF-006)", async () => {
       const questionId = ethers.utils.id("unauthorized-question");
       const outcomeSlotCount = 2;
 
@@ -181,7 +181,12 @@ describe("ConditionManagerFacet", function () {
             outcomeSlotCount,
             "ipfs://unauthorized"
           )
-      ).to.be.revertedWith("NotMarketMaker()");
+      ).to.be.revertedWith("NotContractOwner()");
+      await expect(
+        conditionManagerFacet
+          .connect(marketMaker)
+          .createCondition(oracle.address, questionId, outcomeSlotCount, "ipfs://market-maker")
+      ).to.be.revertedWith("NotContractOwner()");
     });
 
     it("should revert when creating duplicate condition", async () => {
@@ -190,7 +195,7 @@ describe("ConditionManagerFacet", function () {
 
       // Create first condition
       await conditionManagerFacet
-        .connect(marketMaker)
+        .connect(owner)
         .createCondition(
           oracle.address,
           questionId,
@@ -201,7 +206,7 @@ describe("ConditionManagerFacet", function () {
       // Try to create duplicate
       await expect(
         conditionManagerFacet
-          .connect(marketMaker)
+          .connect(owner)
           .createCondition(
             oracle.address,
             questionId,
@@ -217,14 +222,14 @@ describe("ConditionManagerFacet", function () {
       // Zero outcomes
       await expect(
         conditionManagerFacet
-          .connect(marketMaker)
+          .connect(owner)
           .createCondition(oracle.address, questionId, 0, "ipfs://zero")
       ).to.be.revertedWith("InvalidOutcomeSlotCount()");
 
       // One outcome (not meaningful)
       await expect(
         conditionManagerFacet
-          .connect(marketMaker)
+          .connect(owner)
           .createCondition(oracle.address, questionId, 1, "ipfs://one")
       ).to.be.revertedWith("InvalidOutcomeSlotCount()");
     });
@@ -236,7 +241,7 @@ describe("ConditionManagerFacet", function () {
       // LibCTFCondition.prepareCondition validates oracle address and throws InvalidOracleAddress
       await expect(
         conditionManagerFacet
-          .connect(marketMaker)
+          .connect(owner)
           .createCondition(
             ethers.constants.AddressZero,
             questionId,
@@ -471,7 +476,7 @@ describe("ConditionManagerFacet", function () {
       testConditionId = await createCondition({
         conditionManagerFacet,
         oracle,
-        creator: marketMaker,
+        creator: owner,
         questionId: testQuestionId,
         outcomeSlotCount: testOutcomeSlotCount,
         metadata: "ipfs://test-query",
@@ -525,7 +530,7 @@ describe("ConditionManagerFacet", function () {
       testConditionId = await createCondition({
         conditionManagerFacet,
         oracle,
-        creator: marketMaker,
+        creator: owner,
         questionId: testQuestionId,
         outcomeSlotCount: testOutcomeSlotCount,
         metadata: "ipfs://cancellation-test",
@@ -533,13 +538,22 @@ describe("ConditionManagerFacet", function () {
     });
 
     it("should allow creator to cancel condition", async () => {
-      await expect(
-        conditionManagerFacet
-          .connect(marketMaker)
-          .cancelCondition(testConditionId)
-      )
+      // A non-owner creator: a market maker's oracle-backed market (legacy creation is owner-only).
+      const metadata = encodeMiningDuration(1, 1, [600]);
+      const [mmConditionId] = await conditionManagerFacet
+        .connect(marketMaker)
+        .callStatic.createConditionWithMetadata(QuestionType.MiningDuration, metadata, 2, "ipfs://mm-cancel", ethers.constants.HashZero);
+      await conditionManagerFacet
+        .connect(marketMaker)
+        .createConditionWithMetadata(QuestionType.MiningDuration, metadata, 2, "ipfs://mm-cancel", ethers.constants.HashZero);
+
+      await expect(conditionManagerFacet.connect(marketMaker).cancelCondition(mmConditionId))
         .to.emit(conditionManagerFacet, "ConditionCancelled")
-        .withArgs(testConditionId, marketMaker.address);
+        .withArgs(mmConditionId, marketMaker.address);
+      // ...and a market maker cannot cancel a condition it did not create.
+      await expect(conditionManagerFacet.connect(marketMaker).cancelCondition(testConditionId)).to.be.revertedWith(
+        "NotAuthorizedToCancel()"
+      );
     });
 
     it("should allow owner to cancel any condition", async () => {
@@ -560,7 +574,7 @@ describe("ConditionManagerFacet", function () {
       const nonExistentId = ethers.utils.id("non-existent");
       await expect(
         conditionManagerFacet
-          .connect(marketMaker)
+          .connect(owner)
           .cancelCondition(nonExistentId)
       ).to.be.revertedWith("ConditionDoesNotExist()");
     });
@@ -568,13 +582,13 @@ describe("ConditionManagerFacet", function () {
     it("should revert when canceling already cancelled condition", async () => {
       // First cancellation
       await conditionManagerFacet
-        .connect(marketMaker)
+        .connect(owner)
         .cancelCondition(testConditionId);
 
       // Second cancellation attempt
       await expect(
         conditionManagerFacet
-          .connect(marketMaker)
+          .connect(owner)
           .cancelCondition(testConditionId)
       ).to.be.revertedWith("ConditionAlreadyInactive()");
     });
@@ -594,7 +608,7 @@ describe("ConditionManagerFacet", function () {
         const conditionId = await createCondition({
           conditionManagerFacet,
           oracle,
-          creator: marketMaker,
+          creator: owner,
           questionId,
           outcomeSlotCount: 2,
           metadata: `ipfs://${questionId}`,
@@ -612,10 +626,10 @@ describe("ConditionManagerFacet", function () {
 
       // Cancel some conditions
       await conditionManagerFacet
-        .connect(marketMaker)
+        .connect(owner)
         .cancelCondition(conditionIds[0]);
       await conditionManagerFacet
-        .connect(marketMaker)
+        .connect(owner)
         .cancelCondition(conditionIds[2]);
 
       // Verify cancellation doesn't affect other conditions
@@ -630,7 +644,7 @@ describe("ConditionManagerFacet", function () {
       const conditionId1 = await createCondition({
         conditionManagerFacet,
         oracle,
-        creator: marketMaker,
+        creator: owner,
         questionId,
         outcomeSlotCount,
         metadata: "ipfs://oracle1",
@@ -638,7 +652,7 @@ describe("ConditionManagerFacet", function () {
       const conditionId2 = await createCondition({
         conditionManagerFacet,
         oracle: oracle2,
-        creator: marketMaker,
+        creator: owner,
         questionId,
         outcomeSlotCount,
         metadata: "ipfs://oracle2",
@@ -662,7 +676,7 @@ describe("ConditionManagerFacet", function () {
       const conditionId = await createCondition({
         conditionManagerFacet,
         oracle,
-        creator: marketMaker,
+        creator: owner,
         questionId,
         outcomeSlotCount: largeOutcomeCount,
         metadata: "ipfs://large-outcomes",
@@ -681,7 +695,7 @@ describe("ConditionManagerFacet", function () {
         const conditionId = await createCondition({
           conditionManagerFacet,
           oracle,
-          creator: marketMaker,
+          creator: owner,
           questionId,
           outcomeSlotCount: 2,
           metadata: `ipfs://rapid-${i}`,
@@ -692,7 +706,7 @@ describe("ConditionManagerFacet", function () {
       // Rapid cancellation
       for (const { conditionId } of conditionIds) {
         await conditionManagerFacet
-          .connect(marketMaker)
+          .connect(owner)
           .cancelCondition(conditionId);
       }
 
@@ -700,7 +714,7 @@ describe("ConditionManagerFacet", function () {
       for (const { conditionId } of conditionIds) {
         await expect(
           conditionManagerFacet
-            .connect(marketMaker)
+            .connect(owner)
             .cancelCondition(conditionId)
         ).to.be.revertedWith("ConditionAlreadyInactive()");
       }
@@ -718,7 +732,7 @@ describe("ConditionManagerFacet", function () {
         createCondition({
           conditionManagerFacet,
           oracle,
-          creator: marketMaker,
+          creator: owner,
           questionId,
           outcomeSlotCount: 2,
           metadata: `ipfs://${questionId}`,
@@ -751,7 +765,7 @@ describe("ConditionManagerFacet", function () {
         const { conditionId, receipt: createReceipt } = await createCondition({
           conditionManagerFacet,
           oracle,
-          creator: marketMaker,
+          creator: owner,
           questionId,
           outcomeSlotCount: 2,
           metadata: `ipfs://gas-test-${i}`,
@@ -761,7 +775,7 @@ describe("ConditionManagerFacet", function () {
 
         // Measure cancellation gas
         const cancelTx = await conditionManagerFacet
-          .connect(marketMaker)
+          .connect(owner)
           .cancelCondition(conditionId);
         const cancelReceipt = await cancelTx.wait();
         cancelGasCosts.push(cancelReceipt.gasUsed);

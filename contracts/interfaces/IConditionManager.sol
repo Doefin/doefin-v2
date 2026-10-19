@@ -25,4 +25,6 @@ interface IConditionManager {
     function getCondition(bytes32 conditionId) external view returns (LibDoefinStorage.Condition memory);
 
     function cancelCondition(bytes32 conditionId) external;
+
+    function voidCondition(bytes32 conditionId) external;
 }

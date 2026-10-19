@@ -68,6 +68,14 @@ contract ConditionalTokensFacet is IConditionalTokens {
             payoutsMemory[i] = payouts[i];
         }
 
+        // CTF-006: a cancelled managed condition is settled by the owner (voidCondition), not by
+        // its resolver. Conditions prepared without metadata (creator == 0) are unaffected.
+        if (payouts.length > 0 && payouts.length <= type(uint8).max) {
+            bytes32 conditionId = LibCTHelpers.getConditionId(msg.sender, questionId, uint8(payouts.length));
+            LibDoefinStorage.Condition storage cond = LibDoefinStorage.appStorage().conditionalTokens.conditions[conditionId];
+            if (cond.creator != address(0) && !cond.active) revert Errors.ConditionNotActive();
+        }
+
         // Call library function with msg.sender as oracle
         LibCTFCondition._reportPayouts(msg.sender, questionId, payoutsMemory);
     }

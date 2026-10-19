@@ -135,7 +135,9 @@ describe("LibOracleAdapter — coverage", function () {
       await seedLatest();
       await harness.setTimestampToBlockHeight(START_TS, 900);
       const qId = ethers.utils.id("bc-empty");
-      await harness.prepareCondition(qId, 1); // 0 buckets => 1 outcome slot
+      // A condition needs >= 2 outcomes (CTF-006); the empty-bucket list is rejected while the
+      // winning index is computed, before any payout is reported.
+      await harness.prepareCondition(qId, 2);
       await harness.createBlockCountQuestion(qId, META, START_TS, END_TS, []);
 
       await expect(harness.settleCondition()).to.be.revertedWith(

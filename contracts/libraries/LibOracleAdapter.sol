@@ -280,6 +280,7 @@ library LibOracleAdapter {
     /// @notice Resolve a DifficultyThreshold question
     /// @param question The question to resolve
     function _resolveDifficultyThresholdQuestion(LibDoefinStorage.DifficultyThresholdQuestion storage question) private {
+        if (_alreadyResolved(question.conditionId)) return; // CTF-005: e.g. voided by the owner
         // Get actual difficulty at target block
         uint256 actualDifficulty = _getBlockDifficulty(question.targetBlockHeight);
 
@@ -303,6 +304,7 @@ library LibOracleAdapter {
     /// @notice Resolve a DifficultyRange question
     /// @param question The question to resolve
     function _resolveDifficultyRangeQuestion(LibDoefinStorage.DifficultyRangeQuestion storage question) private {
+        if (_alreadyResolved(question.conditionId)) return; // CTF-005: e.g. voided by the owner
         // Get actual difficulty at target block
         uint256 actualDifficulty = _getBlockDifficulty(question.targetBlockHeight);
 
@@ -324,6 +326,7 @@ library LibOracleAdapter {
     /// @notice Resolve a BlockCount question
     /// @param question The question to resolve
     function _resolveBlockCountQuestion(LibDoefinStorage.BlockCountQuestion storage question) private {
+        if (_alreadyResolved(question.conditionId)) return; // CTF-005: e.g. voided by the owner
         LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
 
         // Get block heights at start and end timestamps
@@ -365,6 +368,7 @@ library LibOracleAdapter {
     ///      the oracle. Bitcoin timestamps are not monotonic (only above the median of the previous
     ///      11), so an end timestamp below the start's is a zero duration, not an underflow.
     function _resolveMiningDurationQuestion(LibDoefinStorage.MiningDurationQuestion storage question) private {
+        if (_alreadyResolved(question.conditionId)) return; // CTF-005: e.g. voided by the owner
         LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
         uint256 startTime = ds.oracleAdapterStorage.blockHeightToTimestamp[question.startBlockHeight];
         uint256 endTime = ds.oracleAdapterStorage.blockHeightToTimestamp[question.startBlockHeight + question.blockCount];
@@ -390,6 +394,13 @@ library LibOracleAdapter {
     // ========================================
     // HELPER FUNCTIONS
     // ========================================
+
+    /// @dev CTF-005 — a condition can be resolved outside the adapter (voidCondition). Resolving it
+    ///      again would revert ConditionAlreadyResolved inside header submission and freeze the
+    ///      oracle, so its question is skipped instead.
+    function _alreadyResolved(bytes32 conditionId) private view returns (bool) {
+        return LibDoefinStorage.appStorage().conditionalTokens.payoutDenominator[conditionId] != 0;
+    }
 
     /// @notice Calculate timestamp bucket for efficient lookup
     /// @param timestamp The timestamp to bucket

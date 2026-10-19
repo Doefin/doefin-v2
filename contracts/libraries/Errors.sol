@@ -113,6 +113,12 @@ library Errors {
     /// @notice Thrown when condition is not active
     error ConditionNotActive();
 
+    /// @notice CTF-005 — a condition must be cancelled before it can be voided
+    error ConditionStillActive();
+
+    /// @notice CTF-006 — payout numerators sum above the bound redemption arithmetic supports
+    error InvalidPayouts();
+
     // ========================================
     // COLLATERAL ERRORS
     // ========================================

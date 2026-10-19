@@ -24,6 +24,8 @@ library LibCTFCondition {
         if (oracle == address(0)) {
             revert Errors.InvalidOracleAddress();
         }
+        // CTF-006: as upstream Gnosis CTF — a condition needs at least two outcomes.
+        if (outcomeSlotCount < 2) revert Errors.InvalidOutcomeSlotCount();
 
         LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
         conditionId = LibCTHelpers.getConditionId(oracle, questionId, outcomeSlotCount);
@@ -227,8 +229,13 @@ library LibCTFCondition {
         }
     }
 
+    /// @dev CTF-006: payout numerators may sum to at most 2^64 − 1, so redemption's
+    ///      `stake * numerator` cannot overflow for any realistic stake.
+    uint256 internal constant MAX_PAYOUT_DENOMINATOR = type(uint64).max;
+
     function _reportPayouts(address oracle, bytes32 questionId, uint256[] memory payouts) internal {
-        if (payouts.length == 0 || payouts.length > type(uint8).max) {
+        // CTF-006: at least two outcomes, as upstream (a single-slot vector was accepted).
+        if (payouts.length < 2 || payouts.length > type(uint8).max) {
             revert Errors.InvalidPayoutLength();
         }
         uint8 outcomeSlotCount = uint8(payouts.length);
@@ -258,6 +265,7 @@ library LibCTFCondition {
         if (den == 0) {
             revert Errors.AllZeroPayouts();
         }
+        if (den > MAX_PAYOUT_DENOMINATOR) revert Errors.InvalidPayouts();
         ds.conditionalTokens.payoutDenominator[conditionId] = den;
         _snapshotResolutionFee(conditionId);
 
@@ -295,6 +303,32 @@ library LibCTFCondition {
             amounts[i] = amount;
             unchecked { ++i; } // GAS-007: counter is bounded by partition.length
         }
+    }
+
+    /**
+     * @notice Resolve `conditionId` as void: every outcome pays an equal share (numerators all 1).
+     * @dev CTF-005 — the only payout writer was `_reportPayouts`, bound to the condition's oracle,
+     *      so a condition that can never be reported (a stalled oracle, an orphaned question)
+     *      locked one-sided collateral until an emergency upgrade. A void is a refund: the
+     *      resolution fee is snapshotted as 0. Callers gate who may void and when.
+     * @custom:reverts ConditionNotPrepared, ConditionAlreadyResolved
+     */
+    function _voidPayouts(bytes32 conditionId, address oracle, bytes32 questionId) internal {
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
+        uint256[] storage numerators = ds.conditionalTokens.payoutNumerators[conditionId];
+        uint256 slots = numerators.length;
+        if (slots == 0) revert Errors.ConditionNotPrepared();
+        if (ds.conditionalTokens.payoutDenominator[conditionId] != 0) revert Errors.ConditionAlreadyResolved();
+
+        for (uint256 i = 0; i < slots;) {
+            numerators[i] = 1;
+            unchecked { ++i; }
+        }
+        ds.conditionalTokens.payoutDenominator[conditionId] = slots;
+        LibAdminConfigStorage.adminConfigStorage().resolutionFeeAtResolution[conditionId] =
+            LibAdminConfigStorage.ResolutionFeeSnapshot({set: true, bps: 0});
+
+        emit Events.ConditionResolution(conditionId, oracle, questionId, uint8(slots), numerators);
     }
 
     /// @notice Resolution fee (bps) charged on payouts of `conditionId` — the rate captured when it
