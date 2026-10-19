@@ -34,6 +34,7 @@
 const path = require("path");
 const { expect } = require("chai");
 const sc = require("../utils/syntheticChain.js");
+const { isolateChainState } = require("../utils/oracleAuditFixture.js");
 const {
   snapshotFixture,
   deployOracleAuditDiamond,
@@ -63,6 +64,7 @@ const alreadyDecided = (tip, target) => sc.epochOf(tip + 1) >= sc.epochOf(target
 
 describe("PENTEST · ORC-006 (MEDIUM) — markets can be created with an already-decided answer", function () {
   this.timeout(300_000);
+  isolateChainState();
 
   it("CONTROL — on a fresh oracle, Threshold and Range markets targeting the first block of the NEXT epoch are created", async function () {
     const ctx = await deployOracleAuditDiamond();

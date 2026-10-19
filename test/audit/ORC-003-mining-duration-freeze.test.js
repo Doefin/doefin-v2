@@ -43,6 +43,7 @@
 
 const { expect } = require("chai");
 const sc = require("../utils/syntheticChain.js");
+const { isolateChainState } = require("../utils/oracleAuditFixture.js");
 const {
   snapshotFixture,
   deployOracleAuditDiamond,
@@ -98,6 +99,7 @@ function chainWithMinimalEndTimestamp(base, blockCount, extraAfterEnd) {
 
 describe("PENTEST · ORC-003 (HIGH) — MiningDuration resolution freezes the oracle", function () {
   this.timeout(300_000);
+  isolateChainState();
 
   describe("creation-time validation", function () {
     // PRECONDITION, not a defect on its own: it flips only if the fix chooses the review's

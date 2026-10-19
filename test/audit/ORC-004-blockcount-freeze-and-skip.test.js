@@ -40,6 +40,7 @@
 
 const { expect } = require("chai");
 const sc = require("../utils/syntheticChain.js");
+const { isolateChainState } = require("../utils/oracleAuditFixture.js");
 const {
   snapshotFixture,
   deployOracleAuditDiamond,
@@ -83,6 +84,7 @@ function approach(afterTs, lastTs, step = sc.TARGET_SPACING) {
 
 describe("PENTEST · ORC-004 (HIGH) — BlockCount: lookup revert freezes the oracle; bucket gate skips questions", function () {
   this.timeout(300_000);
+  isolateChainState();
 
   describe("(a) exact-second timestamp lookup", function () {
     // start = A, end = A + 6120 → bucket(end) = A + 6000, trigger window [A+6120, A+6600).

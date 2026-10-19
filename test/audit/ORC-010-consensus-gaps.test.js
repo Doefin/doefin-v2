@@ -33,6 +33,7 @@
 
 const { expect } = require("chai");
 const sc = require("../utils/syntheticChain.js");
+const { isolateChainState } = require("../utils/oracleAuditFixture.js");
 const { snapshotFixture, deployOracleAuditDiamond, initSyntheticOracle, evmNow } = require("../utils/oracleAuditFixture.js");
 
 const BOUNDARY = sc.EPOCH_LENGTH * 500; // 1,008,000
@@ -62,6 +63,7 @@ async function acceptMalformed(ctx, nBits) {
 
 describe("PENTEST · ORC-010 (LOW) — remaining Bitcoin-consensus gaps in header checks", function () {
   this.timeout(300_000);
+  isolateChainState();
 
   describe("timestamps", function () {
     it("CONTROL — a header one second above the median-time-past is accepted", async function () {

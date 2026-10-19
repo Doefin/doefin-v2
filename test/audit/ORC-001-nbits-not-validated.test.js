@@ -60,6 +60,7 @@ const path = require("path");
 const { expect } = require("chai");
 const { ethers } = require("hardhat");
 const sc = require("../utils/syntheticChain.js");
+const { isolateChainState } = require("../utils/oracleAuditFixture.js");
 const {
   snapshotFixture,
   deployOracleAuditDiamond,
@@ -117,6 +118,7 @@ const loadReal2010 = snapshotFixture(async () => {
 
 describe("PENTEST · ORC-001 (CRITICAL) — nBits never validated; PoW vs parent target; fork choice by block count", function () {
   this.timeout(300_000);
+  isolateChainState();
 
   describe("fixture sanity", function () {
     it("real headers 42312..42350 link and retarget at 42336 (integer difficulty 2 → 3); H1 carries one real block of work while declaring 0x2100ffff", function () {

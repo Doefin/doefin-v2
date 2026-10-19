@@ -17,6 +17,7 @@
 
 const { expect } = require("chai");
 const sc = require("../utils/syntheticChain.js");
+const { isolateChainState } = require("../utils/oracleAuditFixture.js");
 const { snapshotFixture, deployOracleAuditDiamond, initSyntheticOracle } = require("../utils/oracleAuditFixture.js");
 
 const load = snapshotFixture(async () => {
@@ -27,6 +28,7 @@ const load = snapshotFixture(async () => {
 
 describe("PENTEST · ORC-011 (INFO) — empty batch reverts with a bare arithmetic panic", function () {
   this.timeout(300_000);
+  isolateChainState();
 
   it("CONTROL — a one-header batch extending the tip is accepted", async function () {
     const ctx = await load();

@@ -47,6 +47,21 @@ function snapshotFixture(setup) {
   };
 }
 
+/**
+ * Call at the top of a `describe`: snapshot the chain before the file's tests and revert after
+ * them, so deployments and — importantly — the EVM clock (these PoCs advance it to header
+ * timestamps) do not leak into later test files.
+ */
+function isolateChainState() {
+  let id;
+  before(async function () {
+    id = await evmSnapshot();
+  });
+  after(async function () {
+    await evmRevert(id);
+  });
+}
+
 async function evmNow() {
   return (await ethers.provider.getBlock("latest")).timestamp;
 }
@@ -172,6 +187,7 @@ module.exports = {
   QuestionType,
   evmSnapshot,
   evmRevert,
+  isolateChainState,
   snapshotFixture,
   evmNow,
   advanceEvmTimeTo,

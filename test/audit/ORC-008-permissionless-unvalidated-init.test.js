@@ -29,6 +29,7 @@ const path = require("path");
 const { expect } = require("chai");
 const { ethers } = require("hardhat");
 const sc = require("../utils/syntheticChain.js");
+const { isolateChainState } = require("../utils/oracleAuditFixture.js");
 const { snapshotFixture, deployOracleAuditDiamond, submitEach, loadRealHeaders } = require("../utils/oracleAuditFixture.js");
 
 const REAL = loadRealHeaders(path.join(__dirname, "../data/reorg_index_underflow/blocks-mainchain-967110-967160.json"));
@@ -56,6 +57,7 @@ const loadFresh = snapshotFixture(deployOracleAuditDiamond);
 
 describe("PENTEST · ORC-008 (MEDIUM) — permissionless, unvalidated oracle initialisation", function () {
   this.timeout(300_000);
+  isolateChainState();
 
   it("CONTROL — the owner initialises with 17 real linked headers and the next real header is accepted", async function () {
     const ctx = await loadFresh();

@@ -36,6 +36,7 @@
 const path = require("path");
 const { expect } = require("chai");
 const sc = require("../utils/syntheticChain.js");
+const { isolateChainState } = require("../utils/oracleAuditFixture.js");
 const { snapshotFixture, deployOracleAuditDiamond, submitEach, loadRealHeaders } = require("../utils/oracleAuditFixture.js");
 
 const DOWN = loadRealHeaders(path.join(__dirname, "../data/orc002_retarget_689472/blocks-689438-689475.json"));
@@ -60,6 +61,7 @@ const loadUp = bufferBefore(UP, UP_BOUNDARY); // 971695..971711
 
 describe("PENTEST · ORC-002 (HIGH) — honest first block of a lower-difficulty epoch is rejected", function () {
   this.timeout(300_000);
+  isolateChainState();
 
   describe("fixture sanity (real mainnet headers, hashes re-derived from the raw 80 bytes)", function () {
     it("689472 is a valid Bitcoin block that fails today's parent-target rule; every other header passes it", function () {

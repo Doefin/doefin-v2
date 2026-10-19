@@ -33,6 +33,7 @@
 
 const { expect } = require("chai");
 const sc = require("../utils/syntheticChain.js");
+const { isolateChainState } = require("../utils/oracleAuditFixture.js");
 const {
   snapshotFixture,
   deployOracleAuditDiamond,
@@ -76,6 +77,7 @@ const load = snapshotFixture(async () => {
 
 describe("PENTEST · ORC-005 (MEDIUM) — BlockCount bucket pop() removes the wrong question", function () {
   this.timeout(300_000);
+  isolateChainState();
 
   async function upToTrigger() {
     const ctx = await load();

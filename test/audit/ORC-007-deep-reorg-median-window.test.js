@@ -39,6 +39,7 @@ const path = require("path");
 const { expect } = require("chai");
 const { ethers } = require("hardhat");
 const sc = require("../utils/syntheticChain.js");
+const { isolateChainState } = require("../utils/oracleAuditFixture.js");
 const {
   snapshotFixture,
   deployOracleAuditDiamond,
@@ -87,6 +88,7 @@ async function orphanThenCanonical(d, { c1Timestamp, extra = 0 } = {}) {
 
 describe("PENTEST · ORC-007 (LOW) — deep reorg replays use a median window full of orphans", function () {
   this.timeout(300_000);
+  isolateChainState();
 
   describe("synthetic orphan branch replaced by the canonical branch", function () {
     it("CONTROL — depth 1: the canonical branch replaces a 1-block orphan", async function () {

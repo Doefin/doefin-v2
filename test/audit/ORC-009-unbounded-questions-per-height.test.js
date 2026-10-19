@@ -45,6 +45,7 @@
 
 const { expect } = require("chai");
 const sc = require("../utils/syntheticChain.js");
+const { isolateChainState } = require("../utils/oracleAuditFixture.js");
 const {
   BASE_PER_TX_GAS_CAP,
   evmSnapshot,
@@ -136,6 +137,7 @@ async function demonstrateBoundary(kind, lastFit) {
 
 describe("PENTEST · ORC-009 (MEDIUM) — unbounded questions per settlement height vs the 2^24 per-tx gas cap", function () {
   this.timeout(600_000);
+  isolateChainState();
 
   it("CONTROL — up to 50 questions of each type at one height settle under the cap (measured, logged)", async function () {
     const rows = [];
