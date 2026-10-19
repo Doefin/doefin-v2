@@ -29,6 +29,9 @@ contract AdminConfigFacet is IAdminConfig {
     ///      configured `maxFeeRateBps` (see SettlementFacet._validateFee).
     uint16 internal constant MAX_FEE_RATE_BPS_CAP = 1000;
 
+    /// @notice CTF-007 (SCRUM-214) — hard ceiling on the resolution (redemption) fee: 5%.
+    uint16 internal constant MAX_RESOLUTION_FEE_BPS = 500;
+
     /**
      * @notice Adds a new collateral token to the protocol with specified unit configuration
      * @dev Automatically fetches and stores token symbol from ERC20Metadata interface
@@ -126,7 +129,9 @@ contract AdminConfigFacet is IAdminConfig {
      */
     function setResolutionFeeBps(uint16 bps) external override {
         LibDiamond.enforceIsContractOwner();
-        if (bps > LibConstants.BPS_DENOMINATOR) revert Errors.FeeTooHigh();
+        // CTF-007: a hard ceiling (was 100%) — and the rate is snapshotted per condition at
+        // resolution, so a change never reaches winners of an already-resolved condition.
+        if (bps > MAX_RESOLUTION_FEE_BPS) revert Errors.FeeTooHigh();
 
         LibAdminConfigStorage.AdminConfigStorage storage acs = LibAdminConfigStorage.adminConfigStorage();
         uint16 oldFeeBps = acs.resolutionFeeBps;

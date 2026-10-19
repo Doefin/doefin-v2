@@ -12,6 +12,7 @@ import {Errors} from "./Errors.sol";
 import {Events} from "./Events.sol";
 import {LibPositionRegistry} from "./LibPositionRegistry.sol";
 import {LibReentrancyGuard} from "./LibReentrancyGuard.sol";
+import {LibConstants} from "./LibConstants.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 library LibCTFCondition {
@@ -57,7 +58,17 @@ library LibCTFCondition {
             if (parentCollectionId == bytes32(0)) {
                 /// @dev Skip token transfer when contract calls itself to avoid circular transfers
                 if (sender != address(this)) {
-                    IERC20(collateralToken).safeTransfer(sender, amount);
+                    // CTF-004: once the condition has resolved, turning a full set back into
+                    // collateral is a redemption — charge the same resolution fee, or winners
+                    // bypass it by pairing their tokens with (worthless) losing ones.
+                    uint256 fee = LibDoefinStorage.appStorage().conditionalTokens.payoutDenominator[conditionId] != 0
+                        ? (amount * resolutionFeeBps(conditionId)) / LibConstants.BPS_DENOMINATOR
+                        : 0;
+                    if (fee > 0) {
+                        LibAdminConfigStorage.adminConfigStorage().accruedFees[collateralToken] += fee;
+                        emit Events.FeeAccrued(collateralToken, fee, LibConstants.FEE_KIND_RESOLUTION);
+                    }
+                    IERC20(collateralToken).safeTransfer(sender, amount - fee);
                 }
             } else {
                 uint256 parentPosId = LibCTHelpers.getPositionId(collateralToken, parentCollectionId);
@@ -248,6 +259,7 @@ library LibCTFCondition {
             revert Errors.AllZeroPayouts();
         }
         ds.conditionalTokens.payoutDenominator[conditionId] = den;
+        _snapshotResolutionFee(conditionId);
 
         emit Events.ConditionResolution(conditionId, oracle, questionId, outcomeSlotCount, numerators);
     }
@@ -283,6 +295,20 @@ library LibCTFCondition {
             amounts[i] = amount;
             unchecked { ++i; } // GAS-007: counter is bounded by partition.length
         }
+    }
+
+    /// @notice Resolution fee (bps) charged on payouts of `conditionId` — the rate captured when it
+    ///         resolved (CTF-007), or the live rate for conditions resolved before snapshots existed.
+    function resolutionFeeBps(bytes32 conditionId) internal view returns (uint16) {
+        LibAdminConfigStorage.AdminConfigStorage storage acs = LibAdminConfigStorage.adminConfigStorage();
+        LibAdminConfigStorage.ResolutionFeeSnapshot storage snap = acs.resolutionFeeAtResolution[conditionId];
+        return snap.set ? snap.bps : acs.resolutionFeeBps;
+    }
+
+    /// @dev Capture the live resolution fee for `conditionId` (CTF-007).
+    function _snapshotResolutionFee(bytes32 conditionId) internal {
+        LibAdminConfigStorage.AdminConfigStorage storage acs = LibAdminConfigStorage.adminConfigStorage();
+        acs.resolutionFeeAtResolution[conditionId] = LibAdminConfigStorage.ResolutionFeeSnapshot({set: true, bps: acs.resolutionFeeBps});
     }
 
     /// @dev True for a split from collateral (no parent) over every outcome, listed as ascending

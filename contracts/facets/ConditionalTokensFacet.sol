@@ -189,7 +189,7 @@ contract ConditionalTokensFacet is IConditionalTokens {
 
         if (totalPayout > 0) {
             if (parentCollectionId == bytes32(0)) {
-                _handlePayoutTransfer(collateralToken, msg.sender, totalPayout);
+                _handlePayoutTransfer(collateralToken, msg.sender, totalPayout, LibCTFCondition.resolutionFeeBps(conditionId));
             } else {
                 uint256 parentPosId = LibCTHelpers.getPositionId(collateralToken, parentCollectionId);
                 LibERC1155._mint(msg.sender, parentPosId, totalPayout, "");
@@ -216,14 +216,16 @@ contract ConditionalTokensFacet is IConditionalTokens {
      * @param collateralToken The ERC20 token being transferred
      * @param recipient The address receiving the payout
      * @param amount The gross payout amount before fees
+     * @param feeBps The condition's resolution fee rate, captured at resolution (CTF-007)
      * @custom:emits PayoutRedemptionFeePaid if a fee is accrued.
      * @custom:emits FeeAccrued (kind = FEE_KIND_RESOLUTION) if a fee is accrued.
      * @custom:security Protected against reentrancy on the user payout transfer.
      * @custom:audit CR-3291973203 — zero-fee + zero-feeReceiver no longer reverts.
      */
-    function _handlePayoutTransfer(address collateralToken, address recipient, uint256 amount) internal {
+    function _handlePayoutTransfer(address collateralToken, address recipient, uint256 amount, uint16 feeBps) internal {
         LibAdminConfigStorage.AdminConfigStorage storage acs = LibAdminConfigStorage.adminConfigStorage();
-        uint16 feeBps = acs.resolutionFeeBps;
+        // CTF-007: `feeBps` is the rate captured when the condition resolved (see
+        // LibCTFCondition.resolutionFeeBps), not the live rate.
 
         // SCRUM-236: fee-zero is a true symmetric no-op. No SSTORE on `accruedFees`,
         // no `FeeAccrued` emission — required for INV-FEE-NEW symmetry under fee == 0
