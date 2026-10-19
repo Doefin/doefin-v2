@@ -88,6 +88,23 @@ async function main() {
   for (const h of settlementHeights) pendingBefore[h] = (await adapter.getThresholdQuestionsAtBlock(h)).map((q) => q.questionId);
   console.log(`  Pending threshold questions: ${settlementHeights.map((h) => `${h}: ${pendingBefore[h].length}`).join(", ")}`);
 
+  // Every pending question must be accounted for (created − resolved == block-keyed questions found at
+  // the listed heights). The cut only disables BlockCount CREATION: a BlockCount question registered
+  // before it still resolves through the exact-second timestamp lookup and can freeze the oracle (ORC-004).
+  // Anything unaccounted for (a BlockCount question, or a market at a height not listed in
+  // REHEARSAL_SETTLEMENTS) fails the rehearsal closed.
+  const [createdTotal, resolvedTotal] = (await Promise.all([adapter.getTotalQuestionsCreated(), adapter.getTotalQuestionsResolved()])).map((x) => x.toNumber());
+  let blockKeyed = 0;
+  for (const h of settlementHeights) {
+    const found = await Promise.all([adapter.getThresholdQuestionsAtBlock(h), adapter.getRangeQuestionsAtBlock(h), adapter.getDurationQuestionsAtBlock(h)]);
+    blockKeyed += found.reduce((n, qs) => n + qs.length, 0);
+  }
+  check(
+    createdTotal - resolvedTotal === blockKeyed,
+    `all ${createdTotal - resolvedTotal} pending question(s) are block-keyed at the listed heights (found ${blockKeyed}); no legacy BlockCount question can freeze the oracle`,
+    failures
+  );
+
   console.log("\n>>> Applying the cut (owner impersonated) with setMaxOracleStaleness(10800)\n");
   await runUpgrade({ diamond, impersonateOwner: true, skipVerify: true, record: false, maxOracleStaleness: STALENESS });
 

@@ -187,6 +187,20 @@ async function runUpgrade(opts = {}) {
   }
   const oraclePlan = plans.find((p) => p.key === "oracle");
   if (oraclePlan.add.length) throw new Error(`Oracle selectors not routed today (${oraclePlan.add.map((s) => s.name)}) — wrong Diamond?`);
+  if (maxOracleStaleness !== null) {
+    // setMaxOracleStaleness reverts NoChangeRequired on an unchanged value, and the Safe MultiSend is
+    // atomic, so a no-op setter would revert the diamondCut with it — after the signers have signed.
+    // Before the cut the getter is not routed and the appended slot is 0.
+    const adminPlan = plans.find((p) => p.key === "adminConfig");
+    const getterRouted = !adminPlan.add.some((s) => s.name === "getMaxOracleStaleness");
+    const currentStaleness = getterRouted ? await adminConfig.getMaxOracleStaleness() : 0;
+    if (maxOracleStaleness === currentStaleness) {
+      throw new Error(
+        `MAX_ORACLE_STALENESS=${maxOracleStaleness} equals the on-chain value — setMaxOracleStaleness would revert ` +
+          "NoChangeRequired and take the cut with it. Omit MAX_ORACLE_STALENESS or pass a different value."
+      );
+    }
+  }
 
   let mode;
   if (cfg.local || opts.impersonateOwner) {
