@@ -192,8 +192,12 @@ Status column: `fixed-clean` = fixed in code, proof flipped, full suite green �
 Tooling on the oracle and question code (exclusions lifted, `458202e`..`e69894a`): solhint 0 errors;
 Slither 4 results in the newly analysed files, all false positives; Mythril no issues (32% /
 16% coverage — symbolic execution cannot produce PoW); coverage measured. Fuzzing:
-`contracts/audit/OracleInvariantHarness.sol` (15 properties, real Bitcoin headers, catches SEC-015
-on the pre-fix facet).
+`contracts/audit/OracleInvariantHarness.sol` (15 properties over two real Bitcoin forks). On the
+fixed facet (`846f7a8`), 2026-10-19: Echidna 50,000 calls — all 15 properties hold; Medusa
+50,000 calls, 4 workers — 33/33 tests pass. Negative control (pre-SCRUM-521 facet): both engines
+independently fail exactly `echidna_no_panic_nonempty`, `echidna_valid_chains_accepted` and
+`echidna_empty_batch_no_panic` (the SEC-015 Panic(0x11) class). Mainnet-fork rehearsal of the cut:
+`scripts/upgrades/rehearse-scrum214-oracle-fork.js` (passed, see `b815d0e`).
 
 ## Slither — 27 raw results, all triaged
 
