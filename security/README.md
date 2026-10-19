@@ -81,10 +81,10 @@ orphan through all 17 ring slots). A reference model derives from the spec wheth
 submission must be accepted; properties check liveness, safety, post-conditions, ring-buffer
 structure and that no non-empty submission ever Panics.
 
-- **Expected result:** every `echidna_*` property passes **except
-  `echidna_empty_batch_no_panic`** — a known open issue (`submitBatchBlocks([])` reverts
-  `Panic(0x11)`; SCRUM-521-AUDIT-SCOPE asks for a named error). It is tracked separately so it
-  cannot mask a new panic.
+- **Expected result:** every `echidna_*` property passes on the production facet. Any failure,
+  including `echidna_empty_batch_no_panic` (ORC-011: `submitBatchBlocks([])` must revert
+  `BlockHeaderOracle_EmptyBatch`), is a regression. The empty-batch property is tracked separately
+  so it cannot mask a new panic.
 - **Negative control:** `ORACLE_NEGATIVE_CONTROL=1 npm run audit:echidna` (or `audit:medusa`)
   also fuzzes `OracleInvariantHarnessPreFix` — the same harness on a verbatim copy of the
   pre-SCRUM-521 facet. It **must fail** `echidna_no_panic_nonempty` (SEC-015, `Panic(0x11)`);

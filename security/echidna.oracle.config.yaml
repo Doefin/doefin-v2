@@ -7,9 +7,9 @@
 #   echidna contracts/audit/OracleInvariantHarnessPreFix.sol --contract OracleInvariantHarnessPreFix \
 #     --config security/echidna.oracle.config.yaml --corpus-dir audit/output/echidna/corpus-oracle-prefix
 #
-# Expected on the production facet: every echidna_* property passes EXCEPT
-# echidna_empty_batch_no_panic — KNOWN OPEN ISSUE, submitBatchBlocks([]) reverts with
-# Panic(0x11) instead of a named error (audit/follow-ups.md SCRUM-521-AUDIT-SCOPE).
+# Expected on the production facet: every echidna_* property passes. A failing
+# echidna_empty_batch_no_panic is an ORC-011 regression (submitBatchBlocks([]) must revert
+# BlockHeaderOracle_EmptyBatch); only the pre-fix negative control may fail it.
 #
 # property mode: Echidna asserts every echidna_* function (returns bool) stays true across
 # random sequences of the harness's fuzz_* actions. The harness only ever submits real

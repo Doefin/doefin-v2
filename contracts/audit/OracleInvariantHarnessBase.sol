@@ -496,8 +496,9 @@ abstract contract OracleInvariantHarnessBase {
         return stats.panicCount == 0;
     }
 
-    /// @notice KNOWN OPEN ISSUE — EXPECTED TO FAIL until `submitBatchBlocks` rejects an
-    ///         empty batch with a named error (SCRUM-521-AUDIT-SCOPE, PR #26 CR-triage OOB-2).
+    /// @notice `submitBatchBlocks([])` never Panics. Holds on the production facet, which reverts
+    ///         `BlockHeaderOracle_EmptyBatch` (ORC-011); fails only on the pre-SCRUM-521 negative
+    ///         control (Panic 0x11 on `newBlockHeaders[length - 1]`).
     function echidna_empty_batch_no_panic() public view returns (bool) {
         return !stats.emptyBatchPanicked;
     }
@@ -507,8 +508,9 @@ abstract contract OracleInvariantHarnessBase {
         return stats.unexpectedErrorCount == 0;
     }
 
-    /// @notice Liveness: every submission the spec says must be accepted is accepted (a replay
-    ///         deeper than 6 may instead revert InvalidTimestamp, SCRUM-521-DEEP-REORG-MTP).
+    /// @notice Liveness: every submission the spec says must be accepted is accepted. Only the
+    ///         pre-SCRUM-521 negative control may reject a replay deeper than 6 with InvalidTimestamp
+    ///         (its median window reads stale slots); the production facet must accept it (ORC-007).
     function echidna_valid_chains_accepted() public view returns (bool) {
         return stats.livenessViolations == 0;
     }
