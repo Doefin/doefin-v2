@@ -1,0 +1,25 @@
+{
+  "description": "ORC-001 PoC attacker header H1. Child of real Bitcoin block 41016. Its hash beats block 41016's REAL target (nBits 0x1c654657, difficulty 2.53), i.e. it carries one genuine block of proof-of-work at Feb-2010 difficulty, but it DECLARES nBits 0x2100ffff (target ~2^256*(1-2^-16)), which makes every later header free. Mined once with mine-h1.c (~1.65e10 double-SHA256, 57 s on a 16-core Apple M3 Max).",
+  "parentHeight": 41016,
+  "parentNBits": 476399191,
+  "parentTargetHex": "0x0000000065465700000000000000000000000000000000000000000000000000",
+  "rawHeader": "010000004024763bc917607d9c6c3e06619e5f573d6a83120e0539c3ca1bff3b000000002a92e169bb84ec21e12565726f7022b1da7ec39676f99eacac193ff66e257901d1177d4bffff0021aa3239cf",
+  "header": {
+    "prevBlockHash": "0x000000003bff1bcac339050e12836a3d575f9e61063e6c9c7d6017c93b762440",
+    "merkleRootHash": "0x0179256ef63f19acac9ef97696c37edab122706f726525e121ec84bb69e1922a",
+    "blockNumber": 41017,
+    "version": 1,
+    "timestamp": 1266489297,
+    "nBits": 553713663,
+    "nonce": 3476632234,
+    "blockHash": "0x00000000055099d4fc2650c4ca1720443191f934451301d237826213ca1e6bcf"
+  },
+  "miner": {
+    "source": "mine-h1.c",
+    "templateTimestamp": 1266489294,
+    "timestampOffset": 3,
+    "nonce": 3476632234,
+    "hashesTried": "~1.65e10 (3 exhausted 2^32 nonce spaces + 3476632234)",
+    "expectedHashes": "10856718626"
+  }
+}
