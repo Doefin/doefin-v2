@@ -100,7 +100,10 @@ describe("PENTEST · ORC-003 (HIGH) — MiningDuration resolution freezes the or
   this.timeout(300_000);
 
   describe("creation-time validation", function () {
-    it("DEMONSTRATES — validation accepts blockCount = 11, 144 and 2016 (MAX_BLOCK_COUNT), all beyond the 10 the buffer can resolve", async function () {
+    // PRECONDITION, not a defect on its own: it flips only if the fix chooses the review's
+    // stopgap (cap blockCount at 10). With fix (1) — read blockHeightToTimestamp instead of the
+    // ring buffer — these counts become resolvable and this test correctly keeps passing.
+    it("PRECONDITION — validation accepts blockCount = 11, 144 and 2016 (MAX_BLOCK_COUNT), all beyond the 10 the buffer can resolve", async function () {
       const ctx = await load();
       for (const [i, n] of [11, 144, 2016].entries()) {
         const buckets = [n * 300, n * 900]; // stays under MAX_DURATION (30 days) for n = 2016

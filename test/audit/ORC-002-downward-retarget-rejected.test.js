@@ -113,8 +113,9 @@ describe("PENTEST · ORC-002 (HIGH) — honest first block of a lower-difficulty
     expect(await ctx.oracle.getCurrentBlockHeight()).to.equal(DOWN_BOUNDARY - 1);
   });
 
-  it("DEMONSTRATES — the oracle is frozen: the next canonical block 689473 cannot link (PrevBlockHashMismatch)", async function () {
+  it("DEMONSTRATES — the oracle is frozen: after 689472 is rejected, the next canonical block 689473 cannot link either", async function () {
     const ctx = await loadDown();
+    await expect(ctx.oracle.submitNextBlock(DOWN.byHeight[DOWN_BOUNDARY])).to.be.revertedWith("BlockHeaderOracle_InvalidBlockHash()");
     await expect(ctx.oracle.submitNextBlock(DOWN.byHeight[DOWN_BOUNDARY + 1])).to.be.revertedWith(
       "BlockHeaderOracle_PrevBlockHashMismatch()"
     );
