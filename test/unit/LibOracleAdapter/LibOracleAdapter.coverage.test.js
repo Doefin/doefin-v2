@@ -234,61 +234,39 @@ describe("LibOracleAdapter — coverage", function () {
   });
 
   // ──────────────────────────────────────────────────────────────────────
-  // MiningDuration happy path — exercises full _resolveMiningDurationQuestion
-  // (including the stats increment) without the ring-buffer revert.
+  // MiningDuration — ORC-003: the start / end timestamps come from `blockHeightToTimestamp`
+  // (recorded for every applied header), not from the 17-slot ring buffer.
   // ──────────────────────────────────────────────────────────────────────
-  describe("_resolveMiningDurationQuestion (happy path)", function () {
-    it("resolves a MiningDuration question whose start block is inside the ring buffer", async function () {
-      // blockCount 5 ⇒ startBlock offset 11 from the head — still in buffer.
-      const START_BLOCK = 89;
-      const BLOCK_COUNT = 5;
-      const END_BLOCK = START_BLOCK + BLOCK_COUNT; // 94
-      const CURRENT_HEIGHT = END_BLOCK + 6;        // 100 — settlement block
-      const startTs = 1000;
-      const endTs = 4000; // actualDuration = 3000
-      await harness.setOracleState(CURRENT_HEIGHT, 0);
-      // Latest header — its timestamp drives _updateAuxiliaryMappings; not load-bearing here.
-      await harness.seedBlockHeader(latestIndex(0), header({ blockNumber: CURRENT_HEIGHT, timestamp: 5000 }));
-      // Start and end headers carry the timestamps the resolver subtracts.
-      await harness.seedBlockHeader(
-        indexForBlock(START_BLOCK, CURRENT_HEIGHT, 0), header({ blockNumber: START_BLOCK, timestamp: startTs }),
-      );
-      await harness.seedBlockHeader(
-        indexForBlock(END_BLOCK, CURRENT_HEIGHT, 0), header({ blockNumber: END_BLOCK, timestamp: endTs }),
-      );
+  describe("_resolveMiningDurationQuestion", function () {
+    async function settleDuration({ startBlock, blockCount, startTs, endTs, buckets, qName }) {
+      const current = startBlock + blockCount + 6; // settlement block
+      await harness.setOracleState(current, 0);
+      await harness.seedBlockHeader(latestIndex(0), header({ blockNumber: current, timestamp: Math.max(startTs, endTs) + 3600 }));
+      await harness.setBlockHeightToTimestamp(startBlock, startTs);
+      await harness.setBlockHeightToTimestamp(startBlock + blockCount, endTs);
 
-      const qId = ethers.utils.id("md-happy");
-      await harness.prepareCondition(qId, 2); // durationBuckets [2000] => 2 outcomes
-      await harness.createMiningDurationQuestion(qId, META, START_BLOCK, BLOCK_COUNT, [2000]);
-
+      const qId = ethers.utils.id(qName);
+      await harness.prepareCondition(qId, buckets.length + 1);
+      await harness.createMiningDurationQuestion(qId, META, startBlock, blockCount, buckets);
       await harness.settleCondition();
+      return conditionIdOf(qId, buckets.length + 1);
+    }
 
-      const cId = conditionIdOf(qId, 2);
+    it("resolves from the recorded block timestamps", async function () {
+      const cId = await settleDuration({ startBlock: 89, blockCount: 5, startTs: 1000, endTs: 4000, buckets: [2000], qName: "md-happy" });
       // duration 3000 >= buckets[last]=2000 => winningIndex 1
       expect((await harness.payoutNumerators(cId)).map((x) => x.toNumber())).to.deep.equal([0, 1]);
       expect(await harness.totalQuestionsResolved()).to.equal(1);
     });
-  });
 
-  // ──────────────────────────────────────────────────────────────────────
-  // Ring-buffer bounds — _getBlockHeaderByNumber out-of-buffer revert
-  // ──────────────────────────────────────────────────────────────────────
-  describe("_getBlockHeaderByNumber", function () {
-    it("reverts OracleAdapter_BlockNotInBuffer when a resolution reads a block outside the ring buffer", async function () {
-      // A MiningDuration question whose start block is `blockCount + SETTLEMENT_DELAY`
-      // behind the head — with blockCount 11 that offset (17) falls off the
-      // 17-slot ring buffer.
-      const START_BLOCK = 1000;
-      const BLOCK_COUNT = 11;
-      const CURRENT_HEIGHT = START_BLOCK + BLOCK_COUNT + 6; // 1017 — settlement block
-      await harness.setOracleState(CURRENT_HEIGHT, 0);
-      await harness.seedBlockHeader(latestIndex(0), header({ blockNumber: CURRENT_HEIGHT, timestamp: 1700000000 }));
+    it("resolves when the start block is outside the ring buffer (blockCount 11) — pre-ORC-003 this reverted OracleAdapter_BlockNotInBuffer", async function () {
+      const cId = await settleDuration({ startBlock: 1000, blockCount: 11, startTs: 1_700_000_000, endTs: 1_700_006_600, buckets: [6000], qName: "md-deep" });
+      expect((await harness.payoutNumerators(cId)).map((x) => x.toNumber())).to.deep.equal([0, 1]); // 6600 >= 6000
+    });
 
-      const qId = ethers.utils.id("md-oob");
-      await harness.prepareCondition(qId, 2);
-      await harness.createMiningDurationQuestion(qId, META, START_BLOCK, BLOCK_COUNT, [100]);
-
-      await expect(harness.settleCondition()).to.be.revertedWith("OracleAdapter_BlockNotInBuffer()");
+    it("an end timestamp below the start's is a zero duration (outcome 0), not an arithmetic underflow", async function () {
+      const cId = await settleDuration({ startBlock: 2000, blockCount: 1, startTs: 1_700_000_600, endTs: 1_700_000_000, buckets: [60], qName: "md-backwards" });
+      expect((await harness.payoutNumerators(cId)).map((x) => x.toNumber())).to.deep.equal([1, 0]);
     });
   });
 });

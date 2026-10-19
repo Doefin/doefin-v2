@@ -240,6 +240,18 @@ library Errors {
     /// @notice Thrown when duplicate bucket values are provided
     error OracleAdapter_DuplicateBucketValue();
 
+    /// @notice ORC-009 — the settlement block already holds the maximum number of questions
+    error OracleAdapter_SettlementBlockFull(uint256 settlementBlock);
+
+    /// @notice ORC-006 — the difficulty at the target height is already determined (its period has begun)
+    error OracleAdapter_DifficultyAlreadyDecided();
+
+    /// @notice ORC-004 — this question type cannot be created (BlockCount, pending redesign)
+    error OracleAdapter_QuestionTypeDisabled();
+
+    /// @notice ORC-006 — the oracle's latest header is older than the market-creation staleness limit
+    error OracleAdapter_OracleStale();
+
     // ========================================
     // VALIDATION ERRORS
     // ========================================

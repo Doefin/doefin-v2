@@ -2,7 +2,7 @@
 // freezing the oracle: blockCount ≥ 11 reads outside the 17-slot buffer, and an end
 // timestamp below the start's underflows (any miner can force it when blockCount ≤ 5)
 // ----------------------------------------------------------------------------
-// STATUS: NOT YET FIXED — the `DEMONSTRATES` tests assert today's reverts/acceptances and
+// STATUS: FIXED (SCRUM-214) — pre-fix text kept below. Was: NOT YET FIXED — the `DEMONSTRATES` tests assert today's reverts/acceptances and
 // must be flipped by the fix commit.
 //
 // Failure / attack scenario
@@ -66,11 +66,6 @@ const load = snapshotFixture(async () => {
   return { ...ctx, init, tip, start: tip.blockNumber + START_OFFSET };
 });
 
-/** Direct submission with the EVM clock at the header's timestamp (for expect(...).revertedWith). */
-async function submitAt(ctx, header) {
-  await advanceEvmTimeTo(header.timestamp);
-  return ctx.oracle.submitNextBlock(sc.toContract(header));
-}
 
 async function batchAt(ctx, headers) {
   await advanceEvmTimeTo(Math.max(...headers.map((h) => h.timestamp)));
@@ -141,60 +136,50 @@ describe("PENTEST · ORC-003 (HIGH) — MiningDuration resolution freezes the or
       expect(await payouts(ctx, conditionId)).to.deep.equal([0, 1, 0]); // 3000 <= 6000 < 6600
     });
 
-    it("DEMONSTRATES — blockCount = 11: the canonical header at the settlement height reverts OracleAdapter_BlockNotInBuffer", async function () {
+    it("FIX VERIFIED — blockCount = 11: the settlement header is accepted and the question resolves (pre-fix: OracleAdapter_BlockNotInBuffer)", async function () {
       const ctx = await load();
       const settlement = ctx.start + 11 + sc.SETTLEMENT_DELAY;
-      await createDuration(ctx, ctx.start, 11, BUCKETS);
+      const { conditionId } = await createDuration(ctx, ctx.start, 11, BUCKETS);
       const chain = natural(ctx.tip, settlement - ctx.tip.blockNumber);
+      const at = (height) => chain[height - ctx.tip.blockNumber - 1];
 
-      await submitEach(ctx, chain.slice(0, -1)); // up to settlement - 1: fine
-      expect(await ctx.oracle.getCurrentBlockHeight()).to.equal(settlement - 1);
-
-      await expect(submitAt(ctx, chain[chain.length - 1])).to.be.revertedWith("OracleAdapter_BlockNotInBuffer()");
-      expect(await ctx.oracle.getCurrentBlockHeight()).to.equal(settlement - 1);
+      await submitEach(ctx, chain);
+      expect(await ctx.oracle.getCurrentBlockHeight()).to.equal(settlement);
+      expect(at(ctx.start + 11).timestamp - at(ctx.start).timestamp).to.equal(6600);
+      expect(await payouts(ctx, conditionId)).to.deep.equal([0, 0, 1]); // 6600 >= 6600
     });
 
-    it("DEMONSTRATES — blockCount = 11: the oracle can never pass the settlement height (any header there, batch or replay, reverts)", async function () {
+    it("FIX VERIFIED — blockCount = 11: the oracle passes the settlement height on the batch path too, and keeps extending", async function () {
       const ctx = await load();
       const settlement = ctx.start + 11 + sc.SETTLEMENT_DELAY;
-      await createDuration(ctx, ctx.start, 11, BUCKETS);
+      const { conditionId } = await createDuration(ctx, ctx.start, 11, BUCKETS);
       const chain = natural(ctx.tip, settlement - ctx.tip.blockNumber + 1); // through settlement + 1
       const at = (height) => chain[height - ctx.tip.blockNumber - 1];
       await submitEach(ctx, chain.slice(0, settlement - 1 - ctx.tip.blockNumber));
-      const parent = at(settlement - 1);
 
-      // A different header at the same height (another miner's block) hits the same resolver.
-      const sibling = sc.nextHeader(parent, { tag: "orc003-sibling", timestamp: parent.timestamp + 777 });
-      await expect(submitAt(ctx, sibling)).to.be.revertedWith("OracleAdapter_BlockNotInBuffer()");
-      // The batch path settles every height it applies.
-      await expect(batchAt(ctx, [at(settlement), at(settlement + 1)])).to.be.revertedWith("OracleAdapter_BlockNotInBuffer()");
-      // A reorg that replaces settlement-1 and reaches the settlement height again.
-      const replay = sc.extendChain(at(settlement - 2), 2, { tag: "orc003-replay", spacing: 599 });
-      await expect(batchAt(ctx, replay)).to.be.revertedWith("OracleAdapter_BlockNotInBuffer()");
-      // Nothing above it can link.
-      await expect(submitAt(ctx, at(settlement + 1))).to.be.revertedWith("BlockHeaderOracle_PrevBlockHashMismatch()");
-      expect(await ctx.oracle.getCurrentBlockHeight()).to.equal(settlement - 1);
+      await batchAt(ctx, [at(settlement), at(settlement + 1)]);
+      expect(await ctx.oracle.getCurrentBlockHeight()).to.equal(settlement + 1);
+      expect(await payouts(ctx, conditionId)).to.deep.equal([0, 0, 1]);
     });
 
-    it("DEMONSTRATES — a natural one-day market (blockCount = 144) freezes the oracle at start+150", async function () {
+    it("FIX VERIFIED — a natural one-day market (blockCount = 144) resolves at start+150 (pre-fix: froze the oracle)", async function () {
       const ctx = await load();
       const settlement = ctx.start + 144 + sc.SETTLEMENT_DELAY;
-      await createDuration(ctx, ctx.start, 144, [144 * 500, 144 * 700]);
+      const { conditionId } = await createDuration(ctx, ctx.start, 144, [144 * 500, 144 * 700]);
       const chain = natural(ctx.tip, settlement - ctx.tip.blockNumber);
 
-      for (let i = 0; i < chain.length - 1; i += 50) await submitBatch(ctx, chain.slice(i, Math.min(i + 50, chain.length - 1)));
-      expect(await ctx.oracle.getCurrentBlockHeight()).to.equal(settlement - 1);
-
-      await expect(submitAt(ctx, chain[chain.length - 1])).to.be.revertedWith("OracleAdapter_BlockNotInBuffer()");
+      for (let i = 0; i < chain.length; i += 50) await submitBatch(ctx, chain.slice(i, Math.min(i + 50, chain.length)));
+      expect(await ctx.oracle.getCurrentBlockHeight()).to.equal(settlement);
+      expect(await payouts(ctx, conditionId)).to.deep.equal([0, 1, 0]); // 86400 s in [72000, 100800)
     });
   });
 
   describe("timestamp underflow (blockCount <= 5)", function () {
-    it("DEMONSTRATES — blockCount = 1: an end header at median-time-past + 1 (below the start's timestamp) panics 0x11 at settlement", async function () {
+    it("FIX VERIFIED — blockCount = 1: an end header at median-time-past + 1 (below the start's timestamp) resolves as a zero duration (pre-fix: Panic 0x11)", async function () {
       const ctx = await load();
       const blockCount = 1;
       const { headers, start, end, endIndex, mtpAtEnd } = chainWithMinimalEndTimestamp(ctx, blockCount, sc.SETTLEMENT_DELAY);
-      await createDuration(ctx, start.blockNumber, blockCount, BUCKETS);
+      const { conditionId } = await createDuration(ctx, start.blockNumber, blockCount, BUCKETS);
 
       // The end header is valid on Bitcoin (strictly above MTP) yet earlier than the start header.
       expect(end.timestamp).to.be.greaterThan(mtpAtEnd);
@@ -202,23 +187,23 @@ describe("PENTEST · ORC-003 (HIGH) — MiningDuration resolution freezes the or
 
       await submitEach(ctx, headers.slice(0, endIndex)); // through the start block
       expect(await ctx.oracle.medianBlockTime()).to.equal(mtpAtEnd); // the oracle agrees on the MTP
-      await submitEach(ctx, headers.slice(endIndex, -1)); // end .. settlement-1: all accepted
+      await submitEach(ctx, headers.slice(endIndex)); // end .. settlement: all accepted
 
-      await expect(submitAt(ctx, headers[headers.length - 1])).to.be.revertedWith("panic code 0x11");
-      expect(await ctx.oracle.getCurrentBlockHeight()).to.equal(start.blockNumber + blockCount + sc.SETTLEMENT_DELAY - 1);
+      expect(await ctx.oracle.getCurrentBlockHeight()).to.equal(start.blockNumber + blockCount + sc.SETTLEMENT_DELAY);
+      expect(await payouts(ctx, conditionId)).to.deep.equal([1, 0, 0]); // duration 0 < 3000 s
     });
 
-    it("DEMONSTRATES — blockCount = 5 (the largest a miner can force): same Panic(0x11) at settlement", async function () {
+    it("FIX VERIFIED — blockCount = 5 (the largest a miner can force): resolves as a zero duration (pre-fix: Panic 0x11)", async function () {
       const ctx = await load();
       const blockCount = 5;
       const { headers, start, end, mtpAtEnd } = chainWithMinimalEndTimestamp(ctx, blockCount, sc.SETTLEMENT_DELAY);
-      await createDuration(ctx, start.blockNumber, blockCount, BUCKETS);
+      const { conditionId } = await createDuration(ctx, start.blockNumber, blockCount, BUCKETS);
 
       expect(end.timestamp).to.be.greaterThan(mtpAtEnd);
       expect(end.timestamp).to.be.lessThan(start.timestamp);
 
-      await submitEach(ctx, headers.slice(0, -1));
-      await expect(submitAt(ctx, headers[headers.length - 1])).to.be.revertedWith("panic code 0x11");
+      await submitEach(ctx, headers);
+      expect(await payouts(ctx, conditionId)).to.deep.equal([1, 0, 0]);
     });
 
     it("CONTROL — blockCount = 6: the earliest MTP-valid end timestamp is not below the start's, and the question resolves (bucket 0)", async function () {

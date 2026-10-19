@@ -2,7 +2,9 @@
 // inside the header's transaction exceeds Base's 16,777,216-gas per-transaction cap, so that
 // height can never be submitted
 // ----------------------------------------------------------------------------
-// STATUS: NOT YET FIXED — the `DEMONSTRATES` tests assert today's behaviour and must be
+// STATUS: FIXED (SCRUM-214) — LibOracleAdapter caps the block-keyed questions settling at one
+// height at MAX_QUESTIONS_PER_SETTLEMENT_BLOCK = 25 (OracleAdapter_SettlementBlockFull).
+// Pre-fix text kept below. Was: NOT YET FIXED — the `DEMONSTRATES` tests assert today's behaviour and must be
 // flipped by the fix commit (per-height cap at creation, or a resumable resolution queue).
 //
 // Failure / attack scenario (market maker — compromised, buggy, or just successful)
@@ -48,8 +50,6 @@ const sc = require("../utils/syntheticChain.js");
 const { isolateChainState } = require("../utils/oracleAuditFixture.js");
 const {
   BASE_PER_TX_GAS_CAP,
-  evmSnapshot,
-  evmRevert,
   snapshotFixture,
   deployOracleAuditDiamond,
   initSyntheticOracle,
@@ -92,57 +92,28 @@ async function settleUnderCap(ctx) {
   return receipt.gasUsed.toNumber();
 }
 
-async function expectRejected(promise, substring) {
+const MAX_PER_HEIGHT = 25; // LibOracleAdapter.MAX_QUESTIONS_PER_SETTLEMENT_BLOCK
+const SETTLEMENT_BLOCK = BOUNDARY + sc.SETTLEMENT_DELAY;
+/** Assert the creation reverts OracleAdapter_SettlementBlockFull(SETTLEMENT_BLOCK) (decoded name + argument). */
+async function expectHeightFull(promise) {
   try {
     await promise;
   } catch (e) {
-    expect(String(e.message)).to.include(substring);
+    expect(e.errorName, String(e.message)).to.equal("OracleAdapter_SettlementBlockFull");
+    expect(e.errorArgs[0].toNumber()).to.equal(SETTLEMENT_BLOCK);
     return;
   }
-  expect.fail(`expected rejection containing "${substring}"`);
-}
-
-/**
- * Register `lastFit + 1` questions of `kind` at one height: show that `lastFit` still settle
- * under the cap and that one more makes the settlement header impossible to submit.
- */
-async function demonstrateBoundary(kind, lastFit) {
-  const ctx = await load();
-  await addQuestions(ctx, kind, 0, lastFit);
-
-  // Boundary: with `lastFit` questions the settlement header still fits under the cap.
-  const snap = await evmSnapshot();
-  await submitBatch(ctx, ctx.chain.slice(0, -1));
-  const gasAtLastFit = await settleUnderCap(ctx);
-  await evmRevert(snap);
-
-  // One more question (questions must exist before the oracle reaches their target height).
-  await addQuestions(ctx, kind, lastFit, lastFit + 1);
-  expect((await ctx.oracleAdapter.getTotalQuestionsCreated()).toNumber()).to.equal(lastFit + 1);
-  await submitBatch(ctx, ctx.chain.slice(0, -1));
-  const heightBefore = (await ctx.oracle.getCurrentBlockHeight()).toNumber();
-  await advanceEvmTimeTo(ctx.settlement.timestamp);
-
-  await expect(
-    ctx.oracle.submitNextBlock(sc.toContract(ctx.settlement), { gasLimit: BASE_PER_TX_GAS_CAP })
-  ).to.be.revertedWith("run out of gas");
-  // The batch path settles the same height in the same transaction.
-  await expect(
-    ctx.oracle.submitBatchBlocks(ctx.chain.slice(-2).map(sc.toContract), { gasLimit: BASE_PER_TX_GAS_CAP })
-  ).to.be.revertedWith("run out of gas");
-  expect((await ctx.oracle.getCurrentBlockHeight()).toNumber()).to.equal(heightBefore);
-  console.log(`      ${kind}: ${lastFit} questions settle with ${gasAtLastFit.toLocaleString("en-US")} gas (net); ${lastFit + 1} run out of gas at the 16,777,216 cap`);
-  return { ctx, gasAtLastFit };
+  expect.fail("expected OracleAdapter_SettlementBlockFull");
 }
 
 describe("PENTEST · ORC-009 (MEDIUM) — unbounded questions per settlement height vs the 2^24 per-tx gas cap", function () {
   this.timeout(600_000);
   isolateChainState();
 
-  it("CONTROL — up to 50 questions of each type at one height settle under the cap (measured, logged)", async function () {
+  it("CONTROL — up to the cap (25) questions of each type at one height settle (measured, logged)", async function () {
     const rows = [];
     for (const kind of Object.keys(KINDS)) {
-      for (const n of [0, 1, 10, 50]) {
+      for (const n of [0, 1, 10, MAX_PER_HEIGHT]) {
         const ctx = await load();
         await addQuestions(ctx, kind, 0, n);
         await submitBatch(ctx, ctx.chain.slice(0, -1));
@@ -155,28 +126,35 @@ describe("PENTEST · ORC-009 (MEDIUM) — unbounded questions per settlement hei
     console.log("      ORC-009 settlement-header gas (net):");
     for (const kind of Object.keys(KINDS)) {
       const r = rows.filter((x) => x.kind === kind);
-      const slope = Math.round((r[3].gas - r[1].gas) / 49);
+      const slope = Math.round((r[3].gas - r[1].gas) / (MAX_PER_HEIGHT - 1));
       console.log(`        ${kind.padEnd(9)} ${r.map((x) => `N=${x.n}: ${x.gas.toLocaleString("en-US")}`).join("  ")}  (~${slope.toLocaleString("en-US")}/question)`);
     }
   });
 
-  it("DEMONSTRATES — 206 DifficultyThreshold questions at one height: the settlement header cannot be submitted under the cap (205 still fit)", async function () {
-    const { ctx, gasAtLastFit } = await demonstrateBoundary("threshold", 205);
-    expect(gasAtLastFit).to.be.greaterThan(13_000_000);
-    // No escape hatch: the network refuses any gas limit above the cap outright.
-    await expectRejected(
-      ctx.oracle.submitNextBlock(sc.toContract(ctx.settlement), { gasLimit: BASE_PER_TX_GAS_CAP + 1 }),
-      "exceeds transaction gas cap of 16777216"
-    );
+  for (const kind of Object.keys(KINDS)) {
+    it(`ATTACK BLOCKED — the 26th ${kind} question at one height reverts OracleAdapter_SettlementBlockFull (pre-fix: unbounded)`, async function () {
+      const ctx = await load();
+      await addQuestions(ctx, kind, 0, MAX_PER_HEIGHT);
+      await expectHeightFull(KINDS[kind](ctx, MAX_PER_HEIGHT));
+      expect((await ctx.oracleAdapter.getTotalQuestionsCreated()).toNumber()).to.equal(MAX_PER_HEIGHT);
+    });
+  }
+
+  it("ATTACK BLOCKED — the cap counts every block-keyed type together: 10 threshold + 10 range + 5 duration fill the height", async function () {
+    const ctx = await load();
+    await addQuestions(ctx, "threshold", 0, 10);
+    await addQuestions(ctx, "range", 0, 10);
+    await addQuestions(ctx, "duration", 0, 5);
+    for (const kind of Object.keys(KINDS)) await expectHeightFull(KINDS[kind](ctx, 100));
   });
 
-  it("DEMONSTRATES — 101 ten-bucket DifficultyRange questions at one height: the settlement header cannot be submitted (100 still fit)", async function () {
-    const { gasAtLastFit } = await demonstrateBoundary("range", 100);
-    expect(gasAtLastFit).to.be.greaterThan(13_000_000);
-  });
-
-  it("DEMONSTRATES — 97 ten-bucket MiningDuration questions at one height: the settlement header cannot be submitted (96 still fit)", async function () {
-    const { gasAtLastFit } = await demonstrateBoundary("duration", 96);
-    expect(gasAtLastFit).to.be.greaterThan(13_000_000);
+  it("FIX VERIFIED — a full height of the heaviest type (25 ten-bucket MiningDuration) settles in under a third of the cap", async function () {
+    const ctx = await load();
+    await addQuestions(ctx, "duration", 0, MAX_PER_HEIGHT);
+    await submitBatch(ctx, ctx.chain.slice(0, -1));
+    const gas = await settleUnderCap(ctx);
+    // A reorg replay that settles three such heights in one transaction still fits.
+    expect(gas).to.be.lessThan(Math.floor(BASE_PER_TX_GAS_CAP / 3));
+    console.log(`      25 ten-bucket MiningDuration questions settle with ${gas.toLocaleString("en-US")} gas (net)`);
   });
 });

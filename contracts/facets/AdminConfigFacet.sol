@@ -161,6 +161,30 @@ contract AdminConfigFacet is IAdminConfig {
     }
 
     /**
+     * @notice Set how stale the oracle may be for new markets to be created
+     * @dev ORC-006 — `ConditionManagerFacet.createConditionWithMetadata` reverts
+     *      `OracleAdapter_OracleStale` while `block.timestamp` is more than `_seconds` past the
+     *      oracle's latest Bitcoin header timestamp. 0 disables the check (the default).
+     * @param _seconds Maximum oracle staleness in seconds (0 = disabled)
+     * @custom:emits MaxOracleStalenessUpdated with old and new limits
+     * @custom:reverts NoChangeRequired if `_seconds` equals the current value
+     * @custom:security Only callable by contract owner
+     */
+    function setMaxOracleStaleness(uint32 _seconds) external override {
+        LibDiamond.enforceIsContractOwner();
+        LibAdminConfigStorage.AdminConfigStorage storage acs = LibAdminConfigStorage.adminConfigStorage();
+        uint32 oldSeconds = acs.maxOracleStaleness;
+        if (oldSeconds == _seconds) revert Errors.NoChangeRequired();
+        acs.maxOracleStaleness = _seconds;
+        emit Events.MaxOracleStalenessUpdated(oldSeconds, _seconds);
+    }
+
+    /// @notice Returns the oracle-staleness limit for market creation, in seconds (0 = disabled)
+    function getMaxOracleStaleness() external view override returns (uint32) {
+        return LibAdminConfigStorage.adminConfigStorage().maxOracleStaleness;
+    }
+
+    /**
      * @notice Returns the configured maximum settlement fee rate
      * @return The maximum fee rate in basis points
      */

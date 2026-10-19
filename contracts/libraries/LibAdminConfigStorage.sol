@@ -56,6 +56,10 @@ library LibAdminConfigStorage {
         ///      load-bearing component of INV-SOLV-4-revised:
         ///        `balanceOf(Diamond, token) >= outstandingPairs[token] + accruedFees[token]`.
         mapping(address => uint256) accruedFees;
+        /// @notice ORC-006 (SCRUM-214) — market creation reverts while the oracle's latest header is
+        ///         older than this many seconds of chain time. 0 disables the check.
+        /// @dev Appended after every existing field: no existing slot moves.
+        uint32 maxOracleStaleness;
     }
 
     /// @notice Returns the admin-config storage struct at its EIP-7201 namespace slot.

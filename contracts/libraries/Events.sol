@@ -45,6 +45,9 @@ library Events {
     /// @param newRate New maximum fee rate in basis points
     event MaxFeeRateUpdated(uint16 oldRate, uint16 newRate);
 
+    /// @notice ORC-006 — the oracle-staleness limit for market creation changed (seconds; 0 = off)
+    event MaxOracleStalenessUpdated(uint32 oldSeconds, uint32 newSeconds);
+
     // ========================================
     // ACCESS CONTROL EVENTS
     // ========================================

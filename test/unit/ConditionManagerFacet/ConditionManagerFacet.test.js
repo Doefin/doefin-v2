@@ -252,7 +252,8 @@ describe("ConditionManagerFacet", function () {
 
     it("should emit DifficultyThresholdQuestionCreated event with all parameters", async () => {
       const currentHeight = ethers.BigNumber.from(0);
-      const targetBlockHeight = currentHeight.add(2);
+      // ORC-006: the target's difficulty period must not have started — first block of the next one.
+      const targetBlockHeight = currentHeight.div(2016).add(1).mul(2016);
       const settlementBlock = targetBlockHeight.add(SETTLEMENT_DELAY);
       const threshold = ethers.utils.parseUnits("50", "gwei");
       const metadata = encodeDifficultyThreshold(threshold, targetBlockHeight);
@@ -307,7 +308,8 @@ describe("ConditionManagerFacet", function () {
 
     it("should emit DifficultyRangeQuestionCreated event with buckets", async () => {
       const currentHeight = ethers.BigNumber.from(0);
-      const targetBlockHeight = currentHeight.add(2);
+      // ORC-006: the target's difficulty period must not have started — first block of the next one.
+      const targetBlockHeight = currentHeight.div(2016).add(1).mul(2016);
       const settlementBlock = targetBlockHeight.add(SETTLEMENT_DELAY);
       const buckets = [
         ethers.utils.parseUnits("40", "gwei"),
@@ -348,50 +350,16 @@ describe("ConditionManagerFacet", function () {
         );
     });
 
-    it("should emit BlockCountQuestionCreated event with timestamps", async () => {
+    it("should refuse to create BlockCount questions: OracleAdapter_QuestionTypeDisabled (ORC-004)", async () => {
       const currentBlock = await ethers.provider.getBlock("latest");
       const blockTimestamp = currentBlock.timestamp;
-      const startTimestamp = blockTimestamp + 1800; // 30 min from now
-      const endTimestamp = blockTimestamp + 7200; // 2 hours from now
-      const settlementBucket = Math.floor(endTimestamp / 600) * 600; // 10-minute bucket
-      const countBuckets = [100, 150, 200];
-      const metadata = encodeBlockCount(
-        startTimestamp,
-        endTimestamp,
-        countBuckets
-      );
+      const metadata = encodeBlockCount(blockTimestamp + 1800, blockTimestamp + 7200, [100, 150, 200]);
 
-      const [conditionId, questionId] = await conditionManagerFacet
-        .connect(marketMaker)
-        .callStatic.createConditionWithMetadata(
-          QuestionType.BlockCount,
-          metadata,
-          4, // 3 buckets + 1 = 4 outcomes
-          "ipfs://test-blockcount",
-          ethers.constants.HashZero
-        );
-
-      const tx = await conditionManagerFacet
-        .connect(marketMaker)
-        .createConditionWithMetadata(
-          QuestionType.BlockCount,
-          metadata,
-          4,
-          "ipfs://test-blockcount",
-          ethers.constants.HashZero
-        );
-
-      await expect(tx)
-        .to.emit(conditionManagerFacet, "BlockCountQuestionCreated")
-        .withArgs(
-          questionId,
-          conditionId,
-          startTimestamp,
-          endTimestamp,
-          countBuckets,
-          settlementBucket,
-          marketMaker.address
-        );
+      await expect(
+        conditionManagerFacet
+          .connect(marketMaker)
+          .createConditionWithMetadata(QuestionType.BlockCount, metadata, 4, "ipfs://test-blockcount", ethers.constants.HashZero)
+      ).to.be.revertedWith("OracleAdapter_QuestionTypeDisabled()");
     });
 
     it("should emit MiningDurationQuestionCreated event with duration buckets", async () => {
@@ -441,7 +409,8 @@ describe("ConditionManagerFacet", function () {
 
     it("should emit both generic and specialized events", async () => {
       const currentHeight = ethers.BigNumber.from(0);
-      const targetBlockHeight = currentHeight.add(2);
+      // ORC-006: the target's difficulty period must not have started — first block of the next one.
+      const targetBlockHeight = currentHeight.div(2016).add(1).mul(2016);
       const settlementBlock = targetBlockHeight.add(SETTLEMENT_DELAY);
       const threshold = ethers.utils.parseUnits("50", "gwei");
       const metadata = encodeDifficultyThreshold(threshold, targetBlockHeight);

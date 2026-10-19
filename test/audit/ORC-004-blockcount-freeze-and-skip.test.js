@@ -2,7 +2,8 @@
 // timestamp lookup reverts (freezing the oracle), and the 600 s bucket gate skips questions
 // (never resolved, collateral locked)
 // ----------------------------------------------------------------------------
-// STATUS: NOT YET FIXED — the `DEMONSTRATES` tests assert today's behaviour and must be
+// STATUS: FIXED (SCRUM-214) — BlockCount creation reverts OracleAdapter_QuestionTypeDisabled
+// (ConditionManagerFacet); pre-fix text kept below. Was: NOT YET FIXED — the `DEMONSTRATES` tests assert today's behaviour and must be
 // flipped by the fix commit (the review's immediate fix rejects BlockCount at creation).
 //
 // Failure scenario (no attacker needed; any miner can additionally bias it)
@@ -35,8 +36,8 @@
 // is ever ahead of chain time. For (a) every header timestamp is ≡ 30 (mod 60) while the
 // question's timestamps are ≡ 0 (mod 60), making the miss deterministic.
 //
-// No CONTROL here: the review's immediate fix disables BlockCount creation, so no BlockCount
-// behaviour is expected to survive the fix unchanged.
+// The fix disables BlockCount creation, so the tests below show creation is refused and the
+// header sequences that used to freeze or strand the oracle now pass straight through.
 
 const { expect } = require("chai");
 const sc = require("../utils/syntheticChain.js");
@@ -46,7 +47,6 @@ const {
   deployOracleAuditDiamond,
   initSyntheticOracle,
   createBlockCount,
-  payouts,
   submitEach,
   evmNow,
   advanceEvmTimeTo,
@@ -88,78 +88,42 @@ describe("PENTEST · ORC-004 (HIGH) — BlockCount: lookup revert freezes the or
 
   describe("(a) exact-second timestamp lookup", function () {
     // start = A, end = A + 6120 → bucket(end) = A + 6000, trigger window [A+6120, A+6600).
-    async function setupLookupMiss() {
+    function lookupMissChain(ctx) {
+      const triggerTs = ctx.anchor + 6150; // ≡ 30 (mod 60): never on a probed second
+      const chain = withTimestamps(ctx.tip, approach(ctx.tip.timestamp, triggerTs + 600), "orc004a");
+      return { chain, trigger: chain.findIndex((h) => h.timestamp === triggerTs) };
+    }
+
+    it("ATTACK BLOCKED — creating a BlockCount market reverts OracleAdapter_QuestionTypeDisabled; nothing is registered", async function () {
       const ctx = await load();
       const start = ctx.anchor;
       const end = ctx.anchor + 6000 + 120;
-      const { conditionId } = await createBlockCount(ctx, start, end, COUNT_BUCKETS);
-      const triggerTs = ctx.anchor + 6150; // first header in [end, bucketStart+600); ≡ 30 (mod 60)
-      const chain = withTimestamps(ctx.tip, approach(ctx.tip.timestamp, triggerTs + 600), "orc004a");
-      const trigger = chain.findIndex((h) => h.timestamp === triggerTs);
-      return { ctx, start, end, conditionId, chain, trigger };
-    }
-
-    it("DEMONSTRATES — no header timestamp lies at start ± 60·k s (k ≤ 10), so the triggering header reverts OracleAdapter_BlockNotFoundForTimestamp", async function () {
-      const { ctx, start, end, chain, trigger } = await setupLookupMiss();
-      // Precondition: every probed key misses, and only the trigger header enters the window.
-      const probes = [start, ...Array.from({ length: 10 }, (_, i) => [start + 60 * (i + 1), start - 60 * (i + 1)]).flat()];
-      expect(probes.length).to.equal(21);
-      for (const h of chain) expect(probes.includes(h.timestamp)).to.equal(false);
-      expect(chain.filter((h) => h.timestamp >= end && sc.timestampBucket(h.timestamp) === sc.timestampBucket(end)).length).to.equal(1);
-
-      await submitEach(ctx, chain.slice(0, trigger)); // everything before the window: accepted
-      const heightBefore = await ctx.oracle.getCurrentBlockHeight();
-
-      await advanceEvmTimeTo(chain[trigger].timestamp);
-      await expect(ctx.oracle.submitNextBlock(sc.toContract(chain[trigger]))).to.be.revertedWith(
-        "OracleAdapter_BlockNotFoundForTimestamp()"
-      );
-      expect(await ctx.oracle.getCurrentBlockHeight()).to.equal(heightBefore);
+      await expect(createBlockCount(ctx, start, end, COUNT_BUCKETS)).to.be.revertedWith("OracleAdapter_QuestionTypeDisabled()");
+      expect((await ctx.oracleAdapter.getBlockCountQuestionsAtTimestamp(end)).length).to.equal(0);
+      expect(await ctx.oracleAdapter.getTotalQuestionsCreated()).to.equal(0);
     });
 
-    it("DEMONSTRATES — the canonical chain is frozen: the batch [trigger, next] reverts the same way and the next header cannot link", async function () {
-      const { ctx, conditionId, chain, trigger } = await setupLookupMiss();
+    it("FIX VERIFIED — the header sequence that used to freeze the oracle (trigger + next, single and batch) is accepted", async function () {
+      const ctx = await load();
+      const { chain, trigger } = lookupMissChain(ctx);
       await submitEach(ctx, chain.slice(0, trigger));
       await advanceEvmTimeTo(chain[trigger + 1].timestamp);
-
-      await expect(ctx.oracle.submitBatchBlocks(chain.slice(trigger, trigger + 2).map(sc.toContract))).to.be.revertedWith(
-        "OracleAdapter_BlockNotFoundForTimestamp()"
-      );
-      await expect(ctx.oracle.submitNextBlock(sc.toContract(chain[trigger + 1]))).to.be.revertedWith(
-        "BlockHeaderOracle_PrevBlockHashMismatch()"
-      );
-      expect(await payouts(ctx, conditionId)).to.deep.equal([0, 0, 0, 0]);
+      await ctx.oracle.submitBatchBlocks(chain.slice(trigger, trigger + 2).map(sc.toContract));
+      expect(await ctx.oracle.getCurrentBlockHeight()).to.equal(chain[trigger + 1].blockNumber);
     });
   });
 
   describe("(b) 600 s bucket gate", function () {
-    it("DEMONSTRATES — headers jump from end−10 s to the next bucket; the question is never examined and can never resolve", async function () {
+    it("ATTACK BLOCKED — no BlockCount question can be stranded: creation is refused and the bucket-skipping chain is accepted", async function () {
       const ctx = await load();
-      const start = ctx.anchor;
-      const end = ctx.anchor + 6000 + 300; // bucket A+6000, window [A+6300, A+6600)
-      const bucket = sc.timestampBucket(end);
-      const { conditionId } = await createBlockCount(ctx, start, end, COUNT_BUCKETS);
+      const end = ctx.anchor + 6000 + 300;
+      await expect(createBlockCount(ctx, ctx.anchor, end, COUNT_BUCKETS)).to.be.revertedWith("OracleAdapter_QuestionTypeDisabled()");
 
-      // Natural 600 s spacing: ..., A+6290 (in the bucket, before end), A+6890 (next bucket), ...
       const lastBefore = end - 10;
       const chain = withTimestamps(ctx.tip, approach(ctx.tip.timestamp, lastBefore + 6 * sc.TARGET_SPACING), "orc004b");
-      expect(chain.some((h) => h.timestamp === lastBefore)).to.equal(true);
-      expect(chain.some((h) => h.timestamp >= end && h.timestamp < bucket + BUCKET)).to.equal(false); // window skipped
-
-      await submitEach(ctx, chain); // every header accepted; nothing resolves
-
-      // The median time is now past the bucket: no valid header can ever land in the window again.
-      const mtp = (await ctx.oracle.medianBlockTime()).toNumber();
-      expect(mtp).to.be.at.least(bucket + BUCKET);
-      const late = sc.nextHeader(chain[chain.length - 1], { timestamp: end, tag: "orc004b-late" });
-      await expect(ctx.oracle.submitNextBlock(sc.toContract(late))).to.be.revertedWith("BlockHeaderOracle_InvalidTimestamp()");
-
-      // ...so the question stays registered and unresolved forever.
-      const pending = await ctx.oracleAdapter.getBlockCountQuestionsAtTimestamp(end);
-      expect(pending.length).to.equal(1);
-      expect(pending[0].conditionId).to.equal(conditionId);
-      expect(await payouts(ctx, conditionId)).to.deep.equal([0, 0, 0, 0]);
-      expect(await ctx.oracleAdapter.getTotalQuestionsResolved()).to.equal(0);
+      await submitEach(ctx, chain);
+      expect(await ctx.oracle.getCurrentBlockHeight()).to.equal(chain[chain.length - 1].blockNumber);
+      expect((await ctx.oracleAdapter.getBlockCountQuestionsAtTimestamp(end)).length).to.equal(0);
     });
   });
 });

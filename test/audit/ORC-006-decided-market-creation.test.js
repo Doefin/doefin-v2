@@ -1,7 +1,11 @@
 // PENTEST · ORC-006 (MEDIUM) — difficulty and duration markets can be created when their
 // answer is already decided; oracle lag widens the window
 // ----------------------------------------------------------------------------
-// STATUS: NOT YET FIXED — the `DEMONSTRATES` tests assert that creation succeeds today and
+// STATUS: FIXED (SCRUM-214) — LibConditionMetadata.enforceDifficultyUndecided requires
+// ⌊(tip+1)/2016⌋ < ⌊T/2016⌋ (OracleAdapter_DifficultyAlreadyDecided), and ConditionManagerFacet
+// refuses creation while the oracle is older than the owner-set `maxOracleStaleness`
+// (OracleAdapter_OracleStale; 0 = disabled, set on mainnet after the upgrade). Pre-fix text below.
+// Was: NOT YET FIXED — the `DEMONSTRATES` tests assert that creation succeeds today and
 // must be flipped by the fix commit (creation reverts under the epoch rule / freshness check).
 //
 // Scenario (market maker, or simply an uninformed one)
@@ -33,6 +37,7 @@
 
 const path = require("path");
 const { expect } = require("chai");
+const { ethers } = require("hardhat");
 const sc = require("../utils/syntheticChain.js");
 const { isolateChainState } = require("../utils/oracleAuditFixture.js");
 const {
@@ -82,34 +87,70 @@ describe("PENTEST · ORC-006 (MEDIUM) — markets can be created with an already
     expect((await ctx.oracleAdapter.getRangeQuestionsAtBlock(settlement)).length).to.equal(1);
   });
 
-  it("DEMONSTRATES — a DifficultyThreshold targeting the tip's own epoch is created, and resolves exactly as predicted at creation", async function () {
+  it("ATTACK BLOCKED — a DifficultyThreshold targeting the tip's own epoch reverts OracleAdapter_DifficultyAlreadyDecided", async function () {
     const ctx = await loadReal();
     const target = TIP + 4; // 967130, same epoch as the tip (479)
     expect(alreadyDecided(TIP, target)).to.equal(true);
 
-    // Anyone can read the answer at creation time: same epoch ⇒ same nBits as the tip.
     const known = sc.contractDifficulty((await ctx.oracle.getLatestBlockHeader()).nBits);
-    const { conditionId } = await createThreshold(ctx, known - 1n, target); // "difficulty > known − 1" ⇒ YES is certain
-
-    await submitEach(ctx, REAL.headers(TIP + 1, target + sc.SETTLEMENT_DELAY));
-    expect(sc.contractDifficulty(REAL.byHeight[target].nBits)).to.equal(known);
-    expect(await payouts(ctx, conditionId)).to.deep.equal([0, 1]);
+    await expect(createThreshold(ctx, known - 1n, target)).to.be.revertedWith("OracleAdapter_DifficultyAlreadyDecided()");
   });
 
-  it("DEMONSTRATES — a DifficultyRange targeting the tip's own epoch is created, and resolves into the bucket known at creation", async function () {
+  it("ATTACK BLOCKED — a DifficultyRange targeting the tip's own epoch reverts OracleAdapter_DifficultyAlreadyDecided", async function () {
     const ctx = await loadReal();
     const target = TIP + 4;
     expect(alreadyDecided(TIP, target)).to.equal(true);
 
     const known = sc.contractDifficulty((await ctx.oracle.getLatestBlockHeader()).nBits);
-    const buckets = [known - 1000n, known + 1000n]; // known value sits in the middle outcome
-    const { conditionId } = await createRange(ctx, target, buckets);
-
-    await submitEach(ctx, REAL.headers(TIP + 1, target + sc.SETTLEMENT_DELAY));
-    expect(await payouts(ctx, conditionId)).to.deep.equal([0, 1, 0]);
+    await expect(createRange(ctx, target, [known - 1000n, known + 1000n])).to.be.revertedWith(
+      "OracleAdapter_DifficultyAlreadyDecided()"
+    );
   });
 
-  it("DEMONSTRATES — creation ignores oracle staleness: with the oracle > 30 days behind chain time, a MiningDuration over blocks Bitcoin already mined is created and resolves as precomputed", async function () {
+  it("ATTACK BLOCKED — the epoch boundary itself: the period's first block T is refused once its deciding block T−1 is the next to be mined", async function () {
+    // Undecided exactly while ⌊(tip+1)/2016⌋ < ⌊T/2016⌋. With tip = T−2 the deciding block T−1
+    // is still unmined (allowed); with tip = T−1 it is mined (refused, T > tip still holds).
+    const ctx = await deployOracleAuditDiamond();
+    const T = 2016 * 500;
+    const init = await initSyntheticOracle(ctx, { startHeight: T - 1 - sc.NUM_OF_BLOCK_HEADERS, startTimestamp: (await evmNow()) - 17 * sc.TARGET_SPACING });
+    expect(init[init.length - 1].blockNumber).to.equal(T - 2);
+    await createThreshold(ctx, 1, T, { salt: ethers.utils.id("orc006-boundary-ok") });
+
+    await submitEach(ctx, sc.extendChain(init[init.length - 1], 1, { tag: "orc006-boundary" }));
+    expect(await ctx.oracle.getCurrentBlockHeight()).to.equal(T - 1);
+    await expect(createThreshold(ctx, 1, T, { salt: ethers.utils.id("orc006-boundary-late") })).to.be.revertedWith(
+      "OracleAdapter_DifficultyAlreadyDecided()"
+    );
+  });
+
+  it("ATTACK BLOCKED — with the staleness limit set, a market on an oracle > 30 days behind chain time reverts OracleAdapter_OracleStale", async function () {
+    const ctx = await loadReal();
+    const adminConfig = await ethers.getContractAt("AdminConfigFacet", ctx.diamondAddress);
+    await expect(adminConfig.connect(ctx.signers.owner).setMaxOracleStaleness(STALENESS_LIMIT))
+      .to.emit(adminConfig, "MaxOracleStalenessUpdated")
+      .withArgs(0, STALENESS_LIMIT);
+    expect(await adminConfig.getMaxOracleStaleness()).to.equal(STALENESS_LIMIT);
+
+    const latest = await ctx.oracle.getLatestBlockHeader();
+    expect((await evmNow()) - latest.timestamp).to.be.greaterThan(30 * 86400);
+    await expect(createDuration(ctx, TIP + 1, 6, [100, 200])).to.be.revertedWith("OracleAdapter_OracleStale()");
+  });
+
+  it("CONTROL — the staleness limit is owner-only, and a fresh oracle still creates markets under it", async function () {
+    const ctx = await deployOracleAuditDiamond();
+    const adminConfig = await ethers.getContractAt("AdminConfigFacet", ctx.diamondAddress);
+    await expect(adminConfig.connect(ctx.signers.attacker).setMaxOracleStaleness(STALENESS_LIMIT)).to.be.revertedWith(
+      "NotContractOwner()"
+    );
+    await adminConfig.connect(ctx.signers.owner).setMaxOracleStaleness(STALENESS_LIMIT);
+
+    const init = await initSyntheticOracle(ctx, { startTimestamp: (await evmNow()) - 17 * sc.TARGET_SPACING });
+    const tip = init[init.length - 1].blockNumber;
+    await createThreshold(ctx, 1, (sc.epochOf(tip) + 1) * sc.EPOCH_LENGTH);
+    await createDuration(ctx, tip + 10, 6, [100, 200]);
+  });
+
+  it("PRECONDITION — with the limit at 0 (disabled, the default) a stale oracle still creates MiningDuration markets over mined blocks", async function () {
     const ctx = await loadReal();
     const latest = await ctx.oracle.getLatestBlockHeader();
     expect((await evmNow()) - latest.timestamp).to.be.greaterThan(30 * 86400);

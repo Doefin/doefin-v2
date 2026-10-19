@@ -6,6 +6,7 @@ pragma solidity ^0.8.20;
 
 import {LibDoefinStorage} from "./LibDoefinStorage.sol";
 import {Errors} from "./Errors.sol";
+import {BlockHeaderUtils} from "./BlockHeaderUtils.sol";
 
 /// @title LibConditionMetadata
 /// @notice Library for encoding, decoding, and validating condition metadata
@@ -86,6 +87,23 @@ library LibConditionMetadata {
     // VALIDATION FUNCTIONS
     // ========================================
     
+    /**
+     * @notice Require that the difficulty at `targetBlockHeight` is not yet determined.
+     * @dev ORC-006: Bitcoin difficulty is constant across each 2016-block period and is fixed once
+     *      the last block of the previous period (⌊T/2016⌋·2016 − 1) is mined. The next block to be
+     *      mined is `currentBlockHeight + 1`, so the target's period must start after it:
+     *      ⌊(tip + 1) / 2016⌋ < ⌊T / 2016⌋. Checking only `T > tip` let a market be created whose
+     *      answer was already public. `currentBlockHeight` is the ORACLE's height — a lagging
+     *      oracle is caught by the staleness limit in ConditionManagerFacet.
+     * @custom:reverts OracleAdapter_DifficultyAlreadyDecided if the target's period has begun
+     */
+    function enforceDifficultyUndecided(uint256 targetBlockHeight, uint256 currentBlockHeight) internal pure {
+        uint256 interval = BlockHeaderUtils.DIFFICULTY_ADJUSTMENT_INTERVAL;
+        if ((currentBlockHeight + 1) / interval >= targetBlockHeight / interval) {
+            revert Errors.OracleAdapter_DifficultyAlreadyDecided();
+        }
+    }
+
     /// @notice Validate DifficultyThreshold parameters
     function validateDifficultyThreshold(
         uint256 threshold,
@@ -102,6 +120,7 @@ library LibConditionMetadata {
         if (targetBlockHeight <= currentBlockHeight) {
             revert Errors.ValueOutOfRange();
         }
+        enforceDifficultyUndecided(targetBlockHeight, currentBlockHeight);
     }
     
     /// @notice Validate DifficultyRange parameters
@@ -120,7 +139,8 @@ library LibConditionMetadata {
         if (targetBlockHeight <= currentBlockHeight) {
             revert Errors.ValueOutOfRange();
         }
-        
+        enforceDifficultyUndecided(targetBlockHeight, currentBlockHeight);
+
         // Validate buckets are strictly monotonically increasing
         for (uint256 i = 0; i < buckets.length - 1; i++) {
             if (buckets[i] >= buckets[i + 1]) {

@@ -78,6 +78,12 @@ contract LibOracleAdapterHarness {
         LibDoefinStorage.appStorage().oracleAdapterStorage.timestampToBlockHeight[timestamp] = blockHeight;
     }
 
+    /// @notice Record a block's timestamp by height — what the oracle writes for every applied
+    ///         header, and what MiningDuration resolution reads (ORC-003).
+    function setBlockHeightToTimestamp(uint256 blockHeight, uint256 timestamp) external {
+        LibDoefinStorage.appStorage().oracleAdapterStorage.blockHeightToTimestamp[blockHeight] = timestamp;
+    }
+
     // ── condition preparation ────────────────────────────────────────────
 
     /// @notice Prepare a CTF condition owned by this harness, so the resolver's
@@ -151,6 +157,14 @@ contract LibOracleAdapterHarness {
     /// @notice CTF per-outcome payout numerators for `cId`.
     function payoutNumerators(bytes32 cId) external view returns (uint256[] memory) {
         return LibDoefinStorage.appStorage().conditionalTokens.payoutNumerators[cId];
+    }
+
+    /// @notice Question ids queued in BlockCount bucket `bucket`, in array order.
+    function blockCountQuestionIdsAt(uint256 bucket) external view returns (bytes32[] memory ids) {
+        LibDoefinStorage.BlockCountQuestion[] storage qs =
+            LibDoefinStorage.appStorage().oracleAdapterStorage.timestampToBlockCountQuestions[bucket];
+        ids = new bytes32[](qs.length);
+        for (uint256 i = 0; i < qs.length; ++i) ids[i] = qs[i].questionId;
     }
 
     /// @notice The block height mapped to `timestamp` (0 if unmapped).
