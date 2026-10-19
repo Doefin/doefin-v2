@@ -50,7 +50,14 @@
 
 ## 2. Findings
 
+Each heading keeps the reviewer's triage at `9e641d6` ("new, proposed fix"). The lifecycle fields under it
+follow `security/audit-protocol.md` and were added with the fix commits.
+
 ### ORC-001: CRITICAL (new, proposed fix: fix): the new header's `nBits` is never validated, PoW is checked against the previous header's self-declared target, and fork choice counts blocks. One block of real work buys unlimited free headers and permanent control of every market resolution.
+
+- **status:** confirmed · **decision:** fix · **reverify:** pending
+- **fix-commit:** `6aa74de` (fixed in code, proof test flipped, full suite green; production cut (`audit/follow-ups.md` ORC-MAINNET-CUT) and Phase-6 re-verify outstanding).
+- **fix-test:** `test/audit/ORC-001-nbits-not-validated.test.js`
 - **location:**
   - `contracts/libraries/BlockHeaderUtils.sol:21-28`: the target is computed from `currentBlockHeader`, which is the *previous* header (`:25`).
   - `contracts/facets/DoefinV1BlockHeaderOracleFacet.sol:248-263`: `_verifyBlockHeader` never checks `nBits`.
@@ -116,6 +123,10 @@
   (`next.blockNumber` is already assigned before verification on both paths: `:98` and `:202`.) Add fuzz invariant INV-ORC-2 (§5).
 
 ### ORC-002: HIGH (new, proposed fix: fix): checking PoW against the previous epoch's target rejects the honest first block of every lower-difficulty epoch, freezing the oracle with probability equal to the size of the drop
+
+- **status:** confirmed · **decision:** fix · **reverify:** pending
+- **fix-commit:** `cfb08be`, `6aa74de` (fixed in code, proof test flipped, full suite green; production cut (`audit/follow-ups.md` ORC-MAINNET-CUT) and Phase-6 re-verify outstanding).
+- **fix-test:** `test/audit/ORC-002-downward-retarget-rejected.test.js`
 - **location:** `contracts/libraries/BlockHeaderUtils.sol:21-28`; `contracts/facets/DoefinV1BlockHeaderOracleFacet.sol:260`
 - **source:** manual-reviewer · **swc:** SWC-123 (requirement stricter than the real rule) · **scsvs:** V10.2 · **owasp:** SC10 (DoS), SC03 (logic error) · **upgrade-safe:** yes (part of ORC-001's interim fix)
 - **description:** The first header of epoch E (height E·2016) is checked against the target of header E·2016 − 1, which belongs to the *old* epoch.
@@ -138,6 +149,10 @@
 - **recommendation:** Ship ORC-001 (b) and (c) together: PoW against the block's own target, plus `nBits` continuity and the boundary clamp. Prepare the Replace in advance of block 973728 and every later boundary, and watch the difficulty estimate on `mempool.space`. Add the 689471→689472 test.
 
 ### ORC-003: HIGH (new, proposed fix: fix): MiningDuration resolution reverts inside block submission, freezing the oracle permanently. `blockCount ≥ 11` reads outside the 17-slot buffer, and `endBlock.timestamp < startBlock.timestamp` underflows (a miner can trigger it at no cost when `blockCount ≤ 5`).
+
+- **status:** confirmed · **decision:** fix · **reverify:** pending
+- **fix-commit:** `8f5b6bf` (fixed in code, proof test flipped, full suite green; production cut (`audit/follow-ups.md` ORC-MAINNET-CUT) and Phase-6 re-verify outstanding).
+- **fix-test:** `test/audit/ORC-003-mining-duration-freeze.test.js`
 - **location:**
   - `contracts/libraries/LibOracleAdapter.sol:334-355`: buffer reads at `:336-337`, subtraction at `:340`.
   - `:454-461`: `OracleAdapter_BlockNotInBuffer`.
@@ -164,6 +179,10 @@
   4. Defense in depth: resolvers must never revert header acceptance. On failure, emit `QuestionResolutionFailed(questionId)` and set the question aside for a manual path.
 
 ### ORC-004: HIGH (new, proposed fix: fix): BlockCount questions cannot resolve correctly. The exact-second timestamp lookup reverts about 99% of the time, freezing the oracle; otherwise the 600-second bucket gate leaves at least 37% of questions never resolved. Resolution has zero confirmations and the miner controls the timestamp.
+
+- **status:** confirmed · **decision:** fix · **reverify:** pending
+- **fix-commit:** `8f5b6bf` (fixed in code, proof test flipped, full suite green; production cut (`audit/follow-ups.md` ORC-MAINNET-CUT) and Phase-6 re-verify outstanding). Creation disabled only: a BlockCount question registered before the cut still resolves through the old lookup. Redesign deferred to ORC-004-REDESIGN.
+- **fix-test:** `test/audit/ORC-004-blockcount-freeze-and-skip.test.js`
 - **location:**
   - `contracts/libraries/LibOracleAdapter.sol:89-120`: questions are registered under the bucket of `endTimestamp`; the comment at `:98` says "no settlement delay".
   - `:229-247`: only the bucket of the current header is examined.
@@ -197,6 +216,10 @@
     - Never revert inside settlement.
 
 ### ORC-005: MEDIUM (new, proposed fix: fix): `_resolveConditionsAtTimestamp` removes the **last** array element, not the one it resolved
+
+- **status:** confirmed · **decision:** fix · **reverify:** pending
+- **fix-commit:** `8f5b6bf` (fixed in code, proof test flipped, full suite green; production cut (`audit/follow-ups.md` ORC-MAINNET-CUT) and Phase-6 re-verify outstanding).
+- **fix-test:** `test/audit/ORC-005-blockcount-pop-wrong-element.test.js`
 - **location:** `contracts/libraries/LibOracleAdapter.sol:238-245`
 - **source:** manual-reviewer · **swc:** — (logic error) · **scsvs:** V10.5 · **owasp:** SC03 · **upgrade-safe:** yes
 - **description:** The loop resolves `blockCountQuestions[i-1]` when `timestamp >= endTimestamp`, then calls `blockCountQuestions.pop()`, which removes the **last** element. If a later element was skipped because its `endTimestamp` is still in the future:
@@ -212,6 +235,10 @@
 - **recommendation:** Swap the last element into the resolved slot, then pop: `uint256 last = len - 1; if (i - 1 != last) blockCountQuestions[i - 1] = blockCountQuestions[last]; blockCountQuestions.pop();`. The loop runs downward, so the moved element has already been examined. Alternatively, fold this into the ORC-004 redesign.
 
 ### ORC-006: MEDIUM (new, proposed fix: fix): difficulty and duration markets can be created with an already-decided answer; oracle lag widens the window, and trading is not halted on-chain
+
+- **status:** confirmed · **decision:** fix · **reverify:** pending
+- **fix-commit:** `8f5b6bf` (fixed in code, proof test flipped, full suite green; production cut (`audit/follow-ups.md` ORC-MAINNET-CUT) and Phase-6 re-verify outstanding). The recommended `LAG_MARGIN` and the on-chain trading cutoff are not implemented (see `audit/coderabbit-triage/PR-30.md` CR-4318195618). **Decision (owner, 2026-10-20):** the lag margin is not needed — the period rule plus the owner-set staleness limit are accepted as sufficient; the on-chain trading cutoff remains SCRUM-214 Task B.
+- **fix-test:** `test/audit/ORC-006-decided-market-creation.test.js`
 - **location:**
   - `contracts/libraries/LibConditionMetadata.sol:102-104`, `:120-122`, `:191-193`.
   - `contracts/facets/ConditionManagerFacet.sol:65`, which validates against the oracle's height.
@@ -233,6 +260,10 @@
   - Note that "undecided" is not the same as "unpredictable": late in an epoch the next difficulty can be forecast to within about 1%.
 
 ### ORC-007: LOW (new, proposed fix: fix): deep-reorg replays use a corrupted median-time window (confirms and refines SCRUM-521-DEEP-REORG-MTP)
+
+- **status:** confirmed · **decision:** fix · **reverify:** pending
+- **fix-commit:** `6aa74de` (fixed in code, proof test flipped, full suite green; production cut (`audit/follow-ups.md` ORC-MAINNET-CUT) and Phase-6 re-verify outstanding).
+- **fix-test:** `test/audit/ORC-007-deep-reorg-median-window.test.js`
 - **location:** `contracts/facets/DoefinV1BlockHeaderOracleFacet.sol:160-175` (window), `:146-156` and `:197-215` (replay), `:256` (check)
 - **source:** manual-reviewer · **swc:** SWC-123 · **scsvs:** V10.3, V10.5 · **owasp:** SC10 · **upgrade-safe:** an explicit depth cap is yes; a larger timestamp window is no
 - **description:** After rewinding by depth d, the replay of block f+j uses an 11-entry window covering heights f+j−1 down to f+j−11. That window contains s = max(0, d − j − 5) wrapped slots still holding orphans (heights f+7…f+d) that have not yet been overwritten. Orphan timestamps are later than the real ones, so the median moves s blocks later. The cases:
@@ -251,6 +282,10 @@
 - **recommendation:** Make the limit explicit: revert `ReorgTooDeep` when d > 6 and give operators a runbook for that case. Alternatively, compute the median only from verified entries by keeping a separate timestamp ring of at least 27 entries in a new EIP-7201 namespace. Extend `OracleReorgIndexUnderflow.test.js` to d = 7, 11, 12 and 16 with the expected outcomes written down.
 
 ### ORC-008: MEDIUM (new, proposed fix: fix): `initializeBlockHeaderOracle` is permissionless, unvalidated, and runs outside the Safe bootstrap, so whoever calls it first controls a fresh deployment's oracle
+
+- **status:** confirmed · **decision:** fix · **reverify:** pending
+- **fix-commit:** `6aa74de` (fixed in code, proof test flipped, full suite green; production cut (`audit/follow-ups.md` ORC-MAINNET-CUT) and Phase-6 re-verify outstanding). Fresh deployments: ORC-008-DEPLOY-FLOW.
+- **fix-test:** `test/audit/ORC-008-permissionless-unvalidated-init.test.js`
 - **location:** `contracts/facets/DoefinV1BlockHeaderOracleFacet.sol:69-91`; `scripts/deploy-safe-owned.js:221-278` (the MultiSend does not initialize the oracle); `scripts/seed-oracle.js:4-5`, `:55`
 - **source:** manual-reviewer · **swc:** — (unprotected initializer) · **scsvs:** V10.4 · **owasp:** SC01 · **upgrade-safe:** yes
 - **description:**
@@ -267,6 +302,10 @@
   - Take the epoch-start data needed by ORC-001's full fix as initialization parameters.
 
 ### ORC-009: MEDIUM (new, proposed fix: fix): no limit on questions per settlement height; resolving them all in the header's transaction can exceed Base's 16,777,216-gas per-transaction cap, so that height can never be submitted
+
+- **status:** confirmed · **decision:** fix · **reverify:** pending
+- **fix-commit:** `8f5b6bf` (fixed in code, proof test flipped, full suite green; production cut (`audit/follow-ups.md` ORC-MAINNET-CUT) and Phase-6 re-verify outstanding).
+- **fix-test:** `test/audit/ORC-009-unbounded-questions-per-height.test.js`
 - **location:** `contracts/libraries/LibOracleAdapter.sol:199-225` (everything at a height resolves in one transaction), `:33`, `:64`, `:142` (unbounded `push`); `contracts/facets/ConditionManagerFacet.sol:49-126` (no per-height limit)
 - **source:** manual-reviewer · **swc:** SWC-128 · **scsvs:** V10.5 · **owasp:** SC10 · **upgrade-safe:** a cap is yes; a resumable queue is no (it needs a cursor slot)
 - **description:**
@@ -278,6 +317,10 @@
 - **recommendation:** Cap the total number of questions per settlement height across the three arrays when they are created (for example 50, confirmed with a gas test). Better still, decouple header acceptance from resolution with a permissionless `resolvePending(height, max)` and a cursor.
 
 ### ORC-010: LOW (new, proposed fix: fix): remaining differences from Bitcoin consensus in header checks and target decoding
+
+- **status:** confirmed · **decision:** fix · **reverify:** pending
+- **fix-commit:** `cfb08be`, `6aa74de` (fixed in code, proof test flipped, full suite green; production cut (`audit/follow-ups.md` ORC-MAINNET-CUT) and Phase-6 re-verify outstanding).
+- **fix-test:** `test/audit/ORC-010-consensus-gaps.test.js`
 - **location:**
   - `DoefinV1BlockHeaderOracleFacet.sol:256`: `<` accepts a timestamp equal to the median (Bitcoin requires it to be greater).
   - No upper timestamp limit (Bitcoin: at most network-adjusted time + 2 hours).
@@ -288,6 +331,10 @@
 - **recommendation:** Fold this into ORC-001 (d). Implement `decodeTarget` to mirror Bitcoin's `SetCompact` and `DeriveTarget`: reject negative, overflowing, zero, and above-`powLimit` targets.
 
 ### ORC-011: INFORMATIONAL (new, proposed fix: fix): `submitBatchBlocks([])` reverts with a bare `Panic(0x11)`
+
+- **status:** confirmed · **decision:** fix · **reverify:** pending
+- **fix-commit:** `6aa74de` (fixed in code, proof test flipped, full suite green; production cut (`audit/follow-ups.md` ORC-MAINNET-CUT) and Phase-6 re-verify outstanding).
+- **fix-test:** `test/audit/ORC-011-empty-batch-panic.test.js`
 - **location:** `contracts/facets/DoefinV1BlockHeaderOracleFacet.sol:128`
 - **source:** manual-reviewer (confirms PR #26 CR-triage OOB-2) · **swc:** SWC-101 · **scsvs:** V10.3 · **owasp:** SC08 · **upgrade-safe:** yes
 - **description:** Confirmed. `newBlockHeaders[newBlockHeaders.length - 1]` computes `0 - 1` in checked arithmetic and reverts `Panic(0x11)` before any index access, so the code is not `0x32`. No state changes. The block-indexer matches errors by named selector (for example `NewChainNotLonger` = `0x2cb8a30d`), and in monitoring a bare arithmetic panic looks the same as a SEC-015-class fault.
