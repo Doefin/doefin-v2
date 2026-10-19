@@ -7,14 +7,14 @@ Produced by triage from: 4 domain reviews, Slither (27 raw), Mythril (3), Echidn
 
 | Severity | Count | IDs |
 |---|---|---|
-| Critical | 0 | — |
-| High | 3 | SEC-001, SEC-002, SEC-015 (post-audit — production incident 2026-09-15, fixed SCRUM-521) |
-| Medium | 7 | SEC-003, SEC-004, SEC-005, SEC-006, SEC-007, BIZ-001, GAS-001 |
-| Low | 12 | SEC-008, SEC-009, SEC-010, SEC-011, BIZ-002, BIZ-004, BIZ-005, BIZ-006, CPX-003, CPX-005, CPX-006, CPX-007 |
-| Informational | 6 | SEC-012, SEC-013, SEC-014, BIZ-008, CPX-A2, CPX-A4567 |
+| Critical | 1 | ORC-001 (oracle review, SCRUM-214 — fixed) |
+| High | 6 | SEC-001, SEC-002, SEC-015 (post-audit — production incident 2026-09-15, fixed SCRUM-521); ORC-002, ORC-003, ORC-004 (oracle review — fixed) |
+| Medium | 11 | SEC-003, SEC-004, SEC-005, SEC-006, SEC-007, BIZ-001, GAS-001; ORC-005, ORC-006, ORC-008, ORC-009 (fixed) |
+| Low | 14 | SEC-008, SEC-009, SEC-010, SEC-011, BIZ-002, BIZ-004, BIZ-005, BIZ-006, CPX-003, CPX-005, CPX-006, CPX-007; ORC-007, ORC-010 (fixed) |
+| Informational | 7 | SEC-012, SEC-013, SEC-014, BIZ-008, CPX-A2, CPX-A4567; ORC-011 (fixed) |
 | Gas (≤ MEDIUM) | 6 | GAS-002 (M), GAS-005 (M), GAS-003/004/006/007 (L) |
 
-**Total confirmed: 28** (excludes 4 `duplicate`). **Mainnet-blocking: SEC-001, SEC-002** (fixed). **Post-audit production incident: SEC-015** (block-header oracle, out of the original scope — fixed SCRUM-521).
+**Total confirmed: 39** (28 from the original audit + 11 from the SCRUM-214 oracle review; excludes 4 `duplicate`). **Mainnet-blocking: SEC-001, SEC-002** (fixed). **Post-audit production incident: SEC-015** (block-header oracle, out of the original scope — fixed SCRUM-521).
 
 **Dedup map (raw → canonical):**
 - SEC-005 + CPX-001 + REMAINING-1 + Slither `assembly`×3 + `low-level-calls`×1 → **SEC-005**
@@ -165,6 +165,35 @@ Magic numbers (`0x1626ba7e`, `10000`), "Fix N" comments, stale NatSpec, floating
 ### GAS-007 — LOW — confirmed — fix — `unchecked` for loop counters + the four guarded subtractions only. Keep all guards; do NOT `unchecked` the fee/collateral multiplications.
 
 ---
+
+## ORACLE — SCSVS V10 review of the block-header oracle and question code (SCRUM-214)
+
+The oracle was excluded from the original audit as "superseded" (that exclusion hid SEC-015). Full
+review: `audit/findings/oracle-scsvs-v10-review.md`. Every finding has a proof test under
+`test/audit/ORC-0NN-*.test.js` that demonstrated the defect on the unfixed code (commits
+`ca71326`..`8969331`) and was flipped to ATTACK BLOCKED / FIX VERIFIED by the fix commit.
+Status column: `fixed-clean` = fixed in code, proof flipped, full suite green — **not yet deployed**
+(mainnet cut tracked in `audit/follow-ups.md` ORC-MAINNET-CUT).
+
+| ID | Sev | Finding | Fix | Status |
+|---|---|---|---|---|
+| ORC-001 | Critical | New header's nBits never validated, PoW checked against the parent's target, fork choice by block count — one block of real work captures every resolution | PoW vs the header's own target; nBits = parent's inside a period, = `CalculateNextWorkRequired` at a boundary; most-cumulative-work fork choice (`6aa74de`) | fixed-clean |
+| ORC-002 | High | Honest first block after a downward retarget rejected (hash between old and new target) → oracle frozen | as ORC-001 — real block 689472 now accepted; retarget maths matches 10 real boundaries (`cfb08be`, `6aa74de`) | fixed-clean |
+| ORC-003 | High | MiningDuration with blockCount ≥ 11 reads outside the ring; end < start underflows — either freezes the oracle | timestamps read from `blockHeightToTimestamp`; negative duration = 0 (`8f5b6bf`) | fixed-clean |
+| ORC-004 | High | BlockCount exact-second lookup reverts (~99%) or the 600 s bucket gate strands the question | BlockCount creation disabled (`OracleAdapter_QuestionTypeDisabled`); redesign = ORC-004-REDESIGN (`8f5b6bf`) | fixed-clean (disabled) |
+| ORC-005 | Medium | Resolving a BlockCount question pops the LAST element, losing an unresolved one and re-resolving another | swap-and-pop of the resolved element (`8f5b6bf`) | fixed-clean |
+| ORC-006 | Medium | Difficulty markets creatable once their answer is decided; oracle lag widens the window | period rule ⌊(tip+1)/2016⌋ < ⌊T/2016⌋; owner-set `maxOracleStaleness` on creation (`8f5b6bf`) | fixed-clean (limit to be set on mainnet) |
+| ORC-007 | Low | Replays deeper than 6 used a median window full of orphans; ≥ 12 deep froze the oracle (supersedes SCRUM-521-DEEP-REORG-MTP) | median-time-past read by height (`6aa74de`) | fixed-clean |
+| ORC-008 | Medium | `initializeBlockHeaderOracle` permissionless and unvalidated | owner-only; seed must be linked and PoW-valid (`6aa74de`) | fixed-clean |
+| ORC-009 | Medium | Unbounded questions per settlement height can exceed the 2^24 per-tx gas cap | ≤ 25 per height (`OracleAdapter_SettlementBlockFull`); 25 heaviest settle in 3.48M gas (`8f5b6bf`) | fixed-clean |
+| ORC-010 | Low | timestamp == median accepted; no 2 h future limit; malformed nBits accepted | strict `> MTP`, `<= block.timestamp + 2 h`, SetCompact decoding (`cfb08be`, `6aa74de`) | fixed-clean |
+| ORC-011 | Info | `submitBatchBlocks([])` reverts with a bare Panic(0x11) | `BlockHeaderOracle_EmptyBatch` (`6aa74de`) | fixed-clean |
+
+Tooling on the oracle and question code (exclusions lifted, `458202e`..`e69894a`): solhint 0 errors;
+Slither 4 results in the newly analysed files, all false positives; Mythril no issues (32% /
+16% coverage — symbolic execution cannot produce PoW); coverage measured. Fuzzing:
+`contracts/audit/OracleInvariantHarness.sol` (15 properties, real Bitcoin headers, catches SEC-015
+on the pre-fix facet).
 
 ## Slither — 27 raw results, all triaged
 
