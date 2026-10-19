@@ -22,14 +22,19 @@
 // binding constraint is the GROSS gas, which is why the last fitting N uses ~13.2M net.
 //
 //   questions at one height        gas used (net) to submit the settlement header
-//   none                           190,939
-//   DifficultyThreshold  ×1        281,373      ×50  3,351,657      ×205 13,207,2xx (last fit)
-//   DifficultyRange(10)  ×1        315,734      ×50  6,646,844      ×100 13,120,7xx (last fit)
-//   MiningDuration(10)   ×1        323,079      ×50  6,921,547      ×96  13,134,1xx (last fit)
-//   ⇒ marginal ≈ 62.7k–63.5k (threshold), 129k (range), 135k (duration) net per question,
+//   none                           186,151
+//   DifficultyThreshold  ×1        276,585      ×50  3,351,667      ×205 13,207,200 (last fit)
+//   DifficultyRange(10)  ×1        310,946      ×50  6,646,853      ×100 13,120,748 (last fit)
+//   MiningDuration(10)   ×1        319,913      ×50  6,921,556      ×96  13,134,101 (last fit)
+//   ⇒ marginal ≈ 63k (threshold), 129k (range), 135k (duration) net per question,
 //     i.e. ≈ 81k / 165k / 172k GROSS against the cap
 //   ⇒ the header CANNOT be submitted at 206 threshold / 101 range / 97 duration questions.
 //   (Exact figures are logged by the tests; they move by a few gas with header calldata.)
+//
+// Setup: fresh synthetic oracle (tip ~10 min behind chain time) 11 blocks before a retarget
+// boundary B; threshold/range questions target B (next epoch), duration questions start at
+// B − 1, so the CONTROL also holds under ORC-006's epoch/freshness rules and a per-height cap
+// of 50.
 //
 //   (The review estimated 60–120k / 150–250k per question and 70–250 questions; the measured
 //   threshold count is at the top of that range, range/duration questions lower.)
@@ -51,24 +56,28 @@ const {
   createRange,
   createDuration,
   submitBatch,
+  advanceEvmTimeTo,
 } = require("../utils/oracleAuditFixture.js");
 
 const TEN_BUCKETS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 const TEN_DURATION_BUCKETS = [600, 1200, 1800, 2400, 3000, 3600, 4200, 4800, 5400, 6000];
 
-// All three kinds settle at tip + 8: threshold/range target tip + 2; duration start tip + 1, 1 block.
+// The oracle is fresh and its tip sits 11 blocks before a retarget boundary B. Threshold and
+// range questions target B (first block of the NEXT epoch — valid under ORC-006's epoch rule);
+// duration questions start at B − 1 (10 blocks past the tip) for 1 block. All settle at B + 6.
+const BOUNDARY = sc.EPOCH_LENGTH * 401; // 808,416
 const load = snapshotFixture(async () => {
   const ctx = await deployOracleAuditDiamond();
-  const init = await initSyntheticOracle(ctx);
+  const init = await initSyntheticOracle(ctx, { startHeight: BOUNDARY - 11 - sc.NUM_OF_BLOCK_HEADERS + 1, fresh: true });
   const tip = init[init.length - 1];
-  const chain = sc.extendChain(tip, 2 + sc.SETTLEMENT_DELAY, { tag: "orc009" });
+  const chain = sc.extendChain(tip, BOUNDARY + sc.SETTLEMENT_DELAY - tip.blockNumber, { tag: "orc009" });
   return { ...ctx, tip, chain, settlement: chain[chain.length - 1] };
 });
 
 const KINDS = {
-  threshold: (ctx, i) => createThreshold(ctx, 1, ctx.tip.blockNumber + 2, { salt: sc.merkleFor("orc009-threshold", i) }),
-  range: (ctx, i) => createRange(ctx, ctx.tip.blockNumber + 2, TEN_BUCKETS, { salt: sc.merkleFor("orc009-range", i) }),
-  duration: (ctx, i) => createDuration(ctx, ctx.tip.blockNumber + 1, 1, TEN_DURATION_BUCKETS, { salt: sc.merkleFor("orc009-duration", i) }),
+  threshold: (ctx, i) => createThreshold(ctx, 1, BOUNDARY, { salt: sc.merkleFor("orc009-threshold", i) }),
+  range: (ctx, i) => createRange(ctx, BOUNDARY, TEN_BUCKETS, { salt: sc.merkleFor("orc009-range", i) }),
+  duration: (ctx, i) => createDuration(ctx, BOUNDARY - 1, 1, TEN_DURATION_BUCKETS, { salt: sc.merkleFor("orc009-duration", i) }),
 };
 
 async function addQuestions(ctx, kind, from, to) {
@@ -77,6 +86,7 @@ async function addQuestions(ctx, kind, from, to) {
 
 /** Submit the settlement header under Base's cap; returns gasUsed. */
 async function settleUnderCap(ctx) {
+  await advanceEvmTimeTo(ctx.settlement.timestamp);
   const receipt = await (await ctx.oracle.submitNextBlock(sc.toContract(ctx.settlement), { gasLimit: BASE_PER_TX_GAS_CAP })).wait();
   return receipt.gasUsed.toNumber();
 }
@@ -110,6 +120,7 @@ async function demonstrateBoundary(kind, lastFit) {
   expect((await ctx.oracleAdapter.getTotalQuestionsCreated()).toNumber()).to.equal(lastFit + 1);
   await submitBatch(ctx, ctx.chain.slice(0, -1));
   const heightBefore = (await ctx.oracle.getCurrentBlockHeight()).toNumber();
+  await advanceEvmTimeTo(ctx.settlement.timestamp);
 
   await expect(
     ctx.oracle.submitNextBlock(sc.toContract(ctx.settlement), { gasLimit: BASE_PER_TX_GAS_CAP })

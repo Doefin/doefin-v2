@@ -112,9 +112,14 @@ async function payouts(ctx, conditionId) {
  * Initialise the oracle with a synthetic regtest-style buffer (see syntheticChain.js).
  * Defaults: owner calls; heights 806500..806516 (far from a 2016 boundary);
  * timestamps start 3 days before the EVM clock so later headers stay in the past.
+ * `fresh: true` instead ends the buffer ~10 minutes behind the EVM clock, so a freshness
+ * check on market creation (ORC-006's fix) is satisfied; later headers are then in the
+ * future and must be submitted through `submitEach` / `submitBatch` (or after
+ * `advanceEvmTimeTo`), which keep the EVM clock at or past each header's timestamp.
  */
-async function initSyntheticOracle(ctx, { startHeight = 806500, startTimestamp, nBits = sc.NBITS.REGTEST, tag = "init", caller } = {}) {
-  const start = startTimestamp ?? (await evmNow()) - 3 * 86400;
+async function initSyntheticOracle(ctx, { startHeight = 806500, startTimestamp, fresh = false, nBits = sc.NBITS.REGTEST, tag = "init", caller } = {}) {
+  const now = await evmNow();
+  const start = startTimestamp ?? (fresh ? now - sc.NUM_OF_BLOCK_HEADERS * sc.TARGET_SPACING : now - 3 * 86400);
   const init = sc.makeInitBuffer({ startHeight, startTimestamp: start, nBits, tag });
   await (await ctx.oracle.connect(caller ?? ctx.signers.owner).initializeBlockHeaderOracle(init.map(sc.toContract), startHeight)).wait();
   return init;
