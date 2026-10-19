@@ -45,6 +45,9 @@ library LibCTFCondition {
         uint256[] memory partition,
         uint256 amount
     ) internal {
+        // CTF-008: the public path never runs as the Diamond itself — that case skipped the
+        // collateral movement and is reserved for the lock-holding internal variants.
+        if (sender == address(this)) revert Errors.SelfCallNotAllowed();
         (uint256 fullIndexSet, uint256 freeIndexSet, uint256[] memory positionIds, uint256[] memory amounts) = _validateAndBuildPartitionPositions(
             collateralToken,
             parentCollectionId,
@@ -58,20 +61,17 @@ library LibCTFCondition {
 
         if (freeIndexSet == 0) {
             if (parentCollectionId == bytes32(0)) {
-                /// @dev Skip token transfer when contract calls itself to avoid circular transfers
-                if (sender != address(this)) {
-                    // CTF-004: once the condition has resolved, turning a full set back into
-                    // collateral is a redemption — charge the same resolution fee, or winners
-                    // bypass it by pairing their tokens with (worthless) losing ones.
-                    uint256 fee = LibDoefinStorage.appStorage().conditionalTokens.payoutDenominator[conditionId] != 0
-                        ? (amount * resolutionFeeBps(conditionId)) / LibConstants.BPS_DENOMINATOR
-                        : 0;
-                    if (fee > 0) {
-                        LibAdminConfigStorage.adminConfigStorage().accruedFees[collateralToken] += fee;
-                        emit Events.FeeAccrued(collateralToken, fee, LibConstants.FEE_KIND_RESOLUTION);
-                    }
-                    IERC20(collateralToken).safeTransfer(sender, amount - fee);
+                // CTF-004: once the condition has resolved, turning a full set back into
+                // collateral is a redemption — charge the same resolution fee, or winners
+                // bypass it by pairing their tokens with (worthless) losing ones.
+                uint256 fee = LibDoefinStorage.appStorage().conditionalTokens.payoutDenominator[conditionId] != 0
+                    ? (amount * resolutionFeeBps(conditionId)) / LibConstants.BPS_DENOMINATOR
+                    : 0;
+                if (fee > 0) {
+                    LibAdminConfigStorage.adminConfigStorage().accruedFees[collateralToken] += fee;
+                    emit Events.FeeAccrued(collateralToken, fee, LibConstants.FEE_KIND_RESOLUTION);
                 }
+                IERC20(collateralToken).safeTransfer(sender, amount - fee);
             } else {
                 uint256 parentPosId = LibCTHelpers.getPositionId(collateralToken, parentCollectionId);
                 LibERC1155._mint(sender, parentPosId, amount, "");
@@ -92,6 +92,8 @@ library LibCTFCondition {
         uint256 amount,
         uint256[] memory partition
     ) internal {
+        // CTF-008: see _mergePositions — a self-call would mint positions without collateral.
+        if (sender == address(this)) revert Errors.SelfCallNotAllowed();
         if (!LibAdminConfigStorage.adminConfigStorage().isAllowed[collateralToken]) {
             revert Errors.TokenNotAllowed();
         }
@@ -117,14 +119,11 @@ library LibCTFCondition {
         LibReentrancyGuard._nonReentrantBefore();
         if (freeIndexSet == 0) {
             if (parentCollectionId == bytes32(0)) {
-                /// @dev Skip token transfer when contract calls itself to avoid circular transfers
-                if (sender != address(this)) {
-                    // `sender` is `msg.sender` at the public entrypoint
-                    // (`ConditionalTokensFacet.splitPosition`); a user splits their own
-                    // collateral — they cannot pass a third-party `from`.
-                    // slither-disable-next-line arbitrary-send-erc20
-                    IERC20(collateralToken).safeTransferFrom(sender, address(this), amount);
-                }
+                // `sender` is `msg.sender` at the public entrypoint
+                // (`ConditionalTokensFacet.splitPosition`); a user splits their own
+                // collateral — they cannot pass a third-party `from`.
+                // slither-disable-next-line arbitrary-send-erc20
+                IERC20(collateralToken).safeTransferFrom(sender, address(this), amount);
             } else {
                 uint256 parentPosId = LibCTHelpers.getPositionId(collateralToken, parentCollectionId);
                 LibERC1155._burn(sender, parentPosId, amount);
@@ -140,10 +139,11 @@ library LibCTFCondition {
         LibReentrancyGuard._nonReentrantAfter();
     }
 
-    /// @notice Split position without reentrancy guard — caller MUST already hold the lock.
-    /// @dev Only for use by SettlementFacet (or other internal callers that hold nonReentrant).
-    ///      When sender == address(this), no external calls are made (safeTransferFrom is skipped),
-    ///      so there is no reentrancy risk.
+    /// @notice Split position inside the caller's reentrancy window — the caller MUST hold the lock.
+    /// @dev Only for SettlementFacet (or another caller holding nonReentrant); CTF-008 enforces the
+    ///      lock instead of assuming it. With sender == address(this) the collateral pull is skipped
+    ///      (it is already in the Diamond), but the ERC-1155 mint to the Diamond is not an
+    ///      external call only because LibERC1155 skips the acceptance check for self-transfers.
     function _splitPositionInternal(
         address sender,
         address collateralToken,
@@ -152,6 +152,7 @@ library LibCTFCondition {
         uint256 amount,
         uint256[] memory partition
     ) internal {
+        LibReentrancyGuard._enforceEntered();
         if (!LibAdminConfigStorage.adminConfigStorage().isAllowed[collateralToken]) {
             revert Errors.TokenNotAllowed();
         }
@@ -191,10 +192,9 @@ library LibCTFCondition {
         LibERC1155._batchMint(sender, positionIds, amounts, "");
     }
 
-    /// @notice Merge positions without reentrancy guard — caller MUST already hold the lock.
-    /// @dev Only for use by SettlementFacet (or other internal callers that hold nonReentrant).
-    ///      When sender == address(this), no external calls are made (safeTransfer is skipped),
-    ///      so there is no reentrancy risk.
+    /// @notice Merge positions inside the caller's reentrancy window — the caller MUST hold the lock.
+    /// @dev Only for SettlementFacet (or another caller holding nonReentrant); CTF-008 enforces the
+    ///      lock instead of assuming it. See _splitPositionInternal for the self-transfer note.
     function _mergePositionsInternal(
         address sender,
         address collateralToken,
@@ -203,6 +203,7 @@ library LibCTFCondition {
         uint256[] memory partition,
         uint256 amount
     ) internal {
+        LibReentrancyGuard._enforceEntered();
         (uint256 fullIndexSet, uint256 freeIndexSet, uint256[] memory positionIds, uint256[] memory amounts) = _validateAndBuildPartitionPositions(
             collateralToken,
             parentCollectionId,
