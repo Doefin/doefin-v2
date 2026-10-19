@@ -1,0 +1,20 @@
+# CodeRabbit config addition distilled from the PR-30 triage (audit/coderabbit-triage/PR-30.md,
+# entry ISSUE-6275665276). Merge under the existing top-level `reviews:` key in `.coderabbit.yml`
+# (it is a sibling of `path_instructions`, not an entry inside it).
+#
+# Pattern: the "Docstring Coverage" pre-merge check (CodeRabbit default: warning at 80%) fired on
+# PR #26, #28 (25.00%), #29 (66.67%) and #30 (53.21%). It measures every function touched by the
+# diff, including JS test helpers, upgrade/rehearsal scripts and fuzz-harness internals, so it is
+# not the project's rule. Doefin's documentation policy is path-scoped NatSpec, enforced through
+# `reviews.path_instructions` (per-facet NatSpec policy blocks from CR-triage PR #23) and
+# `code_generation.docstrings`. PR #26's ledger set "teach only if it recurs" as the bar; it has
+# recurred three times.
+#
+# Schema: `reviews.pre_merge_checks.docstrings.mode` is `off | warning | error` (schema.v2.json).
+# Alternative if the team wants to keep a signal: `mode: "warning"` with a lower `threshold`, but
+# the metric still counts tests and scripts.
+
+reviews:
+  pre_merge_checks:
+    docstrings:
+      mode: "off"

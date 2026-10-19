@@ -69,6 +69,14 @@ reviews:
     unit_tests:
       enabled: true
 
+  # PR-30 CR-triage (ISSUE-6275665276): the "Docstring Coverage" pre-merge check counts every
+  # touched function — JS test helpers, upgrade / rehearsal scripts, fuzz-harness internals —
+  # so it is not the project's rule. It fired on PRs #26, #28, #29 and #30; PR #26's ledger set
+  # "teach if it recurs". Documentation is enforced by the path-scoped NatSpec instructions below.
+  pre_merge_checks:
+    docstrings:
+      mode: "off"
+
   # Path filters — gitignore syntax. Strip noise so review tokens go to code.
   # NOTE: the `audit/` deliverables are included on purpose — CodeRabbit
   # cross-references them against the diff (e.g. "this change weakens
