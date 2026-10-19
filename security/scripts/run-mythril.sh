@@ -13,7 +13,8 @@ TARGETS="SettlementFacet:SettlementFacet
 SignatureVerifierFacet:SignatureVerifierFacet
 NonceManagerFacet:NonceManagerFacet
 DoefinV1BlockHeaderOracleFacet:DoefinV1BlockHeaderOracle
-ConditionManagerFacet:ConditionManagerFacet"
+ConditionManagerFacet:ConditionManagerFacet
+ConditionalTokensFacet:ConditionalTokensFacet"
 for t in $TARGETS; do
   f="${t%%:*}"
   c="${t##*:}"

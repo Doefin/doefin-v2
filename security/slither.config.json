@@ -6,5 +6,5 @@
   "exclude_medium": false,
   "exclude_high": false,
   "exclude_optimization": false,
-  "filter_paths": "node_modules,contracts/mock/,contracts/audit/,contracts/interfaces/,contracts/Diamond.sol,contracts/upgradeInitializers/,contracts/facets/DiamondCutFacet.sol,contracts/facets/DiamondLoupeFacet.sol,contracts/facets/OwnershipFacet.sol,contracts/libraries/LibDiamond.sol,contracts/facets/ConditionalTokensFacet.sol,contracts/libraries/LibCTHelpers.sol,contracts/libraries/LibCTFCondition.sol"
+  "filter_paths": "node_modules,contracts/mock/,contracts/audit/,contracts/interfaces/,contracts/Diamond.sol,contracts/upgradeInitializers/,contracts/facets/DiamondCutFacet.sol,contracts/facets/DiamondLoupeFacet.sol,contracts/facets/OwnershipFacet.sol,contracts/libraries/LibDiamond.sol"
 }
