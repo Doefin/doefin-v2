@@ -86,7 +86,7 @@ contract DoefinV1BlockHeaderOracle is IDoefinBlockHeaderOracle {
             revert Errors.BlockHeaderOracle_InvalidInitialHistoryLength();
         }
 
-        bytes32 prevBlockHash;
+        bytes32 prevBlockHash = bytes32(0);
         for (uint256 i = 0; i < initialBlockHistory.length; ++i) {
             LibDoefinStorage.BlockHeader memory blockHeader = initialBlockHistory[i];
             blockHeader.blockHash = BlockHeaderUtils.calculateBlockHash(blockHeader);
@@ -298,6 +298,8 @@ contract DoefinV1BlockHeaderOracle is IDoefinBlockHeaderOracle {
         if (newBlockHeader.timestamp <= _medianTimePast(newBlockHeader.blockNumber)) {
             revert Errors.BlockHeaderOracle_InvalidTimestamp();
         }
+        // Bitcoin's own rule is relative to wall-clock time; block.timestamp is the chain's clock.
+        // slither-disable-next-line timestamp
         if (newBlockHeader.timestamp > block.timestamp + BlockHeaderUtils.MAX_FUTURE_BLOCK_TIME) {
             revert Errors.BlockHeaderOracle_TimestampTooNew();
         }

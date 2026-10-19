@@ -18,6 +18,8 @@ library BlockHeaderUtils {
     uint256 internal constant POW_LIMIT = BASE_DIFFICULTY_TARGET;
     /// @dev Bitcoin Core `MAX_FUTURE_BLOCK_TIME`.
     uint256 internal constant MAX_FUTURE_BLOCK_TIME = 2 hours;
+    /// @dev Sign bit of a compact target's 24-bit mantissa (0x00800000).
+    uint256 private constant COMPACT_SIGN_BIT = 1 << 23;
 
     /**
      * @notice Decode a compact `nBits` target exactly as Bitcoin Core `arith_uint256::SetCompact`,
@@ -29,7 +31,7 @@ library BlockHeaderUtils {
     function decodeCompactStrict(uint32 nBits) internal pure returns (uint256 target) {
         uint256 size = uint256(nBits) >> 24;
         uint256 word = uint256(nBits) & 0x007fffff;
-        if (word != 0 && (nBits & 0x00800000) != 0) revert Errors.BlockHeaderOracle_InvalidTargetNBits();
+        if (word != 0 && (uint256(nBits) & COMPACT_SIGN_BIT) != 0) revert Errors.BlockHeaderOracle_InvalidTargetNBits();
         if (word != 0 && (size > 34 || (word > 0xff && size > 33) || (word > 0xffff && size > 32))) {
             revert Errors.BlockHeaderOracle_InvalidTargetNBits();
         }
@@ -39,10 +41,10 @@ library BlockHeaderUtils {
 
     /// @notice Encode a target as compact `nBits` exactly as Bitcoin Core `arith_uint256::GetCompact`.
     function encodeCompact(uint256 target) internal pure returns (uint32) {
-        uint256 size;
+        uint256 size = 0;
         for (uint256 t = target; t != 0; t >>= 8) ++size;
         uint256 compact = size <= 3 ? target << (8 * (3 - size)) : target >> (8 * (size - 3));
-        if (compact & 0x00800000 != 0) {
+        if (compact & COMPACT_SIGN_BIT != 0) {
             compact >>= 8;
             ++size;
         }

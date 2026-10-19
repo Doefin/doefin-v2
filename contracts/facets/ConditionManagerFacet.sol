@@ -138,6 +138,8 @@ contract ConditionManagerFacet is IConditionManager {
         uint256 maxStaleness = LibAdminConfigStorage.adminConfigStorage().maxOracleStaleness;
         if (maxStaleness == 0) return;
         uint256 tipTime = LibDoefinBlockHeaderOracle.getLatestBlockHeader().timestamp;
+        // Coarse staleness window (hours); a few seconds of sequencer skew is irrelevant.
+        // slither-disable-next-line timestamp
         if (block.timestamp > tipTime + maxStaleness) revert Errors.OracleAdapter_OracleStale();
     }
 
