@@ -2,7 +2,7 @@ name: Dead-code reachability
 
 on:
   pull_request:
-    branches: [main, dev]
+    branches: [main, dev, "SCRUM-*-resolve-*"]
     paths:
       - "contracts/**"
       - "scripts/deploy.js"
