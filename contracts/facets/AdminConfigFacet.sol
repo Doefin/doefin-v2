@@ -2,7 +2,6 @@
 pragma solidity ^0.8.20;
 
 import {LibAdminConfigStorage} from "../libraries/LibAdminConfigStorage.sol";
-import {LibConstants} from "../libraries/LibConstants.sol";
 import {LibReentrancyGuard} from "../libraries/LibReentrancyGuard.sol";
 import {IAdminConfig} from "../interfaces/IAdminConfig.sol";
 import {LibDiamond} from "../libraries/LibDiamond.sol";
@@ -118,14 +117,16 @@ contract AdminConfigFacet is IAdminConfig {
 
     /**
      * @notice Sets the resolution fee charged when redeeming winning positions
-     * @dev Fee is charged as a percentage of the payout amount in basis points
-     * @dev Resolution fee is deducted when users redeem their winning positions
-     * @param bps Fee percentage in basis points (100 bps = 1%, max 10000 bps = 100%)
+     * @dev Fee is charged as a percentage of the payout amount in basis points. It is deducted
+     *      on redemption and on a root full-set merge of a resolved condition (CTF-004).
+     * @param bps Fee percentage in basis points (100 bps = 1%, max MAX_RESOLUTION_FEE_BPS = 5%)
      * @custom:emits ResolutionFeeUpdated with old and new fee amounts
-     * @custom:reverts FeeTooHigh if bps exceeds 10,000 (100%)
+     * @custom:reverts FeeTooHigh if bps exceeds MAX_RESOLUTION_FEE_BPS
      * @custom:reverts NoChangeRequired if bps is the same as current setting
      * @custom:security Only callable by contract owner
-     * @custom:note Fee change affects future redemptions immediately
+     * @custom:note Applies to conditions resolved after the change: each condition snapshots the
+     *      rate when it resolves (CTF-007). Conditions resolved before snapshots existed read the
+     *      live rate.
      */
     function setResolutionFeeBps(uint16 bps) external override {
         LibDiamond.enforceIsContractOwner();

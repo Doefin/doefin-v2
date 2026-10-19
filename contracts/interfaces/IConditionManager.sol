@@ -26,5 +26,8 @@ interface IConditionManager {
 
     function cancelCondition(bytes32 conditionId) external;
 
+    /// @notice Owner-only: resolve a cancelled, unresolved condition as void — every outcome pays
+    ///         an equal share, no resolution fee (CTF-005).
+    /// @param conditionId The cancelled condition to void
     function voidCondition(bytes32 conditionId) external;
 }

@@ -312,6 +312,9 @@ library LibCTFCondition {
      *      so a condition that can never be reported (a stalled oracle, an orphaned question)
      *      locked one-sided collateral until an emergency upgrade. A void is a refund: the
      *      resolution fee is snapshotted as 0. Callers gate who may void and when.
+     * @param conditionId The condition to resolve as void
+     * @param oracle The condition's oracle, for the ConditionResolution event
+     * @param questionId The condition's question, for the ConditionResolution event
      * @custom:reverts ConditionNotPrepared, ConditionAlreadyResolved
      */
     function _voidPayouts(bytes32 conditionId, address oracle, bytes32 questionId) internal {
@@ -334,6 +337,8 @@ library LibCTFCondition {
 
     /// @notice Resolution fee (bps) charged on payouts of `conditionId` — the rate captured when it
     ///         resolved (CTF-007), or the live rate for conditions resolved before snapshots existed.
+    /// @param conditionId The condition whose payouts are being paid
+    /// @return The fee in basis points
     function resolutionFeeBps(bytes32 conditionId) internal view returns (uint16) {
         LibAdminConfigStorage.AdminConfigStorage storage acs = LibAdminConfigStorage.adminConfigStorage();
         LibAdminConfigStorage.ResolutionFeeSnapshot storage snap = acs.resolutionFeeAtResolution[conditionId];
