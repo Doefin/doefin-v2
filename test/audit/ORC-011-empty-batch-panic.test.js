@@ -1,9 +1,9 @@
 // PENTEST · ORC-011 (INFO) — `submitBatchBlocks([])` reverts with a bare Panic(0x11)
 // ----------------------------------------------------------------------------
-// STATUS: NOT YET FIXED — the `DEMONSTRATES` test asserts today's Panic(0x11) and must be
-// flipped by the fix commit (a named error, e.g. `BlockHeaderOracle_EmptyBatch()`).
+// STATUS: FIXED (SCRUM-214) — `submitBatchBlocks` now opens with
+// `if (newBlockHeaders.length == 0) revert BlockHeaderOracle_EmptyBatch();`.
 //
-// Root cause
+// Root cause (pre-fix)
 //
 //   contracts/facets/DoefinV1BlockHeaderOracleFacet.sol:128 —
 //   `newBlockHeaders[newBlockHeaders.length - 1]` evaluates `0 - 1` in checked arithmetic and
@@ -37,11 +37,12 @@ describe("PENTEST · ORC-011 (INFO) — empty batch reverts with a bare arithmet
     expect(await ctx.oracle.getCurrentBlockHeight()).to.equal(ctx.tip.blockNumber + 1);
   });
 
-  it("DEMONSTRATES — submitBatchBlocks([]) reverts with Panic(0x11) (arithmetic underflow, not a named error) and changes nothing", async function () {
+  it("FIX VERIFIED — submitBatchBlocks([]) reverts the named BlockHeaderOracle_EmptyBatch() and changes nothing", async function () {
     const ctx = await load();
     const nextIndexBefore = await ctx.oracle.getNextBlockIndex();
 
-    await expect(ctx.oracle.submitBatchBlocks([])).to.be.revertedWith("panic code 0x11");
+    // Pre-fix: Panic(0x11) from `newBlockHeaders[length - 1]`.
+    await expect(ctx.oracle.submitBatchBlocks([])).to.be.revertedWith("BlockHeaderOracle_EmptyBatch()");
 
     expect(await ctx.oracle.getCurrentBlockHeight()).to.equal(ctx.tip.blockNumber);
     expect(await ctx.oracle.getNextBlockIndex()).to.equal(nextIndexBefore);

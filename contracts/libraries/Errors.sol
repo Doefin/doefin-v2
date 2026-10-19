@@ -206,8 +206,17 @@ library Errors {
 
     error BlockHeaderOracle_InvalidInitialHistoryLength();
 
-    /// @notice Thrown when nBits coefficient is zero resulting in invalid target
+    /// @notice Thrown when nBits encodes a zero, negative or overflowing target
     error BlockHeaderOracle_InvalidTargetNBits();
+
+    /// @notice Thrown when a header's nBits differs from the difficulty Bitcoin's retarget rule requires
+    error BlockHeaderOracle_UnexpectedDifficulty();
+
+    /// @notice Thrown when a header's timestamp is more than 2 hours ahead of the chain's block time
+    error BlockHeaderOracle_TimestampTooNew();
+
+    /// @notice Thrown when submitBatchBlocks is called with no headers
+    error BlockHeaderOracle_EmptyBatch();
 
     // ========================================
     // ORACLE ADAPTER ERRORS

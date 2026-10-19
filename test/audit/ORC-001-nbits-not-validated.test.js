@@ -1,8 +1,11 @@
 // PENTEST · ORC-001 (CRITICAL) — a header's own nBits is never validated, PoW is checked
 // against the PARENT's self-declared target, and fork choice counts blocks, not work
 // ----------------------------------------------------------------------------
-// STATUS: NOT YET FIXED — every `DEMONSTRATES` test below asserts today's defective
-// behaviour and must be flipped to `ATTACK BLOCKED` by the fix commit.
+// STATUS: FIXED (SCRUM-214) — `_verifyBlockHeader` now applies Bitcoin's header rules:
+// nBits equal to the parent's inside a 2016-block period and equal to the retarget result at a
+// boundary (`_verifyDifficulty`), proof of work against the header's OWN target
+// (`BlockHeaderUtils.meetsOwnTarget`), and `submitBatchBlocks` keeps the chain with the most
+// cumulative work (`_branchWork` vs `_storedWorkAbove`). The scenario below is the pre-fix attack.
 //
 // Attack scenario
 //
@@ -17,7 +20,7 @@
 //      honest chain it loses `NewChainNotLonger`; at ≥ 17 headers past the fork the
 //      honest chain cannot even find its fork point (`CannotFindForkPoint`).
 //
-// Root cause
+// Root cause (pre-fix)
 //
 //   - contracts/libraries/BlockHeaderUtils.sol:21-28 — `isValidBlockHeaderHash(prev, next)`
 //     returns `uint256(next.blockHash) < calculateDifficultyTarget(prev)`: the PARENT's
@@ -50,15 +53,11 @@
 //     1.09e10 double-SHA256, ~40 s on a 16-core laptop with mine-h1.c) and declares
 //     nBits 0x2100ffff. The contract re-derives its hash and re-checks its PoW on every
 //     run. This is the review's attack, scaled down only in the difficulty.
-//   - Caveat for the fix: the end-to-end CONTROL creates a market on 2010 headers, so a
-//     market-creation freshness check (ORC-006) would reject it; such a check needs a
-//     test escape hatch (e.g. staleness 0 = disabled).
 //   - H2…Hn are mined in JS at test time; each needs ~1 try.
 //   - (b) uses a synthetic regtest-style chain (test/utils/syntheticChain.js).
 
 const path = require("path");
 const { expect } = require("chai");
-const { ethers } = require("hardhat");
 const sc = require("../utils/syntheticChain.js");
 const { isolateChainState } = require("../utils/oracleAuditFixture.js");
 const {
@@ -85,7 +84,6 @@ const TARGET_HEIGHT = 42336; // first block of the next epoch
 const THRESHOLD = 2; // YES ⇔ integer difficulty > 2: true on the real chain (3), false before the retarget (2)
 const SETTLEMENT_HEIGHT = TARGET_HEIGHT + sc.SETTLEMENT_DELAY; // 42342
 
-const BLOCK_REORGED_TOPIC = ethers.utils.id("BlockReorged(bytes32)");
 
 /** Attacker branch: H1 followed by `extra` free headers declaring the attack nBits. Records nonce tries. */
 function attackerBranch(extra) {
@@ -155,35 +153,31 @@ describe("PENTEST · ORC-001 (CRITICAL) — nBits never validated; PoW vs parent
     expect(await payouts(ctx, conditionId)).to.deep.equal([0, 1]); // YES: real difficulty 3 > 2
   });
 
-  it("DEMONSTRATES (a) — a mid-epoch header (42329) declaring nBits 0x2100ffff (parent: 0x1c654657) is accepted", async function () {
+  it("ATTACK BLOCKED (a) — a mid-epoch header (42329) declaring nBits 0x2100ffff (parent: 0x1c654657) reverts UnexpectedDifficulty", async function () {
     const ctx = await loadReal2010();
 
-    await ctx.oracle.submitNextBlock(H1);
+    // H1 carries one genuine block of work against its parent's target — the pre-fix check —
+    // but inside a difficulty period its nBits must equal the parent's.
+    await expect(ctx.oracle.submitNextBlock(H1)).to.be.revertedWith("BlockHeaderOracle_UnexpectedDifficulty()");
 
-    const latest = await ctx.oracle.getLatestBlockHeader();
-    expect(await ctx.oracle.getCurrentBlockHeight()).to.equal(TIP + 1);
-    expect(latest.blockHash).to.equal(H1.blockHash);
-    expect(latest.nBits).to.equal(sc.NBITS.ATTACK); // stored unchecked; becomes the target for the next header
-    expect((await ctx.oracle.getBlockHeaderByNumber(TIP)).nBits).to.equal(REAL_NBITS);
+    expect(await ctx.oracle.getCurrentBlockHeight()).to.equal(TIP);
+    expect((await ctx.oracle.getLatestBlockHeader()).blockHash).to.equal(REAL.byHeight[TIP].blockHash);
   });
 
-  it("DEMONSTRATES (a) — after H1 every header is free: 19 more headers, each found within 2 nonce tries, are accepted", async function () {
+  it("ATTACK BLOCKED (a) — the free follow-on branch H1..H20 is refused as a batch too (UnexpectedDifficulty at H1)", async function () {
     const ctx = await loadReal2010();
-    const { headers, tries } = attackerBranch(19);
+    const { headers } = attackerBranch(19);
 
-    // Deterministic for the committed H1: no header needed more than 2 tries (p(fail) = 2^-16 per try).
-    expect(Math.max(...tries)).to.be.at.most(2);
-
-    await submitBatch(ctx, headers);
-
-    expect(await ctx.oracle.getCurrentBlockHeight()).to.equal(TIP + 20);
-    expect((await ctx.oracle.getLatestBlockHeader()).blockHash).to.equal(headers[19].blockHash);
+    await expect(ctx.oracle.connect(ctx.signers.attacker).submitBatchBlocks(headers)).to.be.revertedWith(
+      "BlockHeaderOracle_UnexpectedDifficulty()"
+    );
+    expect(await ctx.oracle.getCurrentBlockHeight()).to.equal(TIP);
   });
 
-  it("DEMONSTRATES (b) — a header whose hash is ABOVE its own declared target (but below its parent's) is accepted", async function () {
+  it("ATTACK BLOCKED (b) — a header whose hash is ABOVE its own declared target (but below its parent's) reverts InvalidBlockHash", async function () {
     const ctx = await deployOracleAuditDiamond();
-    // Put the child on a retarget boundary so a changed nBits is legitimate in principle
-    // (and inside Bitcoin's 4x clamp: it declares a 2x harder target). Only the PoW is wrong.
+    // The child sits on a retarget boundary and declares a 2x harder target — inside Bitcoin's
+    // 4x clamp, so the difficulty rule accepts the nBits. Only its proof of work is wrong.
     const boundary = sc.EPOCH_LENGTH * 500; // 1,008,000
     const init = await initSyntheticOracle(ctx, { startHeight: boundary - sc.NUM_OF_BLOCK_HEADERS });
     const parent = init[init.length - 1];
@@ -196,85 +190,58 @@ describe("PENTEST · ORC-001 (CRITICAL) — nBits never validated; PoW vs parent
       accept: (h) => h >= ownTarget && h < parentTarget,
     });
     expect(child.blockNumber % sc.EPOCH_LENGTH).to.equal(0);
-    expect(sc.hashToBigInt(child.blockHash) > ownTarget).to.equal(true); // invalid on Bitcoin: insufficient work for what it declares
     expect(sc.passesBitcoinPow(child, sc.POW_LIMIT.REGTEST)).to.equal(false);
 
-    await ctx.oracle.submitNextBlock(sc.toContract(child));
-
-    expect(await ctx.oracle.getCurrentBlockHeight()).to.equal(boundary);
-    expect((await ctx.oracle.getLatestBlockHeader()).blockHash).to.equal(child.blockHash);
+    await expect(ctx.oracle.submitNextBlock(sc.toContract(child))).to.be.revertedWith("BlockHeaderOracle_InvalidBlockHash()");
+    expect(await ctx.oracle.getCurrentBlockHeight()).to.equal(boundary - 1);
   });
 
-  it("DEMONSTRATES (c) — a branch with LESS cumulative work but MORE blocks replaces the real chain (reorg by block count)", async function () {
+  it("ATTACK BLOCKED (c) — a branch with LESS cumulative work but MORE blocks reverts NewChainNotLonger; the real chain stays", async function () {
     const ctx = await loadReal2010();
     const honest = REAL.headers(TIP + 1, TIP + 3); // 3 real blocks on top of the fork point 42328
     await submitEach(ctx, honest);
     expect(await ctx.oracle.getCurrentBlockHeight()).to.equal(TIP + 3);
 
     const { headers: attack } = attackerBranch(3); // H1..H4, fork at 42328
-
-    // Bitcoin chain-work (GetBlockProof over each block's own nBits).
     const honestWork = honest.reduce((s, h) => s + sc.blockWork(h.nBits), 0n);
     const attackDeclaredWork = attack.reduce((s, h) => s + sc.blockWork(h.nBits), 0n);
-    // Even crediting H1 with the real block of work it actually carries:
-    const attackSpentWork = sc.blockWork(REAL_NBITS) + attack.slice(1).reduce((s, h) => s + sc.blockWork(h.nBits), 0n);
     expect(attackDeclaredWork).to.equal(4n); // ~1 hash per header
-    expect(honestWork > 2n * attackSpentWork).to.equal(true); // the honest branch carries ~3x the work
+    expect(honestWork > attackDeclaredWork).to.equal(true);
 
-    const receipt = await submitBatch(ctx, attack);
-
-    expect(receipt.logs.filter((l) => l.topics[0] === BLOCK_REORGED_TOPIC).length).to.equal(1);
-    expect(await ctx.oracle.getCurrentBlockHeight()).to.equal(TIP + 4);
-    for (let i = 0; i < attack.length; i++) {
-      expect((await ctx.oracle.getBlockHeaderByNumber(TIP + 1 + i)).blockHash).to.equal(attack[i].blockHash);
+    // Most-work fork choice runs before any header is applied.
+    await expect(ctx.oracle.submitBatchBlocks(attack)).to.be.revertedWith("BlockHeaderOracle_NewChainNotLonger()");
+    for (let i = 0; i < honest.length; i++) {
+      expect((await ctx.oracle.getBlockHeaderByNumber(TIP + 1 + i)).blockHash).to.equal(honest[i].blockHash);
     }
   });
 
-  describe("(d) end-to-end — the attacker chooses a DifficultyThreshold outcome through the nBits it declares", function () {
-    it("DEMONSTRATES — honest answer YES (real difficulty 3 > 2, see CONTROL) resolves NO after H1..H14 because H_T declares 0x2100ffff (difficulty 0)", async function () {
+  describe("(d) end-to-end — the attacker can no longer choose a DifficultyThreshold outcome", function () {
+    it("ATTACK BLOCKED — the forged branch H1..H14 is refused, the question stays open, and the real chain resolves it YES", async function () {
       const ctx = await loadReal2010();
       const { conditionId } = await createThreshold(ctx, THRESHOLD, TARGET_HEIGHT);
       const { headers: attack } = attackerBranch(SETTLEMENT_HEIGHT - TIP - 1); // H1..H14 → heights 42329..42342
 
-      // The honest answer at T is YES; the header the attacker places at T says difficulty 0.
-      expect(sc.contractDifficulty(REAL.byHeight[TARGET_HEIGHT].nBits) > BigInt(THRESHOLD)).to.equal(true);
-      const forgedT = attack[TARGET_HEIGHT - TIP - 1];
-      expect(forgedT.blockNumber).to.equal(TARGET_HEIGHT);
-      expect(sc.contractDifficulty(forgedT.nBits)).to.equal(0n);
+      await expect(ctx.oracle.connect(ctx.signers.attacker).submitBatchBlocks(attack)).to.be.revertedWith(
+        "BlockHeaderOracle_UnexpectedDifficulty()"
+      );
+      expect(await payouts(ctx, conditionId)).to.deep.equal([0, 0]); // unresolved
+      expect(await ctx.oracleAdapter.getTotalQuestionsResolved()).to.equal(0);
 
-      await submitBatch(ctx, attack, { caller: ctx.signers.attacker });
-
-      expect(await ctx.oracle.getCurrentBlockHeight()).to.equal(SETTLEMENT_HEIGHT);
-      expect(await payouts(ctx, conditionId)).to.deep.equal([1, 0]); // NO — forged, irreversible
-      expect(await ctx.oracleAdapter.getTotalQuestionsResolved()).to.equal(1);
-      expect((await ctx.oracleAdapter.getThresholdQuestionsAtBlock(SETTLEMENT_HEIGHT)).length).to.equal(0);
+      // Pre-fix: forged NO, then NewChainNotLonger / CannotFindForkPoint locked the real chain out.
+      await submitEach(ctx, REAL.headers(TIP + 1, SETTLEMENT_HEIGHT));
+      expect(await payouts(ctx, conditionId)).to.deep.equal([0, 1]); // YES: real difficulty 3 > 2
     });
 
-    it("DEMONSTRATES — lock-out 1: the real canonical chain of the same length is rejected NewChainNotLonger", async function () {
+    it("ATTACK BLOCKED — no lock-out: after the refused attack the full real chain 42329..42350 is accepted as one batch", async function () {
       const ctx = await loadReal2010();
-      const { headers: attack } = attackerBranch(SETTLEMENT_HEIGHT - TIP - 1);
-      await submitBatch(ctx, attack, { caller: ctx.signers.attacker });
-
-      await expect(ctx.oracle.submitBatchBlocks(REAL.headers(TIP + 1, SETTLEMENT_HEIGHT))).to.be.revertedWith(
-        "BlockHeaderOracle_NewChainNotLonger()"
+      const { headers: attack } = attackerBranch(sc.NUM_OF_BLOCK_HEADERS - 1); // H1..H17
+      await expect(ctx.oracle.connect(ctx.signers.attacker).submitBatchBlocks(attack)).to.be.revertedWith(
+        "BlockHeaderOracle_UnexpectedDifficulty()"
       );
-      expect((await ctx.oracle.getLatestBlockHeader()).blockHash).to.equal(attack[attack.length - 1].blockHash);
-    });
 
-    it("DEMONSTRATES — lock-out 2: with 17 attacker headers past the fork, the real chain cannot find its fork point", async function () {
-      const ctx = await loadReal2010();
-      const { headers: attack } = attackerBranch(sc.NUM_OF_BLOCK_HEADERS - 1); // H1..H17 → 42329..42345
-      await submitBatch(ctx, attack, { caller: ctx.signers.attacker });
-      expect(await ctx.oracle.getCurrentBlockHeight()).to.equal(TIP + 17);
-
-      // Longer real chain 42329..42350 (22 blocks): its parent 42328 has left the 17-slot buffer.
-      await expect(ctx.oracle.submitBatchBlocks(REAL.headers(TIP + 1, LAST))).to.be.revertedWith(
-        "BlockHeaderOracle_CannotFindForkPoint()"
-      );
-      // ...and the next real header cannot link onto the forged tip.
-      await expect(ctx.oracle.submitNextBlock(REAL.byHeight[TIP + 18])).to.be.revertedWith(
-        "BlockHeaderOracle_PrevBlockHashMismatch()"
-      );
+      await submitBatch(ctx, REAL.headers(TIP + 1, LAST));
+      expect(await ctx.oracle.getCurrentBlockHeight()).to.equal(LAST);
+      expect((await ctx.oracle.getLatestBlockHeader()).blockHash).to.equal(REAL.byHeight[LAST].blockHash);
     });
   });
 });

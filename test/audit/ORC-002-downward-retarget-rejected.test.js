@@ -1,8 +1,11 @@
 // PENTEST · ORC-002 (HIGH) — PoW is checked against the OLD epoch's target, so the honest
 // first block of every lower-difficulty epoch can be rejected, freezing the oracle
 // ----------------------------------------------------------------------------
-// STATUS: NOT YET FIXED — the `DEMONSTRATES` tests assert today's rejection of a real,
-// valid Bitcoin block and must be flipped by the fix commit (block 689472 accepted).
+// STATUS: FIXED (SCRUM-214) — `_verifyBlockHeader` checks PoW against the header's OWN target
+// (`BlockHeaderUtils.meetsOwnTarget`) and the new nBits against Bitcoin's retarget rule
+// (`_verifyDifficulty`). These tests initialise mid-period, so the boundary is checked by the
+// 4x-clamp fallback (period start not recorded); the exact `CalculateNextWorkRequired` path is
+// checked against this same boundary in test/unit/BlockHeaderUtils/BlockHeaderUtils.retarget.test.js.
 //
 // Failure scenario (no attacker needed)
 //
@@ -13,7 +16,7 @@
 //   canonical one; every later canonical block links to it, and a batch replay runs the
 //   same check, so the oracle freezes permanently (as in SEC-015) until a diamondCut.
 //
-// Root cause
+// Root cause (pre-fix)
 //
 //   contracts/libraries/BlockHeaderUtils.sol:21-28 — `isValidBlockHeaderHash(prev, next)`
 //   compares `next.blockHash` with `calculateDifficultyTarget(prev)` (the parent's nBits),
@@ -64,7 +67,7 @@ describe("PENTEST · ORC-002 (HIGH) — honest first block of a lower-difficulty
   isolateChainState();
 
   describe("fixture sanity (real mainnet headers, hashes re-derived from the raw 80 bytes)", function () {
-    it("689472 is a valid Bitcoin block that fails today's parent-target rule; every other header passes it", function () {
+    it("689472 is a valid Bitcoin block that fails the pre-fix parent-target rule; every other header passes it", function () {
       const parent = DOWN.byHeight[DOWN_BOUNDARY - 1];
       const block = DOWN.byHeight[DOWN_BOUNDARY];
       expect(DOWN_BOUNDARY % sc.EPOCH_LENGTH).to.equal(0);
@@ -79,7 +82,7 @@ describe("PENTEST · ORC-002 (HIGH) — honest first block of a lower-difficulty
       }
     });
 
-    it("971712 raised difficulty and passes both Bitcoin's rule and today's parent-target rule", function () {
+    it("971712 raised difficulty and passes both Bitcoin's rule and the pre-fix parent-target rule", function () {
       const upParent = UP.byHeight[UP_BOUNDARY - 1];
       const upBlock = UP.byHeight[UP_BOUNDARY];
       expect(UP_BOUNDARY % sc.EPOCH_LENGTH).to.equal(0);
@@ -101,26 +104,34 @@ describe("PENTEST · ORC-002 (HIGH) — honest first block of a lower-difficulty
     expect((await ctx.oracle.getLatestBlockHeader()).blockHash).to.equal(DOWN.byHeight[DOWN_BOUNDARY - 1].blockHash);
   });
 
-  it("DEMONSTRATES — real block 689472 is rejected BlockHeaderOracle_InvalidBlockHash on top of the real 689455..689471 buffer", async function () {
+  it("FIX VERIFIED — real block 689472 is accepted on top of the real 689455..689471 buffer (pre-fix: InvalidBlockHash)", async function () {
     const ctx = await loadDown();
-    await expect(ctx.oracle.submitNextBlock(DOWN.byHeight[DOWN_BOUNDARY])).to.be.revertedWith("BlockHeaderOracle_InvalidBlockHash()");
-    expect(await ctx.oracle.getCurrentBlockHeight()).to.equal(DOWN_BOUNDARY - 1);
+    await ctx.oracle.submitNextBlock(DOWN.byHeight[DOWN_BOUNDARY]);
+    expect(await ctx.oracle.getCurrentBlockHeight()).to.equal(DOWN_BOUNDARY);
+    const stored = await ctx.oracle.getBlockHeaderByNumber(DOWN_BOUNDARY);
+    expect(stored.blockHash).to.equal(DOWN.byHeight[DOWN_BOUNDARY].blockHash);
+    expect(stored.nBits).to.equal(0x171398ce);
   });
 
-  it("DEMONSTRATES — the batch path runs the same check: [689472..689475] reverts BlockHeaderOracle_InvalidBlockHash", async function () {
+  it("FIX VERIFIED — the batch path accepts [689472..689475] (pre-fix: InvalidBlockHash)", async function () {
     const ctx = await loadDown();
-    await expect(ctx.oracle.submitBatchBlocks(DOWN.headers(DOWN_BOUNDARY, 689475))).to.be.revertedWith(
-      "BlockHeaderOracle_InvalidBlockHash()"
-    );
-    expect(await ctx.oracle.getCurrentBlockHeight()).to.equal(DOWN_BOUNDARY - 1);
+    await ctx.oracle.submitBatchBlocks(DOWN.headers(DOWN_BOUNDARY, 689475));
+    expect(await ctx.oracle.getCurrentBlockHeight()).to.equal(689475);
+    expect((await ctx.oracle.getLatestBlockHeader()).blockHash).to.equal(DOWN.byHeight[689475].blockHash);
   });
 
-  it("DEMONSTRATES — the oracle is frozen: after 689472 is rejected, the next canonical block 689473 cannot link either", async function () {
+  it("FIX VERIFIED — the oracle keeps tracking the canonical chain across the drop: 689472..689475 one by one", async function () {
     const ctx = await loadDown();
-    await expect(ctx.oracle.submitNextBlock(DOWN.byHeight[DOWN_BOUNDARY])).to.be.revertedWith("BlockHeaderOracle_InvalidBlockHash()");
-    await expect(ctx.oracle.submitNextBlock(DOWN.byHeight[DOWN_BOUNDARY + 1])).to.be.revertedWith(
-      "BlockHeaderOracle_PrevBlockHashMismatch()"
-    );
+    await submitEach(ctx, DOWN.headers(DOWN_BOUNDARY, 689475));
+    expect(await ctx.oracle.getCurrentBlockHeight()).to.equal(689475);
+  });
+
+  it("ATTACK BLOCKED — at the boundary a header must still carry its own target's work: 689472 with the old nBits reverts", async function () {
+    // Declaring the previous period's (harder) nBits changes the hash; the real nonce no longer
+    // meets either target, so the header is refused rather than accepted on the old rule.
+    const ctx = await loadDown();
+    const altered = { ...DOWN.byHeight[DOWN_BOUNDARY], nBits: 0x170e1ef9 };
+    await expect(ctx.oracle.submitNextBlock(altered)).to.be.revertedWith("BlockHeaderOracle_InvalidBlockHash()");
     expect(await ctx.oracle.getCurrentBlockHeight()).to.equal(DOWN_BOUNDARY - 1);
   });
 

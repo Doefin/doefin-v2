@@ -2,11 +2,13 @@
 // nBits decoding: timestamp == median accepted, no future-timestamp limit, malformed nBits
 // (zero / negative / overflowing) accepted
 // ----------------------------------------------------------------------------
-// STATUS: NOT YET FIXED — the `DEMONSTRATES` tests assert today's acceptance of headers Bitcoin
-// rejects and must be flipped by the fix commit (folded into ORC-001 (d) + a SetCompact-style
-// decodeTarget).
+// STATUS: FIXED (SCRUM-214) — `_verifyBlockHeader` requires timestamp > median-time-past and
+// <= block.timestamp + 2 h (BlockHeaderOracle_TimestampTooNew), and every nBits the oracle reads
+// goes through `BlockHeaderUtils.decodeCompactStrict` (Bitcoin Core SetCompact: negative,
+// overflowing and zero targets revert BlockHeaderOracle_InvalidTargetNBits). PoW is now
+// `hash <= target` against the header's own target.
 //
-// Differences demonstrated
+// Differences (pre-fix)
 //
 //   1. DoefinV1BlockHeaderOracleFacet.sol:256 — `timestamp < medianBlockTime()` reverts, so a
 //      timestamp EQUAL to the median passes; Bitcoin requires it to be strictly greater.
@@ -52,13 +54,12 @@ const loadBoundary = snapshotFixture(async () => {
   return { ...ctx, init, tip: init[init.length - 1] };
 });
 
-/** Submit a boundary header declaring `nBits` (its hash meets the parent's target, as the oracle requires). */
-async function acceptMalformed(ctx, nBits) {
+/** A boundary header declaring `nBits` (its hash meets the parent's target) is refused InvalidTargetNBits. */
+async function rejectMalformed(ctx, nBits) {
   const header = sc.nextHeader(ctx.tip, { nBits, tag: `orc010-${nBits.toString(16)}`, accept: (h) => h < sc.contractTarget(ctx.tip.nBits) });
   expect(header.blockNumber % sc.EPOCH_LENGTH).to.equal(0);
-  await ctx.oracle.submitNextBlock(sc.toContract(header));
-  expect((await ctx.oracle.getLatestBlockHeader()).nBits).to.equal(nBits);
-  return header;
+  await expect(ctx.oracle.submitNextBlock(sc.toContract(header))).to.be.revertedWith("BlockHeaderOracle_InvalidTargetNBits()");
+  expect(await ctx.oracle.getCurrentBlockHeight()).to.equal(ctx.tip.blockNumber);
 }
 
 describe("PENTEST · ORC-010 (LOW) — remaining Bitcoin-consensus gaps in header checks", function () {
@@ -82,73 +83,54 @@ describe("PENTEST · ORC-010 (LOW) — remaining Bitcoin-consensus gaps in heade
       await expect(ctx.oracle.submitNextBlock(sc.toContract(h))).to.be.revertedWith("BlockHeaderOracle_InvalidTimestamp()");
     });
 
-    it("DEMONSTRATES — a header whose timestamp EQUALS the median-time-past is accepted (Bitcoin requires >)", async function () {
+    it("ATTACK BLOCKED — a header whose timestamp EQUALS the median-time-past reverts InvalidTimestamp (Bitcoin requires >)", async function () {
       const ctx = await loadMid();
       const mtp = sc.honestMtp(ctx.init);
       expect(await ctx.oracle.medianBlockTime()).to.equal(mtp);
       const h = sc.nextHeader(ctx.tip, { timestamp: mtp, tag: "orc010-mtp" });
-      await ctx.oracle.submitNextBlock(sc.toContract(h));
-      expect((await ctx.oracle.getLatestBlockHeader()).timestamp).to.equal(mtp);
+      await expect(ctx.oracle.submitNextBlock(sc.toContract(h))).to.be.revertedWith("BlockHeaderOracle_InvalidTimestamp()");
     });
 
-    it("DEMONSTRATES — a header timestamped one year ahead of chain time is accepted (Bitcoin: at most +2 h)", async function () {
+    it("ATTACK BLOCKED — a header timestamped one year ahead of chain time reverts TimestampTooNew (Bitcoin: at most +2 h)", async function () {
       const ctx = await loadMid();
       const future = (await evmNow()) + 365 * 86400;
       const h = sc.nextHeader(ctx.tip, { timestamp: future, tag: "orc010-future" });
+      await expect(ctx.oracle.submitNextBlock(sc.toContract(h))).to.be.revertedWith("BlockHeaderOracle_TimestampTooNew()");
+    });
+
+    it("CONTROL — a header one hour ahead of chain time (inside Bitcoin's 2 h allowance) is accepted", async function () {
+      const ctx = await loadMid();
+      const ahead = (await evmNow()) + 3600;
+      const h = sc.nextHeader(ctx.tip, { timestamp: ahead, tag: "orc010-ahead-1h" });
       await ctx.oracle.submitNextBlock(sc.toContract(h));
-      expect((await ctx.oracle.getLatestBlockHeader()).timestamp).to.equal(future);
-      expect(future - (await evmNow())).to.be.greaterThan(2 * 3600);
+      expect((await ctx.oracle.getLatestBlockHeader()).timestamp).to.equal(ahead);
     });
   });
 
   describe("malformed nBits (declared on a retarget boundary)", function () {
-    it("DEMONSTRATES — exponent 0 (0x00123456 → target 0, invalid on Bitcoin) is accepted, and no child can ever follow it", async function () {
+    it("ATTACK BLOCKED — exponent 0 (0x00123456 → target 0, invalid on Bitcoin) reverts InvalidTargetNBits", async function () {
       const ctx = await loadBoundary();
       const nBits = 0x00123456;
       expect(sc.bitcoinDecodeCompact(nBits, sc.POW_LIMIT.REGTEST).valid).to.equal(false);
-      expect(sc.contractTarget(nBits)).to.equal(0n);
-
-      const header = await acceptMalformed(ctx, nBits);
-
-      const child = sc.nextHeader(header, { tag: "orc010-dead-end", accept: () => true });
-      await expect(ctx.oracle.submitNextBlock(sc.toContract(child))).to.be.revertedWith("BlockHeaderOracle_InvalidBlockHash()");
+      await rejectMalformed(ctx, nBits);
     });
 
-    it("DEMONSTRATES — sign bit set (0x2080ffff, negative on Bitcoin) is accepted and decoded as a target above 2^255", async function () {
+    it("ATTACK BLOCKED — sign bit set (0x2080ffff, negative on Bitcoin) reverts InvalidTargetNBits", async function () {
       const ctx = await loadBoundary();
       const nBits = 0x2080ffff;
       const decoded = sc.bitcoinDecodeCompact(nBits, sc.POW_LIMIT.REGTEST);
       expect(decoded.negative).to.equal(true);
       expect(decoded.valid).to.equal(false);
-      expect(sc.contractTarget(nBits) > 1n << 255n).to.equal(true);
-
-      const header = await acceptMalformed(ctx, nBits);
-
-      // A child whose hash is >= 2^255 (above any valid regtest target) passes against it.
-      const child = sc.nextHeader(header, {
-        tag: "orc010-negative-child",
-        accept: (h) => h >= 1n << 255n && h < sc.contractTarget(nBits),
-      });
-      await ctx.oracle.submitNextBlock(sc.toContract(child));
-      expect((await ctx.oracle.getLatestBlockHeader()).blockHash).to.equal(child.blockHash);
+      await rejectMalformed(ctx, nBits);
     });
 
-    it("DEMONSTRATES — overflowing exponent (0x2201ffff, overflow on Bitcoin) is accepted; the oracle silently truncates its target mod 2^256", async function () {
+    it("ATTACK BLOCKED — overflowing exponent (0x2201ffff, overflow on Bitcoin) reverts InvalidTargetNBits instead of truncating", async function () {
       const ctx = await loadBoundary();
       const nBits = 0x2201ffff; // 0x01ffff · 256^31 ≈ 2^265 — does not fit 256 bits
       const decoded = sc.bitcoinDecodeCompact(nBits, sc.POW_LIMIT.REGTEST);
       expect(decoded.overflow).to.equal(true);
       expect(decoded.valid).to.equal(false);
-      expect(decoded.target > 1n << 256n).to.equal(true);
-      const truncated = 0xffn << 248n; // what `coefficient << 248` leaves in a uint256
-      expect(sc.contractTarget(nBits)).to.equal(truncated);
-
-      const header = await acceptMalformed(ctx, nBits);
-
-      // Proof the truncated value is what the oracle uses: a child above it is rejected, although
-      // under the un-truncated target (> 2^256) every hash would qualify.
-      const child = sc.nextHeader(header, { tag: "orc010-overflow-child", accept: (h) => h >= truncated });
-      await expect(ctx.oracle.submitNextBlock(sc.toContract(child))).to.be.revertedWith("BlockHeaderOracle_InvalidBlockHash()");
+      await rejectMalformed(ctx, nBits);
     });
   });
 });

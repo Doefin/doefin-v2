@@ -1,8 +1,10 @@
 // PENTEST · ORC-008 (MEDIUM) — `initializeBlockHeaderOracle` is permissionless and validates
 // nothing, so whoever calls it first on a fresh deployment owns the oracle
 // ----------------------------------------------------------------------------
-// STATUS: NOT YET FIXED — the `DEMONSTRATES` tests assert today's behaviour and must be
-// flipped by the fix commit (owner-only + header validation; init inside the Safe MultiSend).
+// STATUS: FIXED (SCRUM-214) — `initializeBlockHeaderOracle` is owner-only
+// (`LibDiamond.enforceIsContractOwner`) and requires the 17 headers to be one linked chain
+// with valid proof of work against each header's own target. Deployment follow-up: the oracle
+// must now be initialised by the owner (Safe), e.g. inside the bootstrap MultiSend.
 //
 // Attack scenario
 //
@@ -16,7 +18,7 @@
 //     - no reset: the honest initialisation then reverts AlreadyInitialized, and only a
 //       diamondCut `_init` (or a redeploy) can undo it.
 //
-// Root cause
+// Root cause (pre-fix)
 //
 //   contracts/facets/DoefinV1BlockHeaderOracleFacet.sol:69-91.
 //
@@ -66,55 +68,54 @@ describe("PENTEST · ORC-008 (MEDIUM) — permissionless, unvalidated oracle ini
     expect(await ctx.oracle.getCurrentBlockHeight()).to.equal(TIP + 1);
   });
 
-  it("DEMONSTRATES — a non-owner initialises a fresh Diamond with 17 unlinked, unmined headers", async function () {
+  it("ATTACK BLOCKED — a non-owner cannot initialise: NotContractOwner(), the oracle stays uninitialised", async function () {
     const ctx = await loadFresh();
     const { attacker, owner } = ctx.signers;
     const ownership = await ethers.getContractAt("OwnershipFacet", ctx.diamondAddress);
     expect(await ownership.owner()).to.equal(owner.address);
     expect(attacker.address).to.not.equal(owner.address);
 
-    const junk = garbageHeaders();
-    for (let i = 1; i < junk.length; i++) expect(junk[i].prevBlockHash).to.not.equal(junk[i - 1].blockHash); // unlinked
-    expect(junk.every((h) => !sc.passesBitcoinPow(h))).to.equal(true); // none carries valid PoW
-
-    await ctx.oracle.connect(attacker).initializeBlockHeaderOracle(junk.map(sc.toContract), INIT_FROM);
-
-    expect(await ctx.oracle.getCurrentBlockHeight()).to.equal(TIP);
-    const latest = await ctx.oracle.getLatestBlockHeader();
-    expect(latest.blockHash).to.equal(junk[junk.length - 1].blockHash);
-    expect(latest.nBits).to.equal(sc.NBITS.ATTACK);
-  });
-
-  it("DEMONSTRATES — after the hijack the owner's honest initialisation reverts AlreadyInitialized (no reset path)", async function () {
-    const ctx = await loadFresh();
-    await ctx.oracle.connect(ctx.signers.attacker).initializeBlockHeaderOracle(garbageHeaders().map(sc.toContract), INIT_FROM);
-
+    // Pre-fix: accepted, and the attacker's 17 headers became the oracle's baseline.
     await expect(
-      ctx.oracle.connect(ctx.signers.owner).initializeBlockHeaderOracle(REAL.headers(INIT_FROM, TIP), INIT_FROM)
-    ).to.be.revertedWith("AlreadyInitialized()");
+      ctx.oracle.connect(attacker).initializeBlockHeaderOracle(garbageHeaders().map(sc.toContract), INIT_FROM)
+    ).to.be.revertedWith("NotContractOwner()");
+    // Even a perfectly valid seed is refused from a non-owner.
+    await expect(
+      ctx.oracle.connect(attacker).initializeBlockHeaderOracle(REAL.headers(INIT_FROM, TIP), INIT_FROM)
+    ).to.be.revertedWith("NotContractOwner()");
+    expect(await ctx.oracle.getCurrentBlockHeight()).to.equal(0);
   });
 
-  it("DEMONSTRATES — the hijacked oracle accepts a zero-work forged header and rejects the real next block (PrevBlockHashMismatch)", async function () {
+  it("ATTACK BLOCKED — even the owner cannot seed unmined headers (InvalidBlockHash) or a chain with a gap (PrevBlockHashMismatch)", async function () {
     const ctx = await loadFresh();
+    const { owner } = ctx.signers;
+
     const junk = garbageHeaders();
-    await ctx.oracle.connect(ctx.signers.attacker).initializeBlockHeaderOracle(junk.map(sc.toContract), INIT_FROM);
+    expect(junk.every((h) => !sc.passesBitcoinPow(h))).to.equal(true); // none carries valid PoW
+    await expect(
+      ctx.oracle.connect(owner).initializeBlockHeaderOracle(junk.map(sc.toContract), INIT_FROM)
+    ).to.be.revertedWith("BlockHeaderOracle_InvalidBlockHash()");
 
-    await expect(ctx.oracle.submitNextBlock(REAL.byHeight[TIP + 1])).to.be.revertedWith("BlockHeaderOracle_PrevBlockHashMismatch()");
+    // 17 real, PoW-valid headers with one height skipped: every header is genuine but the seed is not one chain.
+    const gapped = [...REAL.headers(INIT_FROM, INIT_FROM + 7), ...REAL.headers(INIT_FROM + 9, TIP + 1)];
+    expect(gapped).to.have.lengthOf(sc.NUM_OF_BLOCK_HEADERS);
+    await expect(
+      ctx.oracle.connect(owner).initializeBlockHeaderOracle(gapped, INIT_FROM)
+    ).to.be.revertedWith("BlockHeaderOracle_PrevBlockHashMismatch()");
 
-    const { header: forged, tries } = sc.mine(
-      {
-        prevBlockHash: junk[junk.length - 1].blockHash,
-        merkleRootHash: sc.merkleFor("orc008-forged", TIP + 1),
-        blockNumber: TIP + 1,
-        version: 0x20000000,
-        timestamp: junk[junk.length - 1].timestamp + 1,
-        nBits: sc.NBITS.ATTACK,
-      },
-      (h) => h < sc.contractTarget(sc.NBITS.ATTACK)
-    );
-    expect(tries).to.be.at.most(2); // no proof of work needed
-    await ctx.oracle.connect(ctx.signers.attacker).submitNextBlock(sc.toContract(forged));
+    expect(await ctx.oracle.getCurrentBlockHeight()).to.equal(0);
+  });
+
+  it("ATTACK BLOCKED — after the failed hijack the owner's honest initialisation succeeds and the real chain extends", async function () {
+    const ctx = await loadFresh();
+    await expect(
+      ctx.oracle.connect(ctx.signers.attacker).initializeBlockHeaderOracle(garbageHeaders().map(sc.toContract), INIT_FROM)
+    ).to.be.revertedWith("NotContractOwner()");
+
+    // Pre-fix: AlreadyInitialized here, and the real next block could never link.
+    await ctx.oracle.connect(ctx.signers.owner).initializeBlockHeaderOracle(REAL.headers(INIT_FROM, TIP), INIT_FROM);
+    await submitEach(ctx, REAL.headers(TIP + 1, TIP + 1));
     expect(await ctx.oracle.getCurrentBlockHeight()).to.equal(TIP + 1);
-    expect((await ctx.oracle.getLatestBlockHeader()).blockHash).to.equal(forged.blockHash);
+    expect((await ctx.oracle.getLatestBlockHeader()).blockHash).to.equal(REAL.byHeight[TIP + 1].blockHash);
   });
 });

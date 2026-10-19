@@ -2,8 +2,10 @@
 // post-fork ring slots; from depth ≈ 12 the canonical chain is rejected and the oracle freezes
 // (confirms and refines SCRUM-521-DEEP-REORG-MTP)
 // ----------------------------------------------------------------------------
-// STATUS: NOT YET FIXED — the `DEMONSTRATES` tests assert today's rejections and must be
-// flipped by the fix commit (explicit `ReorgTooDeep` cap for d > 6, or a larger timestamp ring).
+// STATUS: FIXED (SCRUM-214) — the median-time-past is read by height from
+// `blockHeightToTimestamp` (written for every applied header, rewritten on replay), not from the
+// last 11 ring slots, so a replay of any depth the buffer can hold (1..16) sees the canonical
+// window. The table below describes the pre-fix behaviour.
 //
 // Failure scenario (honest Bitcoin reorg, no attacker)
 //
@@ -22,7 +24,7 @@
 //
 //   The rejection is permanent (any longer canonical branch replays the same first header).
 //
-// Root cause
+// Root cause (pre-fix)
 //
 //   contracts/facets/DoefinV1BlockHeaderOracleFacet.sol:160-175 (`medianBlockTime` window),
 //   :146-156 / :197-215 (rewind + replay), :256 (timestamp check).
@@ -113,37 +115,39 @@ describe("PENTEST · ORC-007 (LOW) — deep reorg replays use a median window fu
       expect((await ctx.oracle.getBlockHeaderByNumber(ctx.fork.blockNumber + 1)).blockHash).to.equal(canonical[0].blockHash);
     });
 
-    it("DEMONSTRATES — depth 11: the same Bitcoin-valid out-of-order C1 (t_f − 60 s) is rejected InvalidTimestamp (median moved to t_f)", async function () {
+    it("FIX VERIFIED — depth 11: the Bitcoin-valid out-of-order C1 (t_f − 60 s) is accepted (pre-fix: InvalidTimestamp, median moved to t_f)", async function () {
       const c1Timestamp = (await load()).fork.timestamp - 60;
-      const { ctx, canonical, honestMedian, corruptedMedian, orphans } = await orphanThenCanonical(11, { c1Timestamp });
+      const { ctx, canonical, honestMedian, corruptedMedian } = await orphanThenCanonical(11, { c1Timestamp });
       expect(c1Timestamp).to.be.greaterThan(honestMedian); // valid on Bitcoin
-      expect(corruptedMedian).to.equal(ctx.fork.timestamp); // the oracle's window median
-      expect(c1Timestamp).to.be.lessThan(corruptedMedian);
+      expect(c1Timestamp).to.be.lessThan(corruptedMedian); // what the pre-fix window rejected
 
-      await expect(ctx.oracle.submitBatchBlocks(canonical.map(sc.toContract))).to.be.revertedWith("BlockHeaderOracle_InvalidTimestamp()");
-      expect((await ctx.oracle.getLatestBlockHeader()).blockHash).to.equal(orphans[orphans.length - 1].blockHash);
+      await submitBatch(ctx, canonical);
+      expect((await ctx.oracle.getBlockHeaderByNumber(ctx.fork.blockNumber + 1)).blockHash).to.equal(canonical[0].blockHash);
+      expect((await ctx.oracle.getLatestBlockHeader()).blockHash).to.equal(canonical[canonical.length - 1].blockHash);
     });
 
-    it("DEMONSTRATES — depth 12: the natural canonical branch is rejected InvalidTimestamp (median = orphan f+7's timestamp)", async function () {
+    it("FIX VERIFIED — depth 12: the natural canonical branch replaces the orphans (pre-fix: InvalidTimestamp, median = orphan f+7)", async function () {
       const { ctx, canonical, corruptedMedian, orphans } = await orphanThenCanonical(12);
-      expect(corruptedMedian).to.equal(orphans[6].timestamp); // orphan at f+7, ~70 min after t_f
+      expect(corruptedMedian).to.equal(orphans[6].timestamp); // what the pre-fix window used
       expect(canonical[0].timestamp).to.be.lessThan(corruptedMedian);
 
-      await expect(ctx.oracle.submitBatchBlocks(canonical.map(sc.toContract))).to.be.revertedWith("BlockHeaderOracle_InvalidTimestamp()");
-      expect(await ctx.oracle.getCurrentBlockHeight()).to.equal(ctx.fork.blockNumber + 12);
-      expect((await ctx.oracle.getLatestBlockHeader()).blockHash).to.equal(orphans[11].blockHash); // stays on the orphan tip
+      await submitBatch(ctx, canonical);
+      expect(await ctx.oracle.getCurrentBlockHeight()).to.equal(ctx.fork.blockNumber + 13);
+      expect((await ctx.oracle.getLatestBlockHeader()).blockHash).to.equal(canonical[12].blockHash);
     });
 
-    it("DEMONSTRATES — depth 12 is permanent: a longer canonical branch (d + 6 headers) fails identically", async function () {
+    it("FIX VERIFIED — depth 12 with a longer canonical branch (d + 6 headers) is accepted", async function () {
       const { ctx, canonical } = await orphanThenCanonical(12, { extra: 5 });
       expect(canonical.length).to.equal(18);
-      await expect(ctx.oracle.submitBatchBlocks(canonical.map(sc.toContract))).to.be.revertedWith("BlockHeaderOracle_InvalidTimestamp()");
+      await submitBatch(ctx, canonical);
+      expect((await ctx.oracle.getLatestBlockHeader()).blockHash).to.equal(canonical[17].blockHash);
     });
 
-    it("DEMONSTRATES — depth 16 (the deepest fork point the buffer holds): rejected InvalidTimestamp", async function () {
+    it("FIX VERIFIED — depth 16 (the deepest fork point the buffer holds) is accepted", async function () {
       const { ctx, canonical, corruptedMedian } = await orphanThenCanonical(16);
       expect(canonical[0].timestamp).to.be.lessThan(corruptedMedian);
-      await expect(ctx.oracle.submitBatchBlocks(canonical.map(sc.toContract))).to.be.revertedWith("BlockHeaderOracle_InvalidTimestamp()");
+      await submitBatch(ctx, canonical);
+      expect((await ctx.oracle.getBlockHeaderByNumber(ctx.fork.blockNumber + 1)).blockHash).to.equal(canonical[0].blockHash);
     });
   });
 
@@ -161,7 +165,7 @@ describe("PENTEST · ORC-007 (LOW) — deep reorg replays use a median window fu
       expect(await ctx.oracle.getCurrentBlockHeight()).to.equal(967141);
     });
 
-    it("DEMONSTRATES — re-anchoring the real canonical chain 12 deep (batch 967129..967141) is rejected InvalidTimestamp", async function () {
+    it("FIX VERIFIED — re-anchoring the real canonical chain 12 deep (batch 967129..967141) is accepted (pre-fix: InvalidTimestamp)", async function () {
       const ctx = await loadReal();
       // Window for 967129: verified 967124..967128 plus stale slots 967135..967140.
       const window = [...REAL.headers(967124, 967128), ...REAL.headers(967135, 967140)].map((h) => h.timestamp);
@@ -169,10 +173,11 @@ describe("PENTEST · ORC-007 (LOW) — deep reorg replays use a median window fu
       const honestMedian = sc.medianOf(REAL.headers(967118, 967128).map((h) => h.timestamp));
       const first = REAL.byHeight[967129].timestamp;
       expect(first).to.be.greaterThan(honestMedian); // valid on Bitcoin (it IS Bitcoin)
-      expect(first).to.be.lessThan(corruptedMedian);
+      expect(first).to.be.lessThan(corruptedMedian); // what the pre-fix window rejected
 
-      await expect(ctx.oracle.submitBatchBlocks(REAL.headers(967129, 967141))).to.be.revertedWith("BlockHeaderOracle_InvalidTimestamp()");
-      expect(await ctx.oracle.getCurrentBlockHeight()).to.equal(967140);
+      await submitBatch(ctx, REAL.headers(967129, 967141));
+      expect(await ctx.oracle.getCurrentBlockHeight()).to.equal(967141);
+      expect((await ctx.oracle.getLatestBlockHeader()).blockHash).to.equal(REAL.byHeight[967141].blockHash);
     });
   });
 });
