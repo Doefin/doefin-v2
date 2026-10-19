@@ -2,9 +2,9 @@ name: CI
 
 on:
   pull_request:
-    branches: [main, dev]
+    branches: [main, dev, "SCRUM-*-resolve-*"]
   push:
-    branches: [main, dev]
+    branches: [main, dev, "SCRUM-*-resolve-*"]
 
 # Concurrency: cancel in-progress runs for the same PR / branch when a new
 # commit lands. Saves minutes and gives CodeRabbit a clean, current signal.
