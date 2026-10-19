@@ -33,10 +33,10 @@ pragma solidity 0.8.20;
  *       headers, its caller-supplied `blockNumber` is parent height + 1, and the
  *       new chain is strictly longer;
  *     - anything with a tampered consensus field: rejected (PoW / linkage).
- *   Replays deeper than 6 are "accept, or reject InvalidTimestamp": after a
- *   rewind by d the buffer holds only 17 - d verified predecessors, so for d >= 7
- *   the 11-block median-time window reads stale slots (audit/follow-ups.md
- *   SCRUM-521-DEEP-REORG-MTP, a known pre-existing limit).
+ *   Replays deeper than 6 must be accepted by the production facet: since ORC-007
+ *   it reads the median-time window by height, not from the last 11 ring slots.
+ *   The pre-SCRUM-521 negative control keeps the old tolerance ("accept, or
+ *   reject InvalidTimestamp" — its window reads stale slots for d >= 7).
  *   The harness then compares the oracle's reaction and resulting state with the
  *   model (liveness, safety, post-conditions) and checks structural invariants
  *   of the ring buffer after every call.
@@ -45,10 +45,9 @@ pragma solidity 0.8.20;
  *   Every revert is classified. A Panic (0x4e487b71) from any non-empty
  *   submission fails `echidna_no_panic_nonempty` — 0x11 / 0x12 / 0x32 are the
  *   arithmetic / division / index class SEC-015 belonged to. `submitBatchBlocks([])`
- *   is a KNOWN OPEN ISSUE (it panics 0x11 on `newBlockHeaders[length - 1]`;
- *   SCRUM-521-AUDIT-SCOPE asks for a named error). It is tracked under its own
- *   property, `echidna_empty_batch_no_panic`, which is EXPECTED TO FAIL until that
- *   fix lands, so the known issue cannot mask new panics.
+ *   is tracked under its own property, `echidna_empty_batch_no_panic`: the
+ *   production facet reverts BlockHeaderOracle_EmptyBatch (ORC-011); the
+ *   pre-SCRUM-521 control still panics 0x11 on `newBlockHeaders[length - 1]`.
  *
  * LIBRARY LINKING
  *   The oracle facet calls the external library function
@@ -101,6 +100,12 @@ abstract contract OracleInvariantHarnessBase {
     uint256 public constant WORLD_COUNT = 2;
     /// @notice Selector of the compiler's `Panic(uint256)`.
     bytes4 internal constant PANIC_SELECTOR = 0x4e487b71;
+    /// @dev HEVM cheatcode address (Echidna / Medusa). A call to it is a no-op under Hardhat,
+    ///      whose clock is already real time.
+    address internal constant HEVM = 0x7109709ECfa91a80626fF3989D68f67F5b1DD12D;
+    /// @dev 2033-05-18 — after every fixture header, so the oracle's 2-hour future-timestamp
+    ///      rule (ORC-010) never rejects a real header because the fuzzer's clock starts in 2018.
+    uint256 internal constant HARNESS_CLOCK = 2_000_000_000;
     /// @notice Number of consensus fields `fuzz_submitTampered` can corrupt.
     uint256 internal constant TAMPERABLE_FIELDS = 6;
 
@@ -328,7 +333,7 @@ abstract contract OracleInvariantHarnessBase {
         }
     }
 
-    /// @notice `submitBatchBlocks([])`. KNOWN ISSUE: panics 0x11 today (tracked separately).
+    /// @notice `submitBatchBlocks([])`: a named error on the production facet (ORC-011), Panic(0x11) on the pre-fix control.
     function fuzz_submitEmptyBatch(uint8 ws) external {
         uint256 w = uint256(ws) % WORLD_COUNT;
         IDoefinBlockHeaderOracle oracle = worlds[w].oracle;
@@ -579,7 +584,27 @@ abstract contract OracleInvariantHarnessBase {
     ///      execution context a Diamond gives it (LibDoefinStorage is a fixed namespaced
     ///      slot), without embedding Diamond + DiamondCutFacet bytecode in the harness.
     function _newOracle() internal returns (IDoefinBlockHeaderOracle) {
-        return IDoefinBlockHeaderOracle(Clones.clone(oracleFacet));
+        address clone = Clones.clone(oracleFacet);
+        // ORC-008: initialisation is owner-only. The production harness facet exposes
+        // `harnessClaimOwnership`; on the pre-fix facet the call fails and is ignored.
+        // slither-disable-next-line unchecked-lowlevel
+        (bool claimed, ) = clone.call(abi.encodeWithSignature("harnessClaimOwnership()"));
+        claimed;
+        return IDoefinBlockHeaderOracle(clone);
+    }
+
+    /// @dev Move the fuzzer's clock past every fixture header (see HARNESS_CLOCK).
+    function _warpClock() internal {
+        if (block.timestamp >= HARNESS_CLOCK) return;
+        // slither-disable-next-line unchecked-lowlevel
+        (bool warped, ) = HEVM.call(abi.encodeWithSignature("warp(uint256)", HARNESS_CLOCK));
+        warped;
+    }
+
+    /// @dev True when the facet under test computes the median-time window by height
+    ///      (ORC-007 fixed): a spec-valid replay of any depth must then be accepted.
+    function _mtpWindowFixed() internal pure virtual returns (bool) {
+        return false;
     }
 
     /// @dev Deploy + initialise world `w` with the 17 headers starting at canonical index
@@ -681,6 +706,7 @@ abstract contract OracleInvariantHarnessBase {
 
     /// @dev Execute a submission, compare with the plan, then observe.
     function _exec(uint256 w, bytes memory data, Plan memory plan, uint8 action) internal {
+        _warpClock();
         (bool ok, bytes memory ret) = address(worlds[w].oracle).call(data);
         if (ok) {
             _onAccepted(w, plan, action);
@@ -717,7 +743,9 @@ abstract contract OracleInvariantHarnessBase {
 
     function _onRejected(bytes memory ret, Expect expect, uint8 action) internal {
         bytes4 sel = _recordRevert(ret, false, action);
-        bool mtpOnly = expect == Expect.AcceptOrMtpReject && sel == Errors.BlockHeaderOracle_InvalidTimestamp.selector;
+        bool mtpOnly = !_mtpWindowFixed() &&
+            expect == Expect.AcceptOrMtpReject &&
+            sel == Errors.BlockHeaderOracle_InvalidTimestamp.selector;
         if (expect == Expect.Accept || (expect == Expect.AcceptOrMtpReject && !mtpOnly)) {
             ++stats.livenessViolations;
             stats.lastLivenessAction = action;
@@ -763,6 +791,10 @@ abstract contract OracleInvariantHarnessBase {
             sel == Errors.BlockHeaderOracle_InvalidTimestamp.selector ||
             sel == Errors.BlockHeaderOracle_InvalidBlockHash.selector ||
             sel == Errors.BlockHeaderOracle_InvalidInitialHistoryLength.selector ||
+            sel == Errors.BlockHeaderOracle_InvalidTargetNBits.selector ||
+            sel == Errors.BlockHeaderOracle_UnexpectedDifficulty.selector ||
+            sel == Errors.BlockHeaderOracle_TimestampTooNew.selector ||
+            sel == Errors.BlockHeaderOracle_EmptyBatch.selector ||
             sel == Errors.AlreadyInitialized.selector ||
             sel == Errors.ValueOutOfRange.selector;
     }

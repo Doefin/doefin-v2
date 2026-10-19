@@ -448,7 +448,7 @@ describe("OracleInvariantHarness — block-header oracle fuzz harness (SCRUM-521
       await expectProperties(h, 0, "after an overlapping longer batch");
     });
 
-    it("same-chain replays deeper than 6 are accepted or rejected InvalidTimestamp only (SCRUM-521-DEEP-REORG-MTP); 17 is CannotFindForkPoint", async function () {
+    it("ORC-007 FIXED: same-chain replays of depth 7..16 are all accepted; 17 is CannotFindForkPoint", async function () {
       const h = await loadFixture(fixedHarness);
       await nextUntil(h, W967, 30);
       const outcomes = [];
@@ -460,7 +460,9 @@ describe("OracleInvariantHarness — block-header oracle fuzz harness (SCRUM-521
         const outcome =
           after.acceptedReorgs.gt(before.acceptedReorgs) ? "accepted" : after.mtpRejections.gt(before.mtpRejections) ? "InvalidTimestamp" : "rejected";
         outcomes.push(`${depth}:${outcome}`);
-        if (depth === RING) expect(outcome).to.equal("rejected");
+        // The median-time window is read by height (ORC-007), so a replay inside the buffer
+        // is accepted at every depth; only a fork point outside the buffer is rejected.
+        expect(outcome).to.equal(depth === RING ? "rejected" : "accepted");
         await expectProperties(h, 0, `depth ${depth}`);
         await network.provider.send("evm_revert", [snap]);
       }
@@ -519,23 +521,20 @@ describe("OracleInvariantHarness — block-header oracle fuzz harness (SCRUM-521
       await expectProperties(h, 0);
     });
 
-    it("KNOWN OPEN ISSUE: submitBatchBlocks([]) panics 0x11 — tracked only by echidna_empty_batch_no_panic", async function () {
-      // When the named empty-batch error lands (SCRUM-521-AUDIT-SCOPE), this assertion flips:
-      // the empty-batch property must then hold like every other one.
+    it("ORC-011 FIXED: submitBatchBlocks([]) reverts a named error — echidna_empty_batch_no_panic holds", async function () {
       const h = await loadFixture(fixedHarness);
       const before = await state(h, W967);
       await act.empty(h, W967);
       const st = await stats(h);
-      expect(st.emptyBatchPanicked).to.equal(true);
-      expect(st.emptyBatchPanicCode).to.equal(PANIC_ARITHMETIC);
-      expect(st.panicCount, "the known issue does not leak into the non-empty panic property").to.equal(0);
-      await expectProperties(h, EMPTY_BATCH_BIT, "after the empty batch");
+      expect(st.emptyBatchPanicked).to.equal(false);
+      expect(st.panicCount).to.equal(0);
+      expect(st.unexpectedErrorCount, "BlockHeaderOracle_EmptyBatch is a declared error").to.equal(0);
+      await expectProperties(h, 0, "after the empty batch");
       const after = await state(h, W967);
       expect([after.height, after.next]).to.deep.equal([before.height, before.next]);
 
-      // and it does not mask a later panic: the other properties keep tracking.
       await act.reorg(h, W967, 1, 0);
-      await expectProperties(h, EMPTY_BATCH_BIT);
+      await expectProperties(h, 0);
     });
   });
 
@@ -612,11 +611,11 @@ describe("OracleInvariantHarness — block-header oracle fuzz harness (SCRUM-521
 
   // -------------------------------------------------------------------------
   describe("seeded random walks over every action", function () {
-    it("production facet: 300 random actions never fail a property (empty-batch issue aside)", async function () {
+    it("production facet: 300 random actions never fail a property", async function () {
       const h = await loadFixture(fixedHarness);
       const log = await randomWalk(h, 0x5ec015, 300, async (step, label) => {
         const m = await mask(h);
-        expect(namesOf(m & ~EMPTY_BATCH_BIT), `step ${step}: ${label}`).to.deep.equal([]);
+        expect(namesOf(m), `step ${step}: ${label}`).to.deep.equal([]);
       });
       const st = await stats(h);
       console.log(

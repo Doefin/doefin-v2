@@ -14,14 +14,13 @@ pragma solidity 0.8.20;
  *
  * All actions, properties and the reference model live in
  * OracleInvariantHarnessBase.sol (see its header). Expected result: every
- * echidna_* property holds EXCEPT echidna_empty_batch_no_panic, the known open
- * `submitBatchBlocks([])` Panic(0x11) issue.
+ * echidna_* property holds.
  *
  * This contract MUST NEVER be added to the production deploy script. It is
  * excluded from Slither / solhint / coverage with the rest of contracts/audit/.
  * ==========================================================================*/
 
-import {DoefinV1BlockHeaderOracle} from "../facets/DoefinV1BlockHeaderOracleFacet.sol";
+import {HarnessOwnableOracle} from "./HarnessOwnableOracle.sol";
 import {OracleInvariantHarnessBase} from "./OracleInvariantHarnessBase.sol";
 
 /**
@@ -31,7 +30,13 @@ import {OracleInvariantHarnessBase} from "./OracleInvariantHarnessBase.sol";
  */
 contract OracleInvariantHarness is OracleInvariantHarnessBase {
     /// @inheritdoc OracleInvariantHarnessBase
+    /// @dev The production facet plus the clone-ownership hook ORC-008's owner-only init needs.
     function _newOracleFacet() internal override returns (address) {
-        return address(new DoefinV1BlockHeaderOracle());
+        return address(new HarnessOwnableOracle());
+    }
+
+    /// @dev ORC-007: the production facet reads the median-time window by height.
+    function _mtpWindowFixed() internal pure override returns (bool) {
+        return true;
     }
 }
