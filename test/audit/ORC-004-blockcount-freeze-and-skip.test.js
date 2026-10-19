@@ -40,6 +40,7 @@
 // header sequences that used to freeze or strand the oracle now pass straight through.
 
 const { expect } = require("chai");
+const { ethers } = require("hardhat");
 const sc = require("../utils/syntheticChain.js");
 const { isolateChainState } = require("../utils/oracleAuditFixture.js");
 const {
@@ -47,6 +48,7 @@ const {
   deployOracleAuditDiamond,
   initSyntheticOracle,
   createBlockCount,
+  createDuration,
   submitEach,
   evmNow,
   advanceEvmTimeTo,
@@ -125,5 +127,37 @@ describe("PENTEST · ORC-004 (HIGH) — BlockCount: lookup revert freezes the or
       expect(await ctx.oracle.getCurrentBlockHeight()).to.equal(chain[chain.length - 1].blockNumber);
       expect((await ctx.oracleAdapter.getBlockCountQuestionsAtTimestamp(end)).length).to.equal(0);
     });
+  });
+
+  it("CONTROL — the disable is scoped to BlockCount: on the same oracle a MiningDuration market is created and registered", async function () {
+    const ctx = await load();
+    const start = ctx.tip.blockNumber + 10; // headroom for a creation-time lag margin, as in ORC-003
+    await createDuration(ctx, start, 6, [3600]);
+    expect((await ctx.oracleAdapter.getDurationQuestionsAtBlock(start + 6 + sc.SETTLEMENT_DELAY)).length).to.equal(1);
+    expect(await ctx.oracleAdapter.getTotalQuestionsCreated()).to.equal(1);
+  });
+
+  it("PRECONDITION — a BlockCount question registered before the cut still resolves through the exact-second lookup and reverts inside settlement, so the cut needs zero pending BlockCount questions", async function () {
+    const bhu = await (await ethers.getContractFactory("BlockHeaderUtils")).deploy();
+    const H = await ethers.getContractFactory("LibOracleAdapterHarness", { libraries: { BlockHeaderUtils: bhu.address } });
+    const harness = await H.deploy();
+    const B = BUCKET * 2_833_344; // a bucket start
+    const q = ethers.utils.id("orc004-legacy");
+    const outcomes = COUNT_BUCKETS.length + 1;
+    await harness.prepareCondition(q, outcomes);
+    const conditionId = ethers.utils.solidityKeccak256(["address", "bytes32", "uint8"], [harness.address, q, outcomes]);
+    await harness.createBlockCountQuestion(q, conditionId, B - 6000, B + 300, COUNT_BUCKETS); // no block on any probed second
+    await harness.setOracleState(1012, 0);
+    await harness.seedBlockHeader(16, {
+      prevBlockHash: ethers.constants.HashZero,
+      merkleRootHash: ethers.constants.HashZero,
+      blockHash: ethers.constants.HashZero,
+      blockNumber: 1012,
+      version: 0,
+      timestamp: B + 330, // due: in bucket B and past the end timestamp
+      nBits: 0x207fffff,
+      nonce: 0,
+    });
+    await expect(harness.settleCondition()).to.be.revertedWith("OracleAdapter_BlockNotFoundForTimestamp()");
   });
 });

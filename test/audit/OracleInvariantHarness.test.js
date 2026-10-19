@@ -14,8 +14,8 @@
  *      reorg replay, all 17 slots against `scenarios.json`'s "After fix" column, a
  *      pointer x depth replay matrix, overlapping / stale / gapped / too-deep batches,
  *      caller-supplied metadata, tampered consensus fields, re-initialisation, and the
- *      empty batch. Every property must hold after every step, except the one that tracks
- *      the KNOWN OPEN empty-batch Panic(0x11).
+ *      empty batch. Every property must hold after every step, including the empty-batch
+ *      property (ORC-011: the production facet reverts BlockHeaderOracle_EmptyBatch).
  *   3. Negative control — the same sequences against `OracleInvariantHarnessPreFix`
  *      (verbatim pre-SCRUM-521 facet): the harness must flag SEC-015 exactly where
  *      `scenarios.json`'s "Before fix" column says it panics, and exactly where the
@@ -75,6 +75,21 @@ const SEC015_BITS = bit("echidna_no_panic_nonempty") | bit("echidna_valid_chains
 const namesOf = (mask) => PROPS.filter((_, i) => mask & (1 << i));
 
 const lc = (x) => String(x).toLowerCase();
+
+/**
+ * The call reverts with exactly `name(args)`. Waffle 3.4 has no `revertedWithCustomError`, and a bare
+ * `to.be.reverted` also passes on a Panic — the failure class this harness exists to catch.
+ */
+async function expectCustomError(promise, iface, name, args) {
+  let data = null;
+  try {
+    await promise;
+  } catch (err) {
+    data = String(err.data || (err.error && err.error.data) || "");
+  }
+  expect(data, `expected a revert with ${name}`).to.not.equal(null);
+  expect(lc(data), `revert data of ${name}`).to.equal(lc(iface.encodeErrorResult(name, args)));
+}
 
 // ---------------------------------------------------------------------------
 // Snapshot-based fixtures (hardhat-network-helpers is not a dependency here).
@@ -266,9 +281,9 @@ describe("OracleInvariantHarness — block-header oracle fuzz harness (SCRUM-521
         expect(branch.map((x) => lc(x.blockHash))).to.deep.equal(
           [wd.canonical[wd.orphanIndex - 2], wd.canonical[wd.orphanIndex - 1], wd.orphan].map((x) => lc(x.blockHash))
         );
-        await expect(fx.header(w, wd.canonical.length + 1)).to.be.reverted;
+        await expectCustomError(fx.header(w, wd.canonical.length + 1), fx.interface, "FixtureIndexOutOfRange", [w, wd.canonical.length + 1]);
       }
-      await expect(fx.info(WORLDS.length)).to.be.reverted;
+      await expectCustomError(fx.info(WORLDS.length), fx.interface, "UnknownWorld", [WORLDS.length]);
     });
   });
 

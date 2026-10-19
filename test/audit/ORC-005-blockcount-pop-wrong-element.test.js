@@ -31,7 +31,8 @@
 // at the questions' start timestamp, and the trigger header sits exactly 60 s after Q0's end
 // (the first key `_findBlockByTimestamp` probes). Every header is accepted on its own merits.
 //
-// No CONTROL here (see ORC-004: the immediate fix disables BlockCount creation).
+// CONTROL: a single question in bucket B (the path the pre-fix code already handled) resolves and
+// leaves the bucket empty, which separates the swap-and-pop fix from the harness setup.
 
 const { expect } = require("chai");
 const { ethers } = require("hardhat");
@@ -123,5 +124,28 @@ describe("PENTEST · ORC-005 (MEDIUM) — BlockCount bucket pop() removes the wr
     await expect(createBlockCount(ctx, start, start + 6300, COUNT_BUCKETS)).to.be.revertedWith(
       "OracleAdapter_QuestionTypeDisabled()"
     );
+  });
+});
+
+describe("PENTEST · ORC-005 (MEDIUM) — CONTROL: a lone BlockCount question resolves and leaves its bucket empty", function () {
+  this.timeout(300_000);
+  isolateChainState();
+
+  it("CONTROL — one question in bucket B resolves at B+360; the bucket is empty and resolved + pending == created (INV-ORC-4)", async function () {
+    const harness = await deployHarness();
+    const q = ethers.utils.id("orc005-control");
+    const outcomes = COUNT_BUCKETS.length + 1;
+    const conditionId = ethers.utils.solidityKeccak256(["address", "bytes32", "uint8"], [harness.address, q, outcomes]);
+    await harness.setTimestampToBlockHeight(A, START_HEIGHT);
+    await harness.prepareCondition(q, outcomes);
+    await harness.createBlockCountQuestion(q, conditionId, A, B + 300, COUNT_BUCKETS);
+
+    await seedLatest(harness, START_HEIGHT + 12, B + 360);
+    await harness.settleCondition();
+
+    expect((await harness.payoutNumerators(conditionId)).map(Number)).to.deep.equal([0, 0, 1, 0]); // 12 blocks
+    expect(await harness.blockCountQuestionIdsAt(B)).to.deep.equal([]);
+    expect(await harness.totalQuestionsResolved()).to.equal(1);
+    expect(await harness.totalQuestionsCreated()).to.equal(1);
   });
 });
