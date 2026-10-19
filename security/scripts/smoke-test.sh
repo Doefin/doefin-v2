@@ -46,6 +46,15 @@ else
 fi
 echo
 
+echo "--- echidna smoke (oracle harness: BlockHeaderUtils link + real-header fixtures) ---"
+if [ -f contracts/audit/OracleInvariantHarness.sol ]; then
+  echidna contracts/audit/OracleInvariantHarness.sol --contract OracleInvariantHarness \
+    --config security/echidna.oracle.config.yaml --test-limit 500 2>&1 | tail -20 || true
+else
+  echo "SKIP: contracts/audit/OracleInvariantHarness.sol not yet created"
+fi
+echo
+
 echo "=================================================================="
 if [ "$fail" -eq 0 ]; then
   echo " SMOKE TEST PASSED — all tools available, project compiles."

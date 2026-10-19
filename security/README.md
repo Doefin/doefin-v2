@@ -59,6 +59,44 @@ If the smoke test passes, the toolchain is ready.
 echidna → medusa). Echidna/Medusa are long — for the deep run, set
 `ECHIDNA_TEST_LIMIT` to 500000+ and run overnight.
 
+## Fuzz harnesses
+
+`audit:echidna` / `audit:medusa` fuzz every harness in turn (select a subset with
+`ECHIDNA_HARNESSES` / `MEDUSA_HARNESSES`, space-separated):
+
+| Harness | Target | Config (Echidna / Medusa) | Log |
+|---|---|---|---|
+| `DoefinInvariantHarness` | settlement / CTF Diamond | `echidna.config.yaml` / `medusa.json` | `echidna-run.txt` / `medusa-run.txt` |
+| `OracleInvariantHarness` | Bitcoin block-header oracle (SCRUM-521-AUDIT-SCOPE) | `echidna.oracle.config.yaml` / `medusa.oracle.json` | `echidna-oracle-run.txt` / `medusa-oracle-run.txt` |
+
+**Oracle harness.** Submission is permissionless but headers must carry real proof of
+work, so `OracleInvariantHarness` only ever submits real Bitcoin headers — two real forks
+from `test/data/` (967110–967160 + the orphan 967143 that froze mainnet, SEC-015; and
+935468–935503 + the orphan 935497) encoded into `contracts/audit/OracleHeaderFixtures.sol`
+by `node security/scripts/gen-oracle-fixtures.js`. The fuzzer chooses the *shape*: single
+headers, slices starting anywhere, replays at every depth and ring position, orphan
+branches, caller-supplied `blockNumber`/`blockHash` junk, tampered consensus fields, empty
+batches, re-initialisation, and re-deployment with a different init window (moves the
+orphan through all 17 ring slots). A reference model derives from the spec whether each
+submission must be accepted; properties check liveness, safety, post-conditions, ring-buffer
+structure and that no non-empty submission ever Panics.
+
+- **Expected result:** every `echidna_*` property passes **except
+  `echidna_empty_batch_no_panic`** — a known open issue (`submitBatchBlocks([])` reverts
+  `Panic(0x11)`; SCRUM-521-AUDIT-SCOPE asks for a named error). It is tracked separately so it
+  cannot mask a new panic.
+- **Negative control:** `ORACLE_NEGATIVE_CONTROL=1 npm run audit:echidna` (or `audit:medusa`)
+  also fuzzes `OracleInvariantHarnessPreFix` — the same harness on a verbatim copy of the
+  pre-SCRUM-521 facet. It **must fail** `echidna_no_panic_nonempty` (SEC-015, `Panic(0x11)`);
+  if it does not, the harness has lost its teeth.
+- **Library linking:** the oracle facet links the external `BlockHeaderUtils` library. The
+  oracle configs link it to `0xb10c` via crytic-compile `--compile-libraries` and predeploy it
+  there (`deployContracts` / `predeployedContracts`). The harness never calls into the library,
+  so only the link itself is load-bearing.
+- **Validated without Docker** by `npx hardhat test test/audit/OracleInvariantHarness.test.js`
+  (deterministic sequences, 17-slot and pointer×depth matrices, seeded random walks, and the
+  negative control).
+
 All tool output lands under `audit/output/` (a Docker named volume; gitignored).
 Scope exclusions (`audit-exclusion-guidance.md`) are encoded in
 `slither.config.json`, `.solhintignore`, and `.solcover.js`.
