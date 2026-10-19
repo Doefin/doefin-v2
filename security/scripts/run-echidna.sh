@@ -10,8 +10,8 @@
 #                              harness on the pre-SCRUM-521 facet. It MUST FAIL
 #                              echidna_no_panic_nonempty (SEC-015): proof the harness bites.
 #
-# Expected oracle result: all properties pass except echidna_empty_batch_no_panic
-# (known open issue: submitBatchBlocks([]) reverts Panic(0x11)).
+# Expected oracle result: every property passes on the production facet (ORC-011 fixed:
+# submitBatchBlocks([]) reverts BlockHeaderOracle_EmptyBatch).
 set -uo pipefail
 cd /src
 OUT=audit/output/echidna
@@ -48,11 +48,23 @@ run_harness() {
   fi
 
   echo "[echidna] fuzzing $name (testLimit=$LIMIT)"
+  local rc=0
   echidna "$src" --contract "$name" \
     --config "$config" \
     --test-limit "$LIMIT" \
     ${extra[@]+"${extra[@]}"} \
-    2>&1 | tee "$log" || true
+    2>&1 | tee "$log" || rc=$?
+  if [ "$name" = "OracleInvariantHarnessPreFix" ]; then
+    # Negative control: it MUST fail the SEC-015 property. A non-zero exit alone is not enough
+    # (a compile or link error also exits non-zero), so require the falsified property in the log.
+    if grep -q 'echidna_no_panic_nonempty: failed' "$log"; then return 0; fi
+    echo "[echidna] ERROR: negative control did not fail echidna_no_panic_nonempty (the harness has lost its teeth)"
+    return 1
+  fi
+  if [ "$rc" -ne 0 ]; then
+    echo "[echidna] ERROR: $name exited $rc (a property failed or the tool errored), see $log"
+  fi
+  return "$rc"
 }
 
 status=0

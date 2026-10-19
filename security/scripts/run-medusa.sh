@@ -48,8 +48,19 @@ run_harness() {
   fi
 
   echo "[medusa] fuzzing $name"
+  local rc=0
   medusa fuzz --config "$config" \
-    2>&1 | tee "$log" || true
+    2>&1 | tee "$log" || rc=$?
+  if [ "$name" = "OracleInvariantHarnessPreFix" ]; then
+    # Negative control: require the falsified SEC-015 property, not just a non-zero exit.
+    if grep -q 'FAILED.*echidna_no_panic_nonempty' "$log"; then return 0; fi
+    echo "[medusa] ERROR: negative control did not fail echidna_no_panic_nonempty (the harness has lost its teeth)"
+    return 1
+  fi
+  if [ "$rc" -ne 0 ]; then
+    echo "[medusa] ERROR: $name exited $rc (a property failed or the tool errored), see $log"
+  fi
+  return "$rc"
 }
 
 status=0
