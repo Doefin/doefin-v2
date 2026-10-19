@@ -131,7 +131,8 @@ All confined to `SettlementFacet.sol`; no storage-layout or selector change (all
   production steps have run: the Safe-routed single-selector cut (`npm run upgrade:scrum521:base`), then the held-batch
   replay (`npm run oracle:replay:base`). The cut alone does not advance the oracle. block-indexer's `unreplayable_on_chain`
   guard will not resubmit the batch by itself, so the replay is a required step (guard removal: `audit/follow-ups.md`
-  SCRUM-521-BE-GUARD). Record the cut and replay tx hashes in `audit/fixes/changelog.md` once executed.
+  SCRUM-521-BE-GUARD). **Executed 2026-09-23:** cut 13:48 UTC, replay 14:07 UTC — tx hashes in the
+  `audit/fixes/changelog.md` SCRUM-521 rollout log; the oracle has tracked the Bitcoin tip since.
 
 ---
 
