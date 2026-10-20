@@ -57,6 +57,13 @@
       "offset": 0,
       "type": "mapping(address => uint256)",
       "bytes": "32"
+    },
+    {
+      "field": "maxOracleStaleness",
+      "slot": "5",
+      "offset": 0,
+      "type": "uint32",
+      "bytes": "4"
     }
   ],
   "struct LibDoefinStorage.AppStorage": [

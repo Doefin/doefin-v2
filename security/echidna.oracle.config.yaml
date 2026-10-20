@@ -1,0 +1,36 @@
+# Echidna config for the block-header oracle fuzz harness (SCRUM-521-AUDIT-SCOPE).
+#   echidna contracts/audit/OracleInvariantHarness.sol --contract OracleInvariantHarness \
+#     --config security/echidna.oracle.config.yaml
+#
+# Negative control — the same harness on the pre-SCRUM-521 facet. It MUST fail
+# echidna_no_panic_nonempty (SEC-015, Panic 0x11); run it to prove the harness bites:
+#   echidna contracts/audit/OracleInvariantHarnessPreFix.sol --contract OracleInvariantHarnessPreFix \
+#     --config security/echidna.oracle.config.yaml --corpus-dir audit/output/echidna/corpus-oracle-prefix
+#
+# Expected on the production facet: every echidna_* property passes. A failing
+# echidna_empty_batch_no_panic is an ORC-011 regression (submitBatchBlocks([]) must revert
+# BlockHeaderOracle_EmptyBatch); only the pre-fix negative control may fail it.
+#
+# property mode: Echidna asserts every echidna_* function (returns bool) stays true across
+# random sequences of the harness's fuzz_* actions. The harness only ever submits real
+# Bitcoin headers (random headers cannot pass PoW); the fuzzer picks the shape.
+testMode: "property"
+prefix: "echidna_"
+testLimit: 50000          # raise via --test-limit for the deep overnight run
+seqLen: 60                # transactions per fuzzing sequence
+shrinkLimit: 5000
+deployer: "0x30000"
+sender: ["0x10000", "0x20000", "0x30000"]
+psender: "0x10000"
+corpusDir: "audit/output/echidna/corpus-oracle"
+coverage: true
+# Library linking. The oracle facet calls the EXTERNAL library function
+# BlockHeaderUtils.calculateDifficulty (via LibOracleAdapter), so its bytecode — and the
+# harness's, which deploys it — carries a BlockHeaderUtils link placeholder.
+# crytic-compile links it to 0xb10c and Echidna deploys the library there before the
+# harness. (The harness registers no oracle-adapter questions, so the library is never
+# actually called; only the linking is load-bearing.)
+deployContracts: [["0xb10c", "BlockHeaderUtils"]]
+# Same solc settings as security/echidna.config.yaml (viaIR is required by the project),
+# compiling only the harness's dependency closure, plus the library link.
+cryticArgs: ["--compile-force-framework", "solc", "--solc-remaps", "@openzeppelin=node_modules/@openzeppelin", "--solc-solcs-select", "0.8.20", "--solc-args", "--via-ir --optimize --optimize-runs 1", "--compile-libraries=(BlockHeaderUtils,0xb10c)"]

@@ -16,14 +16,12 @@ module.exports = {
     "libraries/LibDiamond.sol",
     // CTF imported from Gnosis (audit-exclusion-guidance.md).
     "facets/ConditionalTokensFacet.sol",
-    "facets/ConditionManagerFacet.sol",
-    "libraries/LibConditionMetadata.sol",
     "libraries/LibCTHelpers.sol",
     "libraries/LibCTFCondition.sol",
-    // Block-header v1, superseded (audit-exclusion-guidance.md).
-    "facets/DoefinV1BlockHeaderOracleFacet.sol",
-    "libraries/BlockHeaderUtils.sol",
-    "libraries/LibDoefinBlockHeaderOracle.sol",
+    // The block-header oracle (DoefinV1BlockHeaderOracleFacet, BlockHeaderUtils,
+    // LibDoefinBlockHeaderOracle) and the Doefin question-creation code
+    // (ConditionManagerFacet, LibConditionMetadata) are measured: the former
+    // "superseded" exclusion hid SEC-015 (SCRUM-521-AUDIT-SCOPE).
   ],
   istanbulReporter: ["html", "json-summary", "text"],
 };

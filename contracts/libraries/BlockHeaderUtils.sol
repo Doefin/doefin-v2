@@ -12,8 +12,81 @@ import {Errors} from "./Errors.sol";
 library BlockHeaderUtils {
     uint256 public constant BASE_DIFFICULTY_TARGET = 0x00000000FFFF << 208;
 
+    /// @dev Bitcoin mainnet consensus parameters (Bitcoin Core `chainparams.cpp`).
+    uint256 internal constant DIFFICULTY_ADJUSTMENT_INTERVAL = 2016;
+    uint256 internal constant POW_TARGET_TIMESPAN = 14 days;
+    uint256 internal constant POW_LIMIT = BASE_DIFFICULTY_TARGET;
+    /// @dev Bitcoin Core `MAX_FUTURE_BLOCK_TIME`.
+    uint256 internal constant MAX_FUTURE_BLOCK_TIME = 2 hours;
+    /// @dev Sign bit of a compact target's 24-bit mantissa (0x00800000).
+    uint256 private constant COMPACT_SIGN_BIT = 1 << 23;
+
+    /**
+     * @notice Decode a compact `nBits` target exactly as Bitcoin Core `arith_uint256::SetCompact`,
+     *         rejecting the encodings Bitcoin treats as invalid.
+     * @dev ORC-010: the legacy {calculateDifficultyTarget} masks 24 bits (so the sign bit becomes
+     *      part of the mantissa) and silently truncates an overflowing exponent.
+     * @custom:reverts BlockHeaderOracle_InvalidTargetNBits on a negative, overflowing or zero target
+     */
+    function decodeCompactStrict(uint32 nBits) internal pure returns (uint256 target) {
+        uint256 size = uint256(nBits) >> 24;
+        uint256 word = uint256(nBits) & 0x007fffff;
+        if (word != 0 && (uint256(nBits) & COMPACT_SIGN_BIT) != 0) revert Errors.BlockHeaderOracle_InvalidTargetNBits();
+        if (word != 0 && (size > 34 || (word > 0xff && size > 33) || (word > 0xffff && size > 32))) {
+            revert Errors.BlockHeaderOracle_InvalidTargetNBits();
+        }
+        target = size <= 3 ? word >> (8 * (3 - size)) : word << (8 * (size - 3));
+        if (target == 0) revert Errors.BlockHeaderOracle_InvalidTargetNBits();
+    }
+
+    /// @notice Encode a target as compact `nBits` exactly as Bitcoin Core `arith_uint256::GetCompact`.
+    function encodeCompact(uint256 target) internal pure returns (uint32) {
+        uint256 size = 0;
+        for (uint256 t = target; t != 0; t >>= 8) ++size;
+        uint256 compact = size <= 3 ? target << (8 * (3 - size)) : target >> (8 * (size - 3));
+        if (compact & COMPACT_SIGN_BIT != 0) {
+            compact >>= 8;
+            ++size;
+        }
+        return uint32(compact | (size << 24));
+    }
+
+    /**
+     * @notice Target required for the first block of a difficulty period — Bitcoin Core
+     *         `CalculateNextWorkRequired` (timespan clamped to [T/4, 4T], result capped at powLimit).
+     * @param prevTarget Target of the last block of the closing period
+     * @param firstTimestamp Timestamp of the first block of the closing period
+     * @param lastTimestamp Timestamp of the last block of the closing period
+     */
+    function nextPeriodTarget(uint256 prevTarget, uint256 firstTimestamp, uint256 lastTimestamp)
+        internal
+        pure
+        returns (uint256)
+    {
+        uint256 timespan = lastTimestamp > firstTimestamp ? lastTimestamp - firstTimestamp : 0;
+        if (timespan < POW_TARGET_TIMESPAN / 4) timespan = POW_TARGET_TIMESPAN / 4;
+        if (timespan > POW_TARGET_TIMESPAN * 4) timespan = POW_TARGET_TIMESPAN * 4;
+        // A product that would overflow is far above powLimit anyway.
+        if (prevTarget > type(uint256).max / timespan) return POW_LIMIT;
+        uint256 next = (prevTarget * timespan) / POW_TARGET_TIMESPAN;
+        return next > POW_LIMIT ? POW_LIMIT : next;
+    }
+
+    /// @notice Expected work of a block with `target` — Bitcoin Core `GetBlockProof`: 2^256 / (target + 1).
+    function blockWork(uint256 target) internal pure returns (uint256) {
+        return (~target / (target + 1)) + 1;
+    }
+
+    /// @notice True when the header's hash meets the target its own `nBits` declares (Bitcoin's `hash <= target`).
+    function meetsOwnTarget(LibDoefinStorage.BlockHeader memory blockHeader) internal pure returns (bool) {
+        return uint256(blockHeader.blockHash) <= decodeCompactStrict(blockHeader.nBits);
+    }
+
     /**
      * @dev Return true/false if the block header hash is valid
+     * @dev LEGACY — checks `nextBlockHeader` against `currentBlockHeader`'s target (ORC-001 /
+     *      ORC-002). The oracle facet uses {meetsOwnTarget} plus the retarget rule; this is kept
+     *      only for the pre-SCRUM-521 negative-control copy under contracts/audit/.
      * @param currentBlockHeader The block header to hash
      * @param nextBlockHeader The block header to hash
      * @return true/false

@@ -17,6 +17,10 @@ interface IAdminConfig {
 
     function getMaxFeeRate() external view returns (uint16);
 
+    function setMaxOracleStaleness(uint32 maxOracleStalenessSeconds) external;
+
+    function getMaxOracleStaleness() external view returns (uint32);
+
     function isAllowedCollateral(address token) external view returns (bool);
 
     function getCollateralUnit(address token) external view returns (uint256);

@@ -10,7 +10,7 @@ const { ethers } = require("hardhat");
 
 const {
   QuestionType,
-  encodeDifficultyThreshold,
+  encodeMiningDuration,
 } = require("../utils/oracleAdapterUtils.js");
 
 const {
@@ -109,30 +109,21 @@ describe("Batch Submission Settlement Fix Verification", function () {
       const currentHeight = await getCurrentBlockHeight(blockHeaderOracle);
       console.log(`📊 Initial height: ${currentHeight}`);
       
-      // Step 2: Create a condition for a specific block that we will submit.
-      // Derive the target from the data: the oracle is initialized with the
-      // first `initBlocks.length` blocks of `productionBlocks` starting at
-      // `initialHeight`, so the next un-submitted block is at
-      // `initialHeight + initBlocks.length`. This keeps the test in sync when
-      // `test/data/blocks-production.json` is refreshed to a different
-      // production range (otherwise `validateDifficultyThreshold` would
-      // revert ValueOutOfRange because the hardcoded target lags the data).
-      const targetBlockHeight = initialHeight + initBlocks.length;
-      const settlementBlockHeight = targetBlockHeight + SETTLEMENT_DELAY;
-      
-      console.log(`🎯 Target block: ${targetBlockHeight}`);
-      console.log(`⏰ Settlement block: ${settlementBlockHeight}`);
-      
-      // Create a difficulty threshold question that will be exceeded
-      const threshold = ethers.utils.parseUnits("100", 12); // 100T difficulty threshold (will be exceeded)
-      const metadata = encodeDifficultyThreshold(threshold, targetBlockHeight);
-      
-      console.log(`🎲 Creating condition with threshold: ${ethers.utils.formatUnits(threshold, 12)}T`);
-      
+      // Step 2: Create a condition that settles on a block inside the batch.
+      // A MiningDuration question over the next block (start = the first
+      // un-submitted height, blockCount = 1) settles at start + 1 + SETTLEMENT_DELAY.
+      // Difficulty questions are not used here: they must target a difficulty
+      // period that has not started yet (ORC-006), and this fixture holds no
+      // period boundary. The start is derived from the data so the test stays in
+      // sync when `test/data/blocks-production.json` is refreshed.
+      const startBlockHeight = initialHeight + initBlocks.length;
+      const blockCount = 1;
+      const settlementBlockHeight = startBlockHeight + blockCount + SETTLEMENT_DELAY;
+      const metadata = encodeMiningDuration(startBlockHeight, blockCount, [600]); // <10 min | >=10 min
       const createTx = await conditionManager
         .connect(marketMaker)
         .createConditionWithMetadata(
-          QuestionType.DifficultyThreshold,
+          QuestionType.MiningDuration,
           metadata,
           2, // binary outcome
           "test://batch-submission-bug-repro",
@@ -246,13 +237,13 @@ describe("Batch Submission Settlement Fix Verification", function () {
       expect(conditionId).to.not.be.undefined;
       console.log(`🆔 Condition ID: ${conditionId}`);
       
-      // Step 3: Submit `targetBlockHeight` through `settlementBlockHeight` via
-      // BATCH submission. The slice picks up the 7 blocks immediately after
-      // the init range (target through target + SETTLEMENT_DELAY inclusive).
-      const blocksToSubmit = productionBlocks.slice(17, 24);
+      // Step 3: Submit `startBlockHeight` through `settlementBlockHeight` via
+      // BATCH submission: the 8 blocks immediately after the init range.
+      const blocksToSubmit = productionBlocks.slice(17, 17 + blockCount + SETTLEMENT_DELAY + 1);
+      expect(blocksToSubmit[blocksToSubmit.length - 1].blockNumber).to.equal(settlementBlockHeight);
       
       console.log(`📦 Batch submitting ${blocksToSubmit.length} blocks (${blocksToSubmit[0].blockNumber} to ${blocksToSubmit[blocksToSubmit.length-1].blockNumber})`);
-      console.log(`   This batch includes target block ${targetBlockHeight} and settlement block ${settlementBlockHeight}`);
+      console.log(`   This batch includes start block ${startBlockHeight} and settlement block ${settlementBlockHeight}`);
       
       // Submit as a batch - verify the fix works correctly!
       const batchTx = await submitBatchBlocks({
@@ -352,7 +343,7 @@ describe("Batch Submission Settlement Fix Verification", function () {
       
       if (isResolved) {
         console.log(`✅ SETTLEMENT-PER-BLOCK FIX WORKING: Condition was resolved!`);
-        console.log(`   Target block ${targetBlockHeight} processed → Settlement block ${settlementBlockHeight} reached`);
+        console.log(`   Start block ${startBlockHeight} processed → Settlement block ${settlementBlockHeight} reached`);
         console.log(`   The fix ensures _settleCondition() is called after EACH block in the batch`);
         
         // With the per-block settlement fix, conditions resolve correctly

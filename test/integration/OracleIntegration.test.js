@@ -23,6 +23,10 @@ const {
   submitBlockHeader,
 } = require("../utils/blockHeaderOracleUtils.js");
 
+// ORC-006: a difficulty market must target a difficulty period that has not started yet.
+// First block of the next 2016-block period after `height` (the oracle's tip).
+const nextPeriodStart = (height) => (Math.floor((Number(height) + 1) / 2016) + 1) * 2016;
+
 describe("Oracle Adapter Integration", function () {
   let diamondAddress;
   let conditionManager;
@@ -80,7 +84,7 @@ describe("Oracle Adapter Integration", function () {
       const currentHeight = await blockHeaderOracle.getCurrentBlockHeight();
       const threshold = ethers.utils.parseUnits("50", "gwei");
       // Create condition at a future block (must be > currentBlockHeight)
-      const targetBlockHeight = currentHeight + 2;
+      const targetBlockHeight = nextPeriodStart(currentHeight) + 2;
       const metadata = encodeDifficultyThreshold(threshold, targetBlockHeight);
 
       const tx = await conditionManager
@@ -100,7 +104,7 @@ describe("Oracle Adapter Integration", function () {
 
     it("should handle range question creation", async function () {
       const currentHeight = await blockHeaderOracle.getCurrentBlockHeight();
-      const targetBlockHeight = currentHeight + 2;
+      const targetBlockHeight = nextPeriodStart(currentHeight) + 2;
       const buckets = [
         ethers.utils.parseUnits("40", "gwei"),
         ethers.utils.parseUnits("50", "gwei"),
@@ -131,7 +135,7 @@ describe("Oracle Adapter Integration", function () {
     it("should create and query threshold question", async function () {
       const currentHeight = await blockHeaderOracle.getCurrentBlockHeight();
       const threshold = ethers.utils.parseUnits("50", "gwei");
-      const targetBlockHeight = currentHeight + 2;
+      const targetBlockHeight = nextPeriodStart(currentHeight) + 2;
       const settlementBlock = targetBlockHeight + SETTLEMENT_DELAY;
       const metadata = encodeDifficultyThreshold(threshold, targetBlockHeight);
 
@@ -159,7 +163,7 @@ describe("Oracle Adapter Integration", function () {
       const currentHeight = await blockHeaderOracle.getCurrentBlockHeight();
       const threshold = ethers.utils.parseUnits("50", "gwei");
       // Must be strictly greater than currentHeight (validation: targetBlockHeight > currentBlockHeight)
-      const targetHeight = currentHeight + 1;
+      const targetHeight = nextPeriodStart(currentHeight) + 1;
       const metadata = encodeDifficultyThreshold(threshold, targetHeight);
 
       const tx = await conditionManager
@@ -178,7 +182,7 @@ describe("Oracle Adapter Integration", function () {
 
     it("should handle threshold in near future", async function () {
       const currentHeight = await blockHeaderOracle.getCurrentBlockHeight();
-      const targetHeight = currentHeight + 2;
+      const targetHeight = nextPeriodStart(currentHeight) + 2;
       const threshold = ethers.utils.parseUnits("50", "gwei");
       const metadata = encodeDifficultyThreshold(threshold, targetHeight);
 
@@ -204,7 +208,7 @@ describe("Oracle Adapter Integration", function () {
   describe("Difficulty Range Question Flow", function () {
     it("should create range question with multiple buckets", async function () {
       const currentHeight = await blockHeaderOracle.getCurrentBlockHeight();
-      const targetHeight = currentHeight + 2;
+      const targetHeight = nextPeriodStart(currentHeight) + 2;
       const buckets = [
         ethers.utils.parseUnits("40", "gwei"),
         ethers.utils.parseUnits("50", "gwei"),
@@ -229,7 +233,7 @@ describe("Oracle Adapter Integration", function () {
 
     it("should create range question with single bucket", async function () {
       const currentHeight = await blockHeaderOracle.getCurrentBlockHeight();
-      const targetHeight = currentHeight + 2;
+      const targetHeight = nextPeriodStart(currentHeight) + 2;
       const buckets = [ethers.utils.parseUnits("50", "gwei")];
       const metadata = encodeDifficultyRange(targetHeight, buckets);
 
@@ -249,7 +253,7 @@ describe("Oracle Adapter Integration", function () {
 
     it("should reject unsorted buckets", async function () {
       const currentHeight = await blockHeaderOracle.getCurrentBlockHeight();
-      const targetHeight = currentHeight + 2;
+      const targetHeight = nextPeriodStart(currentHeight) + 2;
       // Unsorted buckets (descending)
       const buckets = [
         ethers.utils.parseUnits("70", "gwei"),
@@ -276,61 +280,18 @@ describe("Oracle Adapter Integration", function () {
   // ========================================
 
   describe("Block Count Question Flow", function () {
-    it("should create block count question", async function () {
-      // Get current block timestamp from Hardhat (not from oracle block data)
-      const currentBlock = await ethers.provider.getBlock("latest");
-      const blockTimestamp = currentBlock.timestamp;
-
-      // Timestamps must be in the future (> block.timestamp)
-      // Use current block timestamp + sufficient buffer to ensure future timestamps
-      const startTimestamp = blockTimestamp + 1800; // 30 min from now
-      const endTimestamp = blockTimestamp + 7200; // 2 hours from now
-      const countBuckets = [100, 150, 200];
-      const metadata = encodeBlockCount(startTimestamp, endTimestamp, countBuckets);
-
-      const tx = await conditionManager
-        .connect(marketMaker)
-        .createConditionWithMetadata(
-          QuestionType.BlockCount,
-          metadata,
-          4, // 3 buckets + 1 = 4 outcomes
-          "test://blockcount",
-          ethers.constants.HashZero
-        );
-
-      const receipt3 = await tx.wait();
-      expect(receipt3.status).to.equal(1);
-    });
-
-    it("should create block count with single bucket", async function () {
-      // Get current block timestamp from Hardhat (not from oracle block data)
-      const currentBlock = await ethers.provider.getBlock("latest");
-      const blockTimestamp = currentBlock.timestamp;
-
-      // Timestamps must be in the future (> block.timestamp)
-      // Use current block timestamp + sufficient buffer to ensure future timestamps
-      const startTimestamp = blockTimestamp + 1800; // 30 min from now
-      const endTimestamp = blockTimestamp + 7200; // 2 hours from now
-      const countBuckets = [50];
-      const metadata = encodeBlockCount(
-        startTimestamp,
-        endTimestamp,
-        countBuckets
-      );
-
-      const tx = await conditionManager
-        .connect(marketMaker)
-        .createConditionWithMetadata(
-          QuestionType.BlockCount,
-          metadata,
-          2,
-          "test://blockcount-single",
-          ethers.constants.HashZero
-        );
-
-      const receipt = await tx.wait();
-      expect(receipt.status).to.equal(1);
-    });
+    // ORC-004: BlockCount creation is disabled pending a redesign.
+    for (const [label, buckets] of [["three buckets", [100, 150, 200]], ["a single bucket", [50]]]) {
+      it(`should refuse to create a block count question with ${label}: OracleAdapter_QuestionTypeDisabled`, async function () {
+        const currentBlock = await ethers.provider.getBlock("latest");
+        const metadata = encodeBlockCount(currentBlock.timestamp + 1800, currentBlock.timestamp + 7200, buckets);
+        await expect(
+          conditionManager
+            .connect(marketMaker)
+            .createConditionWithMetadata(QuestionType.BlockCount, metadata, buckets.length + 1, "test://blockcount", ethers.constants.HashZero)
+        ).to.be.revertedWith("OracleAdapter_QuestionTypeDisabled()");
+      });
+    }
 
     it("should query questions by timestamp bucket", async function () {
       const latestBlock = await blockHeaderOracle.getLatestBlockHeader();
@@ -431,7 +392,7 @@ describe("Oracle Adapter Integration", function () {
     it("should apply settlement delay correctly", async function () {
       // Settlement delay adds 6 blocks to resolution trigger
       const currentHeight = await blockHeaderOracle.getCurrentBlockHeight();
-      const targetHeight = currentHeight + 2;
+      const targetHeight = nextPeriodStart(currentHeight) + 2;
       const expectedSettlementBlock = targetHeight + SETTLEMENT_DELAY;
 
       const threshold = ethers.utils.parseUnits("50", "gwei");
@@ -465,7 +426,7 @@ describe("Oracle Adapter Integration", function () {
   describe("Multiple Questions at Same Settlement Point", function () {
     it("should handle multiple threshold questions at same block", async function () {
       const currentHeight = await blockHeaderOracle.getCurrentBlockHeight();
-      const targetHeight = currentHeight + 2;
+      const targetHeight = nextPeriodStart(currentHeight) + 2;
       const settlementBlock = targetHeight + SETTLEMENT_DELAY;
 
       const threshold1 = ethers.utils.parseUnits("40", "gwei");
@@ -505,20 +466,15 @@ describe("Oracle Adapter Integration", function () {
       const currentHeight = await blockHeaderOracle.getCurrentBlockHeight();
 
       // Create threshold question
-      const thresholdHeight = currentHeight + 2;
+      const thresholdHeight = nextPeriodStart(currentHeight) + 2;
       const thresholdMetadata = encodeDifficultyThreshold(
         ethers.utils.parseUnits("50", "gwei"),
         thresholdHeight
       );
 
-      // Create block count question (timestamp-based, timestamps must be in future)
-      // Use current Hardhat block timestamp, not oracle block data
-      const currentBlock = await ethers.provider.getBlock("latest");
-      const blockCountMetadata = encodeBlockCount(
-        currentBlock.timestamp + 1800, // 30 min from now
-        currentBlock.timestamp + 5400, // 90 min from now
-        [100]
-      );
+      // Mining duration question at a different settlement height (BlockCount is disabled, ORC-004)
+      const durationStart = Number(currentHeight) + 1;
+      const durationMetadata = encodeMiningDuration(durationStart, 3, [1800]);
 
       await conditionManager
         .connect(marketMaker)
@@ -533,18 +489,18 @@ describe("Oracle Adapter Integration", function () {
       await conditionManager
         .connect(marketMaker)
         .createConditionWithMetadata(
-          QuestionType.BlockCount,
-          blockCountMetadata,
+          QuestionType.MiningDuration,
+          durationMetadata,
           2,
-          "test://mixed-blockcount",
+          "test://mixed-duration",
           ethers.constants.HashZero
         );
 
-      // Both should be created successfully
-      const thresholdQuestions = await oracleAdapter.getThresholdQuestionsAtBlock(
-        thresholdHeight + SETTLEMENT_DELAY
-      );
-      expect(Array.isArray(thresholdQuestions)).to.be.true;
+      // Both are registered, each at its own settlement height
+      const thresholdQuestions = await oracleAdapter.getThresholdQuestionsAtBlock(thresholdHeight + SETTLEMENT_DELAY);
+      expect(thresholdQuestions.length).to.equal(1);
+      const durationQuestions = await oracleAdapter.getDurationQuestionsAtBlock(durationStart + 3 + SETTLEMENT_DELAY);
+      expect(durationQuestions.length).to.equal(1);
     });
   });
 
@@ -557,7 +513,7 @@ describe("Oracle Adapter Integration", function () {
       const currentHeight = await blockHeaderOracle.getCurrentBlockHeight();
       const metadata = encodeDifficultyThreshold(
         ethers.utils.parseUnits("50", "gwei"),
-        currentHeight + 10
+        nextPeriodStart(currentHeight) + 10
       );
 
       // Non-market maker should be rejected
@@ -582,7 +538,7 @@ describe("Oracle Adapter Integration", function () {
       const currentHeight = await blockHeaderOracle.getCurrentBlockHeight();
       const metadata = encodeDifficultyThreshold(
         ethers.utils.parseUnits("50", "gwei"),
-        currentHeight + 2
+        nextPeriodStart(currentHeight) + 2
       );
 
       const tx = await conditionManager
@@ -618,7 +574,7 @@ describe("Oracle Adapter Integration", function () {
     it("should create threshold question with settlement delay", async function () {
       // Setup: Get current block height and test blocks
       const currentHeight = await blockHeaderOracle.getCurrentBlockHeight();
-      const targetHeight = currentHeight.add ? currentHeight.add(2) : ethers.BigNumber.from(currentHeight).add(2);
+      const targetHeight = ethers.BigNumber.from(nextPeriodStart(currentHeight) + 2);
       const settlementHeight = targetHeight.add ? targetHeight.add(SETTLEMENT_DELAY) : ethers.BigNumber.from(targetHeight).add(SETTLEMENT_DELAY);
       const threshold = ethers.utils.parseUnits("50", "gwei");
 
@@ -671,7 +627,7 @@ describe("Oracle Adapter Integration", function () {
   describe("End-to-End DifficultyRange Resolution", function () {
     it("should create range question with settlement delay", async function () {
       const currentHeight = await blockHeaderOracle.getCurrentBlockHeight();
-      const targetHeight = currentHeight.add ? currentHeight.add(2) : ethers.BigNumber.from(currentHeight).add(2);
+      const targetHeight = ethers.BigNumber.from(nextPeriodStart(currentHeight) + 2);
       const settlementHeight = targetHeight.add ? targetHeight.add(SETTLEMENT_DELAY) : ethers.BigNumber.from(targetHeight).add(SETTLEMENT_DELAY);
       const buckets = [
         ethers.utils.parseUnits("40", "gwei"),
@@ -770,67 +726,24 @@ describe("Oracle Adapter Integration", function () {
   });
 
   describe("End-to-End BlockCount Resolution", function () {
-    it("should create block count question for timestamp window", async function () {
-      // Get current block timestamp from Hardhat (not from oracle block data)
+    it("refuses to create a block count question (ORC-004) and registers nothing in its timestamp bucket", async function () {
       const currentBlock = await ethers.provider.getBlock("latest");
-      const blockTimestamp = currentBlock.timestamp;
+      const endTimestamp = currentBlock.timestamp + 7200;
+      const metadata = encodeBlockCount(currentBlock.timestamp + 1800, endTimestamp, [100, 150]);
 
-      // Timestamps must be in the future (> block.timestamp)
-      // Use current block timestamp + sufficient buffer to ensure future timestamps
-      const startTimestamp = blockTimestamp + 1800; // 30 min from now
-      const endTimestamp = blockTimestamp + 7200; // 2 hours from now
-      const countBuckets = [100, 150];
-
-      // 1. Create block count question
-      const metadata = encodeBlockCount(
-        startTimestamp,
-        endTimestamp,
-        countBuckets
-      );
-
-      // Use callStatic to get return values
-      const [, questionId] = await conditionManager
-        .connect(marketMaker)
-        .callStatic.createConditionWithMetadata(
-          QuestionType.BlockCount,
-          metadata,
-          3, // 2 buckets + 1 = 3 outcomes
-          "test://e2e-blockcount",
-          ethers.constants.HashZero
-        );
-
-      // Send actual transaction
-      const tx = await conditionManager
-        .connect(marketMaker)
-        .createConditionWithMetadata(
-          QuestionType.BlockCount,
-          metadata,
-          3,
-          "test://e2e-blockcount",
-          ethers.constants.HashZero
-        );
-      await tx.wait();
-
-      // 2. Verify question was registered at timestamp bucket
-      const questionsAtBucket =
-        await oracleAdapter.getBlockCountQuestionsAtTimestamp(endTimestamp);
-      expect(questionsAtBucket.length).to.be.greaterThan(0);
-
-      // Find our question in the bucket
-      const ourQuestion = questionsAtBucket.find(
-        (q) => q.questionId === questionId
-      );
-      expect(ourQuestion).to.not.be.undefined;
-      expect(ourQuestion.startTimestamp).to.equal(startTimestamp);
-      expect(ourQuestion.endTimestamp).to.equal(endTimestamp);
-      expect(ourQuestion.countBuckets.length).to.equal(countBuckets.length);
+      await expect(
+        conditionManager
+          .connect(marketMaker)
+          .createConditionWithMetadata(QuestionType.BlockCount, metadata, 3, "test://e2e-blockcount", ethers.constants.HashZero)
+      ).to.be.revertedWith("OracleAdapter_QuestionTypeDisabled()");
+      expect((await oracleAdapter.getBlockCountQuestionsAtTimestamp(endTimestamp)).length).to.equal(0);
     });
   });
 
   describe("Settlement Delay Verification", function () {
     it("should register question at settlement block, not target block", async function () {
       const currentHeight = await blockHeaderOracle.getCurrentBlockHeight();
-      const targetHeight = currentHeight.add ? currentHeight.add(2) : ethers.BigNumber.from(currentHeight).add(2);
+      const targetHeight = ethers.BigNumber.from(nextPeriodStart(currentHeight) + 2);
       const settlementHeight = targetHeight.add ? targetHeight.add(SETTLEMENT_DELAY) : ethers.BigNumber.from(targetHeight).add(SETTLEMENT_DELAY);
 
       const metadata = encodeDifficultyThreshold(

@@ -206,8 +206,17 @@ library Errors {
 
     error BlockHeaderOracle_InvalidInitialHistoryLength();
 
-    /// @notice Thrown when nBits coefficient is zero resulting in invalid target
+    /// @notice Thrown when nBits encodes a zero, negative or overflowing target
     error BlockHeaderOracle_InvalidTargetNBits();
+
+    /// @notice Thrown when a header's nBits differs from the difficulty Bitcoin's retarget rule requires
+    error BlockHeaderOracle_UnexpectedDifficulty();
+
+    /// @notice Thrown when a header's timestamp is more than 2 hours ahead of the chain's block time
+    error BlockHeaderOracle_TimestampTooNew();
+
+    /// @notice Thrown when submitBatchBlocks is called with no headers
+    error BlockHeaderOracle_EmptyBatch();
 
     // ========================================
     // ORACLE ADAPTER ERRORS
@@ -230,6 +239,18 @@ library Errors {
 
     /// @notice Thrown when duplicate bucket values are provided
     error OracleAdapter_DuplicateBucketValue();
+
+    /// @notice ORC-009 — the settlement block already holds the maximum number of questions
+    error OracleAdapter_SettlementBlockFull(uint256 settlementBlock);
+
+    /// @notice ORC-006 — the difficulty at the target height is already determined (its period has begun)
+    error OracleAdapter_DifficultyAlreadyDecided();
+
+    /// @notice ORC-004 — this question type cannot be created (BlockCount, pending redesign)
+    error OracleAdapter_QuestionTypeDisabled();
+
+    /// @notice ORC-006 — the oracle's latest header is older than the market-creation staleness limit
+    error OracleAdapter_OracleStale();
 
     // ========================================
     // VALIDATION ERRORS

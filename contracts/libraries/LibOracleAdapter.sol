@@ -14,9 +14,27 @@ import {LibCTFCondition} from "./LibCTFCondition.sol";
 /// @notice Coordinates resolution of Bitcoin difficulty conditions
 /// @dev Called by BlockHeaderOracle after each block submission
 library LibOracleAdapter {
+    /// @notice Most questions (all block-keyed types together) that may settle at one height.
+    /// @dev ORC-009: every question settling at a height is resolved inside the transaction that
+    ///      submits that header, so an unbounded list can push the header past the per-transaction
+    ///      gas cap (Base: 2^24) and freeze the oracle. Measured per-question settlement cost is
+    ///      ~81k gas (threshold) to ~172k gas (ten-bucket range / duration), so 25 questions take
+    ///      < 4.3M gas and a reorg replay settling three such heights still fits one transaction.
+    uint256 internal constant MAX_QUESTIONS_PER_SETTLEMENT_BLOCK = 25;
+
     // ========================================
     // QUESTION CREATION FUNCTIONS
     // ========================================
+
+    /// @dev ORC-009 — revert once `settlementBlock` already holds the maximum number of questions.
+    function _enforceSettlementCapacity(LibDoefinStorage.AppStorage storage ds, uint256 settlementBlock) private view {
+        uint256 queued = ds.oracleAdapterStorage.blockToThresholdQuestions[settlementBlock].length +
+            ds.oracleAdapterStorage.blockToRangeQuestions[settlementBlock].length +
+            ds.oracleAdapterStorage.blockToDurationQuestions[settlementBlock].length;
+        if (queued >= MAX_QUESTIONS_PER_SETTLEMENT_BLOCK) {
+            revert Errors.OracleAdapter_SettlementBlockFull(settlementBlock);
+        }
+    }
 
     /// @notice Create a DifficultyThreshold question
     /// @param questionId Unique question identifier
@@ -28,6 +46,8 @@ library LibOracleAdapter {
 
         // Apply settlement delay
         uint256 settlementBlock = targetBlockHeight + LibDoefinStorage.SETTLEMENT_DELAY;
+
+        _enforceSettlementCapacity(ds, settlementBlock);
 
         // Register question
         ds.oracleAdapterStorage.blockToThresholdQuestions[settlementBlock].push(
@@ -61,6 +81,7 @@ library LibOracleAdapter {
         uint256 settlementBlock = targetBlockHeight + LibDoefinStorage.SETTLEMENT_DELAY;
 
         // Register question
+        _enforceSettlementCapacity(ds, settlementBlock);
         ds.oracleAdapterStorage.blockToRangeQuestions[settlementBlock].push(
             LibDoefinStorage.DifficultyRangeQuestion({
                 questionId: questionId,
@@ -137,6 +158,8 @@ library LibOracleAdapter {
         // Apply settlement delay to the end block
         uint256 endBlockHeight = startBlockHeight + blockCount;
         uint256 settlementBlock = endBlockHeight + LibDoefinStorage.SETTLEMENT_DELAY;
+
+        _enforceSettlementCapacity(ds, settlementBlock);
 
         // Register question
         ds.oracleAdapterStorage.blockToDurationQuestions[settlementBlock].push(
@@ -241,6 +264,10 @@ library LibOracleAdapter {
             // Check if this question's endTimestamp has been reached
             if (timestamp >= question.endTimestamp) {
                 _resolveBlockCountQuestion(question);
+                // ORC-005: remove the question just resolved, not the array's last element.
+                // Iterating downwards, the moved last element has already been examined.
+                uint256 last = blockCountQuestions.length - 1;
+                if (i - 1 != last) blockCountQuestions[i - 1] = blockCountQuestions[last];
                 blockCountQuestions.pop();
             }
         }
@@ -331,13 +358,19 @@ library LibOracleAdapter {
 
     /// @notice Resolve a MiningDuration question
     /// @param question The question to resolve
+    /// @dev ORC-003: the start and end timestamps come from `blockHeightToTimestamp` — recorded for
+    ///      every applied header and rewritten on a reorg replay — not from the 17-slot ring. At
+    ///      settlement (end + SETTLEMENT_DELAY) the start block is `blockCount + 6` deep, outside the
+    ///      ring for any blockCount >= 11, and that read reverted inside header submission, freezing
+    ///      the oracle. Bitcoin timestamps are not monotonic (only above the median of the previous
+    ///      11), so an end timestamp below the start's is a zero duration, not an underflow.
     function _resolveMiningDurationQuestion(LibDoefinStorage.MiningDurationQuestion storage question) private {
-        // Get start and end block headers
-        LibDoefinStorage.BlockHeader memory startBlock = _getBlockHeaderByNumber(question.startBlockHeight);
-        LibDoefinStorage.BlockHeader memory endBlock = _getBlockHeaderByNumber(question.startBlockHeight + question.blockCount);
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
+        uint256 startTime = ds.oracleAdapterStorage.blockHeightToTimestamp[question.startBlockHeight];
+        uint256 endTime = ds.oracleAdapterStorage.blockHeightToTimestamp[question.startBlockHeight + question.blockCount];
 
         // Calculate actual mining duration
-        uint256 actualDuration = endBlock.timestamp - startBlock.timestamp;
+        uint256 actualDuration = endTime > startTime ? endTime - startTime : 0;
 
         // Find which bucket the duration falls into
         uint256 outcomeSlotCount = question.durationBuckets.length + 1;

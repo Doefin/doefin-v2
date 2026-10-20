@@ -12,6 +12,7 @@ import {LibConditionMetadata} from "../libraries/LibConditionMetadata.sol";
 import {LibOracleAdapter} from "../libraries/LibOracleAdapter.sol";
 import {LibCTHelpers} from "../libraries/LibCTHelpers.sol";
 import {LibDoefinBlockHeaderOracle} from "../libraries/LibDoefinBlockHeaderOracle.sol";
+import {LibAdminConfigStorage} from "../libraries/LibAdminConfigStorage.sol";
 import {IConditionManager} from "../interfaces/IConditionManager.sol";
 import {Errors} from "../libraries/Errors.sol";
 import {Events} from "../libraries/Events.sol";
@@ -61,6 +62,10 @@ contract ConditionManagerFacet is IConditionManager {
 
         LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
 
+        // ORC-006: every rule below is relative to the oracle's tip, so refuse to create markets
+        // while the oracle lags Bitcoin (owner-set limit; 0 disables the check).
+        _enforceOracleFresh();
+
         // Get current block height for validation
         uint256 currentBlockHeight = LibDoefinBlockHeaderOracle.getCurrentBlockHeight();
 
@@ -101,13 +106,10 @@ contract ConditionManagerFacet is IConditionManager {
             // Create oracle question
             LibOracleAdapter.createDifficultyRangeQuestion(questionId, conditionId, targetBlockHeight, buckets);
         } else if (questionType == LibDoefinStorage.QuestionType.BlockCount) {
-            (uint256 startTimestamp, uint256 endTimestamp, uint256[] memory countBuckets) = LibConditionMetadata.decodeBlockCount(metadata);
-
-            // Validate parameters
-            LibConditionMetadata.validateBlockCount(startTimestamp, endTimestamp, countBuckets, outcomeSlotCount);
-
-            // Create oracle question
-            LibOracleAdapter.createBlockCountQuestion(questionId, conditionId, startTimestamp, endTimestamp, countBuckets);
+            // ORC-004: disabled. Resolution needs a block at an exact probed second and a header
+            // inside the end bucket, so a BlockCount question either froze the oracle at settlement
+            // or never resolved. Redesign tracked separately; the question type stays in the enum.
+            revert Errors.OracleAdapter_QuestionTypeDisabled();
         } else if (questionType == LibDoefinStorage.QuestionType.MiningDuration) {
             (uint256 startBlockHeight, uint256 blockCount, uint256[] memory durationBuckets) = LibConditionMetadata.decodeMiningDuration(metadata);
 
@@ -123,6 +125,22 @@ contract ConditionManagerFacet is IConditionManager {
         emit Events.ConditionCreated(conditionId, oracle, questionId, outcomeSlotCount, metadataURI, msg.sender);
 
         return (conditionId, questionId);
+    }
+
+    /**
+     * @dev ORC-006 — refuse market creation while the oracle's tip is older than the owner-set
+     *      `maxOracleStaleness` (seconds of chain time; 0 disables the check). Creation rules
+     *      compare against the oracle's height, so during an oracle stall heights Bitcoin has
+     *      already mined (and difficulty periods already decided) would otherwise pass.
+     * @custom:reverts OracleAdapter_OracleStale if the latest header is older than the limit
+     */
+    function _enforceOracleFresh() internal view {
+        uint256 maxStaleness = LibAdminConfigStorage.adminConfigStorage().maxOracleStaleness;
+        if (maxStaleness == 0) return;
+        uint256 tipTime = LibDoefinBlockHeaderOracle.getLatestBlockHeader().timestamp;
+        // Coarse staleness window (hours); a few seconds of sequencer skew is irrelevant.
+        // slither-disable-next-line timestamp
+        if (block.timestamp > tipTime + maxStaleness) revert Errors.OracleAdapter_OracleStale();
     }
 
     /**

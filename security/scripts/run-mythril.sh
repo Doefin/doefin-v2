@@ -7,10 +7,18 @@ OUT=audit/output/mythril
 mkdir -p "$OUT"
 TIMEOUT="${MYTHRIL_TIMEOUT:-900}"
 
-FACETS="SettlementFacet SignatureVerifierFacet NonceManagerFacet"
-for f in $FACETS; do
-  echo "[mythril] analyzing $f (execution-timeout ${TIMEOUT}s)"
-  myth analyze "contracts/facets/$f.sol" \
+# <file>:<contract> — the contract is named explicitly because a file name need not match
+# its contract (DoefinV1BlockHeaderOracleFacet.sol declares DoefinV1BlockHeaderOracle).
+TARGETS="SettlementFacet:SettlementFacet
+SignatureVerifierFacet:SignatureVerifierFacet
+NonceManagerFacet:NonceManagerFacet
+DoefinV1BlockHeaderOracleFacet:DoefinV1BlockHeaderOracle
+ConditionManagerFacet:ConditionManagerFacet"
+for t in $TARGETS; do
+  f="${t%%:*}"
+  c="${t##*:}"
+  echo "[mythril] analyzing $f:$c (execution-timeout ${TIMEOUT}s)"
+  myth analyze "contracts/facets/$f.sol:$c" \
     --solc-json security/mythril-remappings.json \
     --solv 0.8.20 \
     -o markdown \
