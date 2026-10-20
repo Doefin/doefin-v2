@@ -126,8 +126,8 @@ contract AdminConfigFacet is IAdminConfig {
      * @custom:reverts NoChangeRequired if bps is the same as current setting
      * @custom:security Only callable by contract owner
      * @custom:note Applies to conditions resolved after the change: each condition snapshots the
-     *      rate when it resolves (CTF-007). Conditions resolved before snapshots existed read the
-     *      live rate.
+     *      rate when it resolves (CTF-007). Conditions resolved before snapshots existed (the
+     *      SCRUM-214 cut) are charged 0.
      */
     function setResolutionFeeBps(uint16 bps) external override {
         LibDiamond.enforceIsContractOwner();

@@ -63,8 +63,9 @@ library LibAdminConfigStorage {
         /// @notice CTF-007 (SCRUM-214) — resolution fee rate captured when a condition resolves.
         /// @dev Redemption (and a post-resolution merge, CTF-004) charges this rate, so a later
         ///      setResolutionFeeBps cannot reach winners of an already-resolved condition.
-        ///      `set == false` (conditions resolved before this field existed) falls back to the
-        ///      live rate. Appended after every existing field: no existing slot moves.
+        ///      A resolved condition with `set == false` (resolved before this field existed) is
+        ///      charged 0 — see LibCTFCondition.resolutionFeeBps. Appended after every existing
+        ///      field: no existing slot moves.
         mapping(bytes32 => ResolutionFeeSnapshot) resolutionFeeAtResolution;
     }
 
