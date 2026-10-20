@@ -1,0 +1,237 @@
+{
+  "ticket": "SCRUM-214",
+  "findings": "ORC-001..ORC-011, CTF-001..CTF-008",
+  "network": "baseSepolia",
+  "chainId": 84532,
+  "diamond": "0x2f03d47520fb8bc8aDAab392BF280D99De7cAe3f",
+  "owner": "0x01249C1cCb65d67f6490D6FC45ee0592d5c3cC37",
+  "cutRoute": "safe",
+  "gitCommit": "8794fdbbcf59233ef987bb7ee4b365d30ac8072e",
+  "gitUncommitted": [],
+  "blockHeaderUtils": "0x2524a6539cEF70393F1cedBE639848e754Bf54f9",
+  "facets": {
+    "oracle": "0x0139038E2b2ec2A800660ce3852E5fa75e68F5Bf",
+    "conditionManager": "0x56acE1B1Be6Dd822a8d0f7efb8b7Ff3Bd7cA4A7b",
+    "adminConfig": "0xc9EBd2c5CF61A9d784566341ede3Af0a1e2990ec",
+    "conditionalTokens": "0xa6f905767f93EeEeA102Fbe8E533650b98551D1c",
+    "erc1155": "0x8d76ED82Cc6f6A7c825449874a11Cf1779297eb0",
+    "settlement": "0x67BeccD695B7725AC16ee0f0279b94d75c950402"
+  },
+  "cut": [
+    {
+      "facetAddress": "0x0139038E2b2ec2A800660ce3852E5fa75e68F5Bf",
+      "action": "Replace",
+      "functionSelectors": [
+        "0x01969491",
+        "0x5605baa5",
+        "0xd2bd5661",
+        "0x8628d9b6",
+        "0x8060679e",
+        "0x4066d87d",
+        "0x93b09135",
+        "0xd03657ab",
+        "0xedc54c17",
+        "0x7c17f59a",
+        "0x7ea1b3d8",
+        "0x4cdab407"
+      ]
+    },
+    {
+      "facetAddress": "0x56acE1B1Be6Dd822a8d0f7efb8b7Ff3Bd7cA4A7b",
+      "action": "Replace",
+      "functionSelectors": [
+        "0x01a94708",
+        "0x0579832f",
+        "0x3adf26d6",
+        "0x2934a0ee"
+      ]
+    },
+    {
+      "facetAddress": "0x56acE1B1Be6Dd822a8d0f7efb8b7Ff3Bd7cA4A7b",
+      "action": "Add",
+      "functionSelectors": [
+        "0xe6dc9818"
+      ]
+    },
+    {
+      "facetAddress": "0xc9EBd2c5CF61A9d784566341ede3Af0a1e2990ec",
+      "action": "Replace",
+      "functionSelectors": [
+        "0xf3e27c4f",
+        "0x4a425387",
+        "0xfa27fe50",
+        "0xdb8d55f1",
+        "0x4a2a11f5",
+        "0x81a73ad5",
+        "0x7346f486",
+        "0x94f9059f",
+        "0xefdcd974",
+        "0xcac9291a",
+        "0xdf5689d3",
+        "0xf036417f",
+        "0xad3b1b47"
+      ]
+    },
+    {
+      "facetAddress": "0xc9EBd2c5CF61A9d784566341ede3Af0a1e2990ec",
+      "action": "Add",
+      "functionSelectors": [
+        "0x998c8884",
+        "0xcbb61670",
+        "0x664e0912"
+      ]
+    },
+    {
+      "facetAddress": "0xa6f905767f93EeEeA102Fbe8E533650b98551D1c",
+      "action": "Replace",
+      "functionSelectors": [
+        "0x856296f7",
+        "0xa95d9476",
+        "0x6d996c91",
+        "0x39dd7530",
+        "0x9e7212ad",
+        "0xf77071b6",
+        "0x01b7037c",
+        "0xc49298ac",
+        "0x72ce4275"
+      ]
+    },
+    {
+      "facetAddress": "0x8d76ED82Cc6f6A7c825449874a11Cf1779297eb0",
+      "action": "Replace",
+      "functionSelectors": [
+        "0x00fdd58e",
+        "0x4e1273f4",
+        "0xe985e9c5",
+        "0x2eb2c2d6",
+        "0xf242432a",
+        "0xa22cb465"
+      ]
+    },
+    {
+      "facetAddress": "0x67BeccD695B7725AC16ee0f0279b94d75c950402",
+      "action": "Replace",
+      "functionSelectors": [
+        "0xe3fe8744",
+        "0xcc527775",
+        "0xe81d20c4"
+      ]
+    }
+  ],
+  "previousRouting": {
+    "0x01969491": "0xf69e31093d95bca19c02117d27afe58ac6f18aa3",
+    "0x5605baa5": "0xf69e31093d95bca19c02117d27afe58ac6f18aa3",
+    "0xd2bd5661": "0xf69e31093d95bca19c02117d27afe58ac6f18aa3",
+    "0x8628d9b6": "0xf69e31093d95bca19c02117d27afe58ac6f18aa3",
+    "0x8060679e": "0xf69e31093d95bca19c02117d27afe58ac6f18aa3",
+    "0x4066d87d": "0xf69e31093d95bca19c02117d27afe58ac6f18aa3",
+    "0x93b09135": "0xf69e31093d95bca19c02117d27afe58ac6f18aa3",
+    "0xd03657ab": "0xf69e31093d95bca19c02117d27afe58ac6f18aa3",
+    "0xedc54c17": "0xf69e31093d95bca19c02117d27afe58ac6f18aa3",
+    "0x7c17f59a": "0xf69e31093d95bca19c02117d27afe58ac6f18aa3",
+    "0x7ea1b3d8": "0x32f61d479483fb244a780afd5e45e4c8244fe4de",
+    "0x4cdab407": "0xf69e31093d95bca19c02117d27afe58ac6f18aa3",
+    "0x01a94708": "0x662bd6fd2e695c3034b49df1443a8a461d095927",
+    "0x0579832f": "0x662bd6fd2e695c3034b49df1443a8a461d095927",
+    "0x3adf26d6": "0x662bd6fd2e695c3034b49df1443a8a461d095927",
+    "0x2934a0ee": "0x662bd6fd2e695c3034b49df1443a8a461d095927",
+    "0xe6dc9818": "0x0000000000000000000000000000000000000000",
+    "0xf3e27c4f": "0xbb054bf1853c3aaa24d5851d351e0ddf800a7a81",
+    "0x4a425387": "0xbb054bf1853c3aaa24d5851d351e0ddf800a7a81",
+    "0xfa27fe50": "0xbb054bf1853c3aaa24d5851d351e0ddf800a7a81",
+    "0xdb8d55f1": "0xbb054bf1853c3aaa24d5851d351e0ddf800a7a81",
+    "0x4a2a11f5": "0xbb054bf1853c3aaa24d5851d351e0ddf800a7a81",
+    "0x998c8884": "0x0000000000000000000000000000000000000000",
+    "0xcbb61670": "0x0000000000000000000000000000000000000000",
+    "0x81a73ad5": "0xbb054bf1853c3aaa24d5851d351e0ddf800a7a81",
+    "0x7346f486": "0xbb054bf1853c3aaa24d5851d351e0ddf800a7a81",
+    "0x94f9059f": "0xbb054bf1853c3aaa24d5851d351e0ddf800a7a81",
+    "0xefdcd974": "0xbb054bf1853c3aaa24d5851d351e0ddf800a7a81",
+    "0xcac9291a": "0xbb054bf1853c3aaa24d5851d351e0ddf800a7a81",
+    "0x664e0912": "0x0000000000000000000000000000000000000000",
+    "0xdf5689d3": "0xbb054bf1853c3aaa24d5851d351e0ddf800a7a81",
+    "0xf036417f": "0xbb054bf1853c3aaa24d5851d351e0ddf800a7a81",
+    "0xad3b1b47": "0xbb054bf1853c3aaa24d5851d351e0ddf800a7a81",
+    "0x856296f7": "0xd77da1ff4bc818bb10bb6ebf36de04f99401b4d4",
+    "0xa95d9476": "0xd77da1ff4bc818bb10bb6ebf36de04f99401b4d4",
+    "0x6d996c91": "0xd77da1ff4bc818bb10bb6ebf36de04f99401b4d4",
+    "0x39dd7530": "0xd77da1ff4bc818bb10bb6ebf36de04f99401b4d4",
+    "0x9e7212ad": "0xd77da1ff4bc818bb10bb6ebf36de04f99401b4d4",
+    "0xf77071b6": "0xd77da1ff4bc818bb10bb6ebf36de04f99401b4d4",
+    "0x01b7037c": "0xd77da1ff4bc818bb10bb6ebf36de04f99401b4d4",
+    "0xc49298ac": "0xd77da1ff4bc818bb10bb6ebf36de04f99401b4d4",
+    "0x72ce4275": "0xd77da1ff4bc818bb10bb6ebf36de04f99401b4d4",
+    "0x00fdd58e": "0x5c4102f5319c1ff9843374ff28ebf7641bb0b009",
+    "0x4e1273f4": "0x5c4102f5319c1ff9843374ff28ebf7641bb0b009",
+    "0xe985e9c5": "0x5c4102f5319c1ff9843374ff28ebf7641bb0b009",
+    "0x2eb2c2d6": "0x5c4102f5319c1ff9843374ff28ebf7641bb0b009",
+    "0xf242432a": "0x5c4102f5319c1ff9843374ff28ebf7641bb0b009",
+    "0xa22cb465": "0x5c4102f5319c1ff9843374ff28ebf7641bb0b009",
+    "0xe3fe8744": "0x30e1660da925e7be4280bd0170eec7d53e54ab7d",
+    "0xcc527775": "0x30e1660da925e7be4280bd0170eec7d53e54ab7d",
+    "0xe81d20c4": "0x30e1660da925e7be4280bd0170eec7d53e54ab7d"
+  },
+  "maxOracleStalenessRequested": 10800,
+  "cutTxHash": "0x37c5fa3ade66f4fd6615e7ec8d8fb0a28abce0bdfcc427ad3986162673cc0869",
+  "cutBlock": 48374147,
+  "safeTxHash": "0xe70635aa93bfe6f9dbcf642083410419ad000de61fecd805034698ff9da773d6",
+  "preflight": {
+    "oracle": {
+      "height": 972357,
+      "nextBlockIndex": 12,
+      "tipNumber": 972357,
+      "tipHash": "0x00000000000000000001762c55484ead435fb58016aa181b6fc3d839dafbad48"
+    },
+    "questionTotals": {
+      "created": 13,
+      "resolved": 10
+    },
+    "fees": {
+      "feeReceiver": "0x01249C1cCb65d67f6490D6FC45ee0592d5c3cC37",
+      "resolutionFeeBps": 0,
+      "maxFeeRateBps": 100
+    }
+  },
+  "postCheck": {
+    "ok": true,
+    "notes": []
+  },
+  "timestamp": "2026-10-20T17:16:22.371Z",
+  "maxOracleStaleness": 10800,
+  "aroundCut": {
+    "before": {
+      "oracle": {
+        "height": 972357,
+        "nextBlockIndex": 12,
+        "tipHash": "0x00000000000000000001762c55484ead435fb58016aa181b6fc3d839dafbad48",
+        "tipTimestamp": 1792515556
+      },
+      "totals": {
+        "created": 13,
+        "resolved": 10
+      },
+      "fees": {
+        "feeReceiver": "0x01249C1cCb65d67f6490D6FC45ee0592d5c3cC37",
+        "resolutionFeeBps": 0,
+        "maxFeeRateBps": 100
+      }
+    },
+    "after": {
+      "oracle": {
+        "height": 972357,
+        "nextBlockIndex": 12,
+        "tipHash": "0x00000000000000000001762c55484ead435fb58016aa181b6fc3d839dafbad48",
+        "tipTimestamp": 1792515556
+      },
+      "totals": {
+        "created": 13,
+        "resolved": 10
+      },
+      "fees": {
+        "feeReceiver": "0x01249C1cCb65d67f6490D6FC45ee0592d5c3cC37",
+        "resolutionFeeBps": 0,
+        "maxFeeRateBps": 100
+      }
+    }
+  }
+}
