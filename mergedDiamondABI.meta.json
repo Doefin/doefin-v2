@@ -1,7 +1,7 @@
 {
   "contractName": "Diamond",
   "description": "Merged ABI for the Doefin v3 Diamond proxy (all active facets).",
-  "generatedAt": "2026-05-24T23:11:23.187Z",
+  "generatedAt": "2026-10-20T10:54:08.896Z",
   "contracts": [
     "Diamond",
     "DiamondCutFacet",
@@ -21,14 +21,14 @@
     "OracleAdapterFacet",
     "MarketDataFacet"
   ],
-  "totalEntries": 221,
+  "totalEntries": 238,
   "entriesByType": {
     "constructor": 1,
     "fallback": 1,
     "receive": 1,
-    "function": 94,
-    "event": 40,
-    "error": 84
+    "function": 98,
+    "event": 41,
+    "error": 96
   },
   "perContract": [
     {
@@ -58,12 +58,12 @@
     },
     {
       "contract": "AdminConfigFacet",
-      "added": 32,
+      "added": 36,
       "duplicates": 1
     },
     {
       "contract": "SettlementFacet",
-      "added": 37,
+      "added": 38,
       "duplicates": 5
     },
     {
@@ -83,13 +83,13 @@
     },
     {
       "contract": "ConditionalTokensFacet",
-      "added": 24,
-      "duplicates": 20
+      "added": 27,
+      "duplicates": 21
     },
     {
       "contract": "ConditionManagerFacet",
-      "added": 18,
-      "duplicates": 3
+      "added": 23,
+      "duplicates": 8
     },
     {
       "contract": "ERC1155Facet",
@@ -103,8 +103,8 @@
     },
     {
       "contract": "DoefinV1BlockHeaderOracle",
-      "added": 24,
-      "duplicates": 7
+      "added": 28,
+      "duplicates": 9
     },
     {
       "contract": "OracleAdapterFacet",
@@ -1451,6 +1451,19 @@
     },
     {
       "inputs": [],
+      "name": "getMaxOracleStaleness",
+      "outputs": [
+        {
+          "internalType": "uint32",
+          "name": "",
+          "type": "uint32"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
       "name": "getMedianBufferSize",
       "outputs": [
         {
@@ -1718,6 +1731,25 @@
           "internalType": "struct LibDoefinStorage.DifficultyRangeQuestion[]",
           "name": "",
           "type": "tuple[]"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "conditionId",
+          "type": "bytes32"
+        }
+      ],
+      "name": "getResolutionFeeBps",
+      "outputs": [
+        {
+          "internalType": "uint16",
+          "name": "",
+          "type": "uint16"
         }
       ],
       "stateMutability": "view",
@@ -2641,6 +2673,19 @@
     {
       "inputs": [
         {
+          "internalType": "uint32",
+          "name": "_seconds",
+          "type": "uint32"
+        }
+      ],
+      "name": "setMaxOracleStaleness",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
           "internalType": "address",
           "name": "_operator",
           "type": "address"
@@ -2948,6 +2993,19 @@
     {
       "inputs": [
         {
+          "internalType": "bytes32",
+          "name": "conditionId",
+          "type": "bytes32"
+        }
+      ],
+      "name": "voidCondition",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
           "internalType": "address",
           "name": "token",
           "type": "address"
@@ -2986,55 +3044,6 @@
         }
       ],
       "name": "ApprovalForAll",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": true,
-          "internalType": "bytes32",
-          "name": "questionId",
-          "type": "bytes32"
-        },
-        {
-          "indexed": true,
-          "internalType": "bytes32",
-          "name": "conditionId",
-          "type": "bytes32"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint256",
-          "name": "startTimestamp",
-          "type": "uint256"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint256",
-          "name": "endTimestamp",
-          "type": "uint256"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint256[]",
-          "name": "countBuckets",
-          "type": "uint256[]"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint256",
-          "name": "settlementBucket",
-          "type": "uint256"
-        },
-        {
-          "indexed": true,
-          "internalType": "address",
-          "name": "creator",
-          "type": "address"
-        }
-      ],
-      "name": "BlockCountQuestionCreated",
       "type": "event"
     },
     {
@@ -3229,6 +3238,25 @@
         }
       ],
       "name": "ConditionResolution",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "bytes32",
+          "name": "conditionId",
+          "type": "bytes32"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "voidedBy",
+          "type": "address"
+        }
+      ],
+      "name": "ConditionVoided",
       "type": "event"
     },
     {
@@ -3464,6 +3492,25 @@
         }
       ],
       "name": "MaxFeeRateUpdated",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": false,
+          "internalType": "uint32",
+          "name": "oldSeconds",
+          "type": "uint32"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint32",
+          "name": "newSeconds",
+          "type": "uint32"
+        }
+      ],
+      "name": "MaxOracleStalenessUpdated",
       "type": "event"
     },
     {
@@ -4150,12 +4197,22 @@
     },
     {
       "inputs": [],
+      "name": "BlockHeaderOracle_EmptyBatch",
+      "type": "error"
+    },
+    {
+      "inputs": [],
       "name": "BlockHeaderOracle_InvalidBlockHash",
       "type": "error"
     },
     {
       "inputs": [],
       "name": "BlockHeaderOracle_InvalidInitialHistoryLength",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "BlockHeaderOracle_InvalidTargetNBits",
       "type": "error"
     },
     {
@@ -4171,6 +4228,16 @@
     {
       "inputs": [],
       "name": "BlockHeaderOracle_PrevBlockHashMismatch",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "BlockHeaderOracle_TimestampTooNew",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "BlockHeaderOracle_UnexpectedDifficulty",
       "type": "error"
     },
     {
@@ -4226,6 +4293,11 @@
     {
       "inputs": [],
       "name": "ConditionNotResolved",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "ConditionStillActive",
       "type": "error"
     },
     {
@@ -4374,6 +4446,11 @@
     },
     {
       "inputs": [],
+      "name": "InvalidPayouts",
+      "type": "error"
+    },
+    {
+      "inputs": [],
       "name": "InvalidPositionId",
       "type": "error"
     },
@@ -4464,12 +4541,38 @@
     },
     {
       "inputs": [],
+      "name": "OracleAdapter_DifficultyAlreadyDecided",
+      "type": "error"
+    },
+    {
+      "inputs": [],
       "name": "OracleAdapter_InvalidBucketConfiguration",
       "type": "error"
     },
     {
       "inputs": [],
       "name": "OracleAdapter_InvalidQuestionType",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "OracleAdapter_OracleStale",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "OracleAdapter_QuestionTypeDisabled",
+      "type": "error"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "settlementBlock",
+          "type": "uint256"
+        }
+      ],
+      "name": "OracleAdapter_SettlementBlockFull",
       "type": "error"
     },
     {
@@ -4542,6 +4645,11 @@
     },
     {
       "inputs": [],
+      "name": "ReentrancyLockNotHeld",
+      "type": "error"
+    },
+    {
+      "inputs": [],
       "name": "ReentrantCall",
       "type": "error"
     },
@@ -4559,6 +4667,11 @@
         }
       ],
       "name": "SafeERC20FailedOperation",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "SelfCallNotAllowed",
       "type": "error"
     },
     {
