@@ -1266,8 +1266,12 @@ contract DoefinInvariantHarness {
             >= outstandingPairs + triOutstanding + accrued;
     }
 
-    /// @notice CTF-001 / CTF-002 — every registered settlement market is canonical: a root market
-    ///         (no parent) whose partitions are the ascending singletons [1, 2, 4, …].
+    /// @notice CTF-001 / CTF-002 — every registered settlement market is canonical (INV-CTF-2,
+    ///         audit/findings/ctf-review.md §7): a root market (no parent) whose partitions are the
+    ///         ascending singletons [1, 2, 4, …] covering EVERY outcome, whose position IDs are the
+    ///         root positions of those index sets, and whose positions map back to the condition.
+    /// @dev Completeness is the CTF-001 clause: a partial [1, 2] on the 3-outcome condition is
+    ///      ascending singletons too, so an ordering-only check cannot see it (_shape index 4).
     function echidna_registry_canonical() external view returns (bool) {
         return _registryCanonical(conditionId) && _registryCanonical(triConditionId);
     }
@@ -1284,11 +1288,19 @@ contract DoefinInvariantHarness {
     }
 
     function _registryCanonical(bytes32 cId) internal view returns (bool) {
+        uint256 slots = cId == triConditionId ? 3 : 2;
         LibDoefinStorage.MarketMetadata[] memory markets = IMarketData(diamond).getMarketsByCondition(cId);
         for (uint256 m; m < markets.length; ++m) {
-            if (markets[m].parentCollectionId != bytes32(0)) return false;
-            for (uint256 i; i < markets[m].partitions.length; ++i) {
-                if (markets[m].partitions[i] != uint256(1) << i) return false;
+            LibDoefinStorage.MarketMetadata memory market = markets[m];
+            if (market.parentCollectionId != bytes32(0)) return false;
+            if (market.partitions.length != slots || market.positionIds.length != slots) return false;
+            for (uint256 i; i < slots; ++i) {
+                if (market.partitions[i] != uint256(1) << i) return false;
+                uint256 expected = ctf.getPositionId(
+                    market.collateralToken, ctf.getCollectionId(bytes32(0), cId, market.partitions[i])
+                );
+                if (market.positionIds[i] != expected) return false;
+                if (IMarketData(diamond).getConditionId(expected) != cId) return false;
             }
         }
         return true;
