@@ -93,7 +93,13 @@ async function replayHeldBatch({ diamond, signer, through = HELD_BATCH_TIP, dryR
   const submitted = receipt.logs.filter((l) => l.topics[0] === BLOCK_SUBMITTED_TOPIC).length;
   console.log(`  Mined in block ${receipt.blockNumber}, gas ${receipt.gasUsed.toString()}; BlockReorged×${reorged}, BlockSubmitted×${submitted}`);
 
-  const after = await readOracleState(oracle);
+  // Same replica-lag guard as the upgrade script: read until the state has moved.
+  let after = await readOracleState(oracle);
+  for (let attempt = 1; after.height === before.height && attempt <= 10; attempt++) {
+    console.log(`  … post-state not visible yet (read ${attempt}); retrying in 3s`);
+    await new Promise((r) => setTimeout(r, 3000));
+    after = await readOracleState(oracle);
+  }
   printState("Oracle after ", after);
   const expectedIndex = (before.nextBlockIndex + RING - 1 + batch.length) % RING; // rewind depth 1, apply batch
   const problems = [];
