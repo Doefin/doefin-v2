@@ -29,6 +29,10 @@
 
 const POLL_INTERVAL_MS = 15_000;
 const POLL_TIMEOUT_MS = 60 * 60 * 1000; // 1 hour
+// Safe (v1.3+/v1.4) execution outcome events: execTransaction emits exactly one of them.
+const { utils: ethersUtils, providers: ethersProviders } = require("ethers");
+const EXECUTION_SUCCESS = ethersUtils.id("ExecutionSuccess(bytes32,uint256)");
+const EXECUTION_FAILURE = ethersUtils.id("ExecutionFailure(bytes32,uint256)");
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -141,16 +145,52 @@ async function proposeAndExecute({
     await sleep(POLL_INTERVAL_MS);
   }
 
-  // Execute
-  console.log(`\n  Executing on-chain…`);
-  const execResp = await protocolKit.executeTransaction(safeTransaction);
-  const txHash = execResp.hash || execResp.transactionResponse?.hash;
-  if (execResp.transactionResponse?.wait) {
-    await execResp.transactionResponse.wait();
+  // Execute — unless a co-signer already did from the Safe UI. On a multi-signer Safe the
+  // service's copy carries every confirmation; the local object only has this signer's.
+  let txHash;
+  const confirmed = await apiKit.getTransaction(safeTxHash);
+  if (confirmed.isExecuted && confirmed.transactionHash) {
+    txHash = confirmed.transactionHash;
+    console.log(`\n  Already executed by a co-signer: ${txHash}`);
+  } else {
+    console.log(`\n  Executing on-chain…`);
+    try {
+      const execResp = await protocolKit.executeTransaction(threshold > 1 ? confirmed : safeTransaction);
+      txHash = execResp.hash || execResp.transactionResponse?.hash;
+    } catch (err) {
+      err.message =
+        `${err.message}\n  The Safe tx ${safeTxHash} is proposed and fully confirmed but NOT executed. ` +
+        "Execute it from the Safe UI or reject it there (a rejection uses the same nonce) before re-running.";
+      throw err;
+    }
   }
 
-  console.log(`  ✅ Executed: ${txHash}`);
-  return { safeTxHash, executionTxHash: txHash };
+  // protocol-kit does not throw on a reverted receipt, and Safe.execTransaction succeeds at the
+  // outer level even when the inner MultiSend fails (ExecutionFailure). Check both.
+  const provider = new ethersProviders.JsonRpcProvider(rpcUrl);
+  const receipt = await provider.waitForTransaction(txHash, 1, 10 * 60 * 1000);
+  if (!receipt || receipt.status !== 1) throw new Error(`Safe execution tx ${txHash} reverted (status ${receipt && receipt.status})`);
+  const fromSafe = receipt.logs.filter((l) => l.address.toLowerCase() === safeAddress.toLowerCase());
+  if (fromSafe.some((l) => l.topics[0] === EXECUTION_FAILURE) || !fromSafe.some((l) => l.topics[0] === EXECUTION_SUCCESS)) {
+    throw new Error(`Safe tx ${safeTxHash} executed in ${txHash} but the inner calls FAILED (no ExecutionSuccess) — nothing was applied`);
+  }
+
+  console.log(`  ✅ Executed: ${txHash} (block ${receipt.blockNumber}, ExecutionSuccess)`);
+  return { safeTxHash, executionTxHash: txHash, blockNumber: receipt.blockNumber };
+}
+
+/**
+ * Read-only Safe pre-flight, to run BEFORE deploying anything: the Transaction Service answers,
+ * `signer` is an owner, and no proposal is already queued (a queued tx at the next nonce would
+ * conflict with the new proposal).
+ */
+async function safePreflight({ safeAddress, chainId, signer }) {
+  const SafeApiKit = require("@safe-global/api-kit").default;
+  const apiKit = new SafeApiKit({ chainId: BigInt(chainId) });
+  const info = await apiKit.getSafeInfo(safeAddress);
+  const pending = await apiKit.getPendingTransactions(safeAddress);
+  const isOwner = info.owners.map((o) => o.toLowerCase()).includes(signer.toLowerCase());
+  return { owners: info.owners, threshold: Number(info.threshold), nonce: Number(info.nonce), version: info.version, pending: pending.count, isOwner };
 }
 
 /** Map chainId → Safe app network prefix used in the UI URLs. */
@@ -164,4 +204,4 @@ function safeNetworkPrefix(chainId) {
   return `chain-${id}`;
 }
 
-module.exports = { proposeAndExecute, safeNetworkPrefix };
+module.exports = { proposeAndExecute, safePreflight, safeNetworkPrefix };
