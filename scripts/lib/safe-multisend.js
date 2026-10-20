@@ -187,10 +187,18 @@ async function proposeAndExecute({
 async function safePreflight({ safeAddress, chainId, signer }) {
   const SafeApiKit = require("@safe-global/api-kit").default;
   const apiKit = new SafeApiKit({ chainId: BigInt(chainId) });
-  const info = await apiKit.getSafeInfo(safeAddress);
-  const pending = await apiKit.getPendingTransactions(safeAddress);
-  const isOwner = info.owners.map((o) => o.toLowerCase()).includes(signer.toLowerCase());
-  return { owners: info.owners, threshold: Number(info.threshold), nonce: Number(info.nonce), version: info.version, pending: pending.count, isOwner };
+  let info;
+  let pending;
+  try {
+    [info, pending] = await Promise.all([apiKit.getSafeInfo(safeAddress), apiKit.getPendingTransactions(safeAddress)]);
+  } catch (err) {
+    throw new Error(`Safe Transaction Service unreachable for ${safeAddress} on chain ${chainId} — nothing was deployed or proposed (${err.message})`);
+  }
+  const owners = info.owners || [];
+  if (!owners.length) throw new Error(`Safe service returned no owners for ${safeAddress} — nothing was deployed or proposed`);
+  const queued = pending.count ?? (pending.results || []).length;
+  const isOwner = owners.map((o) => o.toLowerCase()).includes(signer.toLowerCase());
+  return { owners, threshold: Number(info.threshold), nonce: Number(info.nonce), version: info.version, pending: queued, isOwner };
 }
 
 /** Map chainId → Safe app network prefix used in the UI URLs. */

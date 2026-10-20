@@ -354,10 +354,16 @@ async function main() {
       console.log(`  (rehearsal: a header #${from} lands between the cut and the post-check, as the block-indexer's would)`);
     },
   });
-  const rec = JSON.parse(fs.readFileSync(path.join(recordDir, fs.readdirSync(recordDir)[0]), "utf8"));
+  const recordName = fs.readdirSync(recordDir).find((f) => f.startsWith("scrum214-hardening-") && f.endsWith(".json"));
+  const rec = JSON.parse(fs.readFileSync(path.join(recordDir, recordName), "utf8"));
   check(rec.postCheck && rec.postCheck.ok === true, `deployment record written, post-check passed (${((rec.postCheck && rec.postCheck.notes) || []).join("; ") || "no live activity"})`, failures);
   check(!headers.length || (rec.postCheck.notes || []).some((n) => n.includes("oracle advanced")), "the post-check tolerated the oracle advancing during the ceremony", failures);
-  check(Object.keys(rec.previousRouting).length === 51 && rec.gitCommit && rec.cutBlock, `record carries commit ${String(rec.gitCommit).slice(0, 7)}, cut block ${rec.cutBlock} and the previous routing of ${Object.keys(rec.previousRouting).length} selectors`, failures);
+  const cutSelectors = rec.cut.reduce((n, c) => n + c.functionSelectors.length, 0);
+  check(
+    Object.keys(rec.previousRouting).length === cutSelectors && rec.gitCommit && rec.cutBlock,
+    `record carries commit ${String(rec.gitCommit).slice(0, 7)}, cut block ${rec.cutBlock} and the previous routing of all ${cutSelectors} cut selectors`,
+    failures
+  );
 
   for (const h of settlementHeights) {
     const now = (await adapter.getThresholdQuestionsAtBlock(h)).map((q) => q.questionId);

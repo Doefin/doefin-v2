@@ -514,7 +514,8 @@ async function runUpgrade(opts = {}) {
     let wrong = 0;
     for (const s of p.selectors) {
       const want = facets[p.key].toLowerCase();
-      const routed = (await pollUntil(() => loupe.facetAddress(s.selector), (a) => a.toLowerCase() === want, cfg.local)).toLowerCase();
+      // Once one selector of this facet has failed every poll, read the rest once: lag is ruled out.
+      const routed = (await pollUntil(() => loupe.facetAddress(s.selector), (a) => a.toLowerCase() === want, cfg.local || wrong > 0)).toLowerCase();
       if (routed !== want) {
         wrong++;
         problems.push(`${p.label}.${s.name} ${s.selector} routes to ${routed}, expected ${facets[p.key]}`);
