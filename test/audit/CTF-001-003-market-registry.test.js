@@ -98,7 +98,7 @@ describe("AUDIT · CTF-001 / CTF-002 / CTF-003 — the settlement-market registr
       expect(market.parentCollectionId).to.equal(ROOT);
     });
 
-    it("settlement never treats two outcomes of a 3-outcome market as a complete pair: a Merge reverts InvalidMatch", async function () {
+    it("settlement never treats two outcomes of a 3-outcome market as a complete pair: a Merge reverts InvalidMatch (routing: a 3-entry market is not a binary pair; also true before the fix)", async function () {
       const c = await newCondition("ctf-3-merge", 3);
       const { owner, seller } = ctx.signers;
       await split(owner, c, [1, 2, 4], ONE.mul(10));
@@ -110,6 +110,54 @@ describe("AUDIT · CTF-001 / CTF-002 / CTF-003 — the settlement-market registr
       const takerOrder = makeOrder(owner.address, pos1, 1, ONE, ONE.div(2), { salt: 71001 });
       const makerOrder = makeOrder(seller.address, pos2, 1, ONE, ONE.div(2), { salt: 71002 });
       await expect(matchPair(takerOrder, owner, makerOrder, seller, ONE)).to.be.revertedWith("InvalidMatch()");
+    });
+  });
+
+  describe("CTF-001 — settlement guard (defence in depth): a legacy 2-entry market that does not cover every outcome", function () {
+    // Since the fix no split can register such a market, so the entry is written directly, as a
+    // pre-fix 0-amount partial split left it. The 3-outcome Merge test above reverts earlier, in
+    // _determineMatchType (a 3-entry market is never a binary pair); only this test reaches
+    // SettlementFacet._conditionAndPartition's partition check.
+    let writer;
+
+    before(async function () {
+      const facet = await (await ethers.getContractFactory("LegacyStateWriterFacet")).deploy();
+      const selector = facet.interface.getSighash("registerLegacyMarket(uint256[],uint256[],bytes32,bytes32,address)");
+      await (await ethers.getContractAt("IDiamondCut", ctx.diamondAddress))
+        .connect(ctx.signers.owner)
+        .diamondCut([{ facetAddress: facet.address, action: 0 /* Add */, functionSelectors: [selector] }], ethers.constants.AddressZero, "0x");
+      writer = await ethers.getContractAt("LegacyStateWriterFacet", ctx.diamondAddress);
+    });
+
+    it("Merge and Mint on a partial [1, 2] market of a 3-outcome condition revert InvalidMatch; the Diamond's collateral is untouched [pre-fix: the Merge paid full collateral and minted the union to the Diamond]", async function () {
+      const { owner, seller, buyer, buyerB } = ctx.signers;
+      const { collateral, erc1155Facet } = ctx.contracts;
+      const { makeOrder } = ctx.helpers;
+      const c = await newCondition("ctf-legacy-partial", 3);
+      const pos1 = await position(c, 1);
+      const pos2 = await position(c, 2);
+      await writer.registerLegacyMarket([pos1, pos2], [1, 2], c, ROOT, collateral.address);
+      expect(await marketData.getComplement(pos1)).to.equal(pos2); // routing treats them as a binary pair
+
+      // pos1 / pos2 without a canonical split: grouped [3, 4], then the partial [1, 2] (neither registers).
+      await split(owner, c, [3, 4], ONE.mul(10));
+      await split(owner, c, [1, 2], ONE.mul(10));
+      await erc1155Facet.connect(owner).safeTransferFrom(owner.address, seller.address, pos2, ONE.mul(10), "0x");
+
+      const diamondCollateral = await collateral.balanceOf(ctx.diamondAddress);
+      await expect(
+        matchPair(
+          makeOrder(owner.address, pos1, 1, ONE, ONE.div(2), { salt: 71101 }), owner,
+          makeOrder(seller.address, pos2, 1, ONE, ONE.div(2), { salt: 71102 }), seller, ONE,
+        ),
+      ).to.be.revertedWith("InvalidMatch()"); // Merge
+      await expect(
+        matchPair(
+          makeOrder(buyer.address, pos1, 0, ONE, ONE.div(2), { salt: 71103 }), buyer,
+          makeOrder(buyerB.address, pos2, 0, ONE, ONE.div(2), { salt: 71104 }), buyerB, ONE,
+        ),
+      ).to.be.revertedWith("InvalidMatch()"); // Mint
+      expect(await collateral.balanceOf(ctx.diamondAddress)).to.equal(diamondCollateral);
     });
   });
 
