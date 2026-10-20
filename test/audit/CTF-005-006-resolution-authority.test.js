@@ -101,7 +101,7 @@ describe("AUDIT · CTF-005 / CTF-006 — resolution authority", function () {
     describe("voiding an oracle-backed market does not freeze the oracle", function () {
       isolateChainState();
 
-      it("the voided market's question is skipped when its settlement block is submitted; the oracle keeps advancing", async function () {
+      it("the voided market's question is skipped when its settlement block is submitted; the oracle keeps advancing and the question totals still balance (INV-ORC-4)", async function () {
         this.timeout(300_000);
         const octx = await deployOracleAuditDiamond();
         const init = await initSyntheticOracle(octx, { fresh: true });
@@ -117,6 +117,11 @@ describe("AUDIT · CTF-005 / CTF-006 — resolution authority", function () {
         await submitEach(octx, sc.extendChain(tip, settlement - tip.blockNumber + 1, { tag: "ctf005-void" }));
         expect(await octx.oracle.getCurrentBlockHeight()).to.equal(settlement + 1);
         expect(await payouts(octx, conditionId)).to.deep.equal([1, 1]); // still the void, not re-resolved
+        // INV-ORC-4 (resolved + pending == created): the skipped question left its queue, so it is
+        // counted — the cut rehearsal's pending-question accounting relies on this identity.
+        expect(await octx.oracleAdapter.getDurationQuestionsAtBlock(settlement)).to.have.lengthOf(0);
+        expect(await octx.oracleAdapter.getTotalQuestionsCreated()).to.equal(1);
+        expect(await octx.oracleAdapter.getTotalQuestionsResolved()).to.equal(1); // [8c86393..fe651cf: 0]
       });
     });
   });
