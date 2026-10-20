@@ -20,6 +20,7 @@
     "upgrade:scrum214:baseSepolia": "npx hardhat run scripts/upgrades/upgrade-scrum214-hardening.js --network baseSepolia",
     "upgrade:scrum214:base": "npx hardhat run scripts/upgrades/upgrade-scrum214-hardening.js --network base",
     "upgrade:scrum214:rehearse": "npx hardhat run scripts/upgrades/rehearse-scrum214-fork.js",
+    "upgrade:scrum214:rehearse:sepolia": "REHEARSAL_NETWORK=baseSepolia npx hardhat run scripts/upgrades/rehearse-scrum214-fork.js",
     "oracle:replay:baseSepolia": "npx hardhat run scripts/oracle-replay-batch.js --network baseSepolia",
     "oracle:replay:base": "npx hardhat run scripts/oracle-replay-batch.js --network base",
     "oracle:status:baseSepolia": "npx hardhat run scripts/oracle-status.js --network baseSepolia",
