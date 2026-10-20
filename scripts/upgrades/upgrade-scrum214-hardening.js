@@ -13,8 +13,8 @@
  *   - ConditionManagerFacet: difficulty markets only for a period that has not begun,
  *     BlockCount creation disabled, oracle-staleness gate, ≤ 25 questions per height;
  *     legacy createCondition owner-only; adds voidCondition.
- *   - AdminConfigFacet: adds setMaxOracleStaleness / getMaxOracleStaleness; resolution fee
- *     capped at 500 bps.
+ *   - AdminConfigFacet: adds setMaxOracleStaleness / getMaxOracleStaleness and the per-condition
+ *     getResolutionFeeBps view; resolution fee capped at 500 bps.
  *   - ConditionalTokensFacet, ERC1155Facet, SettlementFacet: the CTF library fixes they inline —
  *     only canonical root splits register markets, settlement fails closed on unregistered or
  *     partial markets, resolution fee snapshotted at resolution and charged on post-resolution
@@ -67,7 +67,7 @@ const MAX_RESOLUTION_FEE_BPS = 500; // AdminConfigFacet.MAX_RESOLUTION_FEE_BPS (
 const FACETS = [
   { key: "oracle", label: "DoefinV1BlockHeaderOracle", env: "NEW_ORACLE_FACET_ADDRESS", expectedAdds: [] },
   { key: "conditionManager", label: "ConditionManagerFacet", env: "NEW_CONDITION_MANAGER_FACET_ADDRESS", expectedAdds: ["voidCondition"] },
-  { key: "adminConfig", label: "AdminConfigFacet", env: "NEW_ADMIN_CONFIG_FACET_ADDRESS", expectedAdds: ["setMaxOracleStaleness", "getMaxOracleStaleness"] },
+  { key: "adminConfig", label: "AdminConfigFacet", env: "NEW_ADMIN_CONFIG_FACET_ADDRESS", expectedAdds: ["setMaxOracleStaleness", "getMaxOracleStaleness", "getResolutionFeeBps"] },
   { key: "conditionalTokens", label: "ConditionalTokensFacet", env: "NEW_CONDITIONAL_TOKENS_FACET_ADDRESS", expectedAdds: [] },
   { key: "erc1155", label: "ERC1155Facet", env: "NEW_ERC1155_FACET_ADDRESS", expectedAdds: [] },
   { key: "settlement", label: "SettlementFacet", env: "NEW_SETTLEMENT_FACET_ADDRESS", expectedAdds: [] },

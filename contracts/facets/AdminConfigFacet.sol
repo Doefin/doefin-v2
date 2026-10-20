@@ -2,6 +2,7 @@
 pragma solidity ^0.8.20;
 
 import {LibAdminConfigStorage} from "../libraries/LibAdminConfigStorage.sol";
+import {LibCTFCondition} from "../libraries/LibCTFCondition.sol";
 import {LibReentrancyGuard} from "../libraries/LibReentrancyGuard.sol";
 import {IAdminConfig} from "../interfaces/IAdminConfig.sol";
 import {LibDiamond} from "../libraries/LibDiamond.sol";
@@ -211,11 +212,27 @@ contract AdminConfigFacet is IAdminConfig {
     /**
      * @notice Returns the protocol fee configuration
      * @return feeReceiver Address that receives protocol fees
-     * @return resolutionFeeBps Resolution fee charged on redemption, in basis points
+     * @return resolutionFeeBps The LIVE resolution fee, in basis points: the rate a condition captures
+     *         when it resolves (CTF-007). For the rate charged on a resolved condition's payouts, use
+     *         getResolutionFeeBps(conditionId).
      */
     function getFees() external view override returns (address feeReceiver, uint16 resolutionFeeBps) {
         LibAdminConfigStorage.AdminConfigStorage storage cfg = LibAdminConfigStorage.adminConfigStorage();
         return (cfg.feeReceiver, cfg.resolutionFeeBps);
+    }
+
+    /**
+     * @notice Resolution fee (bps) charged on `conditionId`'s redemptions and post-resolution root
+     *         full-set merges.
+     * @dev CTF-007: the rate captured when the condition resolved; 0 for a voided condition
+     *      (CTF-005) and for one resolved before snapshots existed (the SCRUM-214 cut); for an
+     *      unresolved condition, the live rate it would capture now. Same source as the charge
+     *      (LibCTFCondition.resolutionFeeBps).
+     * @param conditionId The condition to inspect
+     * @return The fee rate in basis points
+     */
+    function getResolutionFeeBps(bytes32 conditionId) external view override returns (uint16) {
+        return LibCTFCondition.resolutionFeeBps(conditionId);
     }
 
     // ----------------------------------------

@@ -85,6 +85,23 @@ describe("AUDIT · CTF-004 / CTF-007 — the resolution fee", function () {
       expect((await accrued()).sub(feesBefore)).to.equal(fee);
     });
 
+    it("getResolutionFeeBps reports the rate a condition is charged: the live rate until it resolves, then its snapshot; 0 once voided [pre-fix: no such view]", async function () {
+      const { owner, buyer } = ctx.signers;
+      const { adminConfig, conditionMgr } = ctx.contracts;
+      await setFee(100);
+      const { questionId, conditionId } = await splitCondition(buyer);
+      expect(await adminConfig.getResolutionFeeBps(conditionId)).to.equal(100); // unresolved: the live rate
+      await resolveYes(questionId);
+      await setFee(500);
+      expect(await adminConfig.getResolutionFeeBps(conditionId)).to.equal(100); // the snapshot is what redemption charges
+      expect((await adminConfig.getFees())[1]).to.equal(500); // getFees() is the live rate only
+
+      const voided = await splitCondition(buyer);
+      await conditionMgr.connect(owner).cancelCondition(voided.conditionId);
+      await conditionMgr.connect(owner).voidCondition(voided.conditionId);
+      expect(await adminConfig.getResolutionFeeBps(voided.conditionId)).to.equal(0); // a void is a refund
+    });
+
     it("a condition resolved before the cut (no snapshot) is charged 0, even after the fee is raised [pre-fix and 22c741a..: the live rate]", async function () {
       const { owner, buyer } = ctx.signers;
       const { collateral, conditionalTokens } = ctx.contracts;
@@ -100,6 +117,7 @@ describe("AUDIT · CTF-004 / CTF-007 — the resolution fee", function () {
       await resolveYes(questionId);
       await legacy.clearResolutionFeeSnapshot(conditionId); // as every pre-cut resolution is
       await setFee(500); // raised after the cut
+      expect(await ctx.contracts.adminConfig.getResolutionFeeBps(conditionId)).to.equal(0);
 
       const before = await collateral.balanceOf(buyer.address);
       const feesBefore = await accrued();
