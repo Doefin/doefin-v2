@@ -35,14 +35,20 @@ The v3 settlement core and the admin/access/oracle-adapter facets, plus their li
 domain pass covers them from now on; security works SCSVS V10.1–V10.5
 (`audit/follow-ups.md` SCRUM-521-AUDIT-SCOPE).
 
+**Addendum (SCRUM-214, 2026-10-19) — re-scoped IN:** the conditional tokens — `ConditionalTokensFacet`,
+`ConditionManagerFacet`, `LibConditionMetadata`, `LibCTHelpers`, `LibCTFCondition`, `IConditionalTokens`,
+`IConditionManager`. Formerly excluded as "Gnosis import" (struck through under *Out of scope* below, kept
+as the historical record). The review `audit/findings/ctf-review.md` found CTF-001 (Critical) .. CTF-008 in
+the Doefin additions; every domain pass covers these files from now on.
+
 ## Out of scope (per `audit-exclusion-guidance.md`)
 
 Findings located in these files are marked OUT OF SCOPE, not rated. A finding *reachable
 from in-scope code through* an excluded file is IN scope.
 
-- **CTF (Gnosis import):** `ConditionalTokensFacet`, `ConditionManagerFacet`,
+- ~~**CTF (Gnosis import):** `ConditionalTokensFacet`, `ConditionManagerFacet`,
   `LibConditionMetadata`, `LibCTHelpers`, `LibCTFCondition`, `IConditionalTokens`,
-  `IConditionManager`.
+  `IConditionManager`.~~ **Correction (SCRUM-214, 2026-10-19): re-scoped IN** — see the addendum above.
 - ~~**Block-header v1 (superseded):** `DoefinV1BlockHeaderOracle` (deployed as
   `DoefinV1BlockHeaderOracleFacet`), `BlockHeaderUtils`, `LibDoefinBlockHeaderOracle`,
   `IDoefinBlockHeaderOracle`.~~ **Correction (SCRUM-521, 2026-09-23): this exclusion was

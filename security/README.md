@@ -97,6 +97,25 @@ structure and that no non-empty submission ever Panics.
   (deterministic sequences, 17-slot and pointer×depth matrices, seeded random walks, and the
   negative control).
 
+**Settlement / CTF harness.** `DoefinInvariantHarness` also fuzzes splits and merges of any
+partition shape — canonical, reordered, grouped, partial; at the root or nested; amount 0
+included — on an unseeded 3-outcome condition (SCRUM-214, `audit/findings/ctf-review.md`).
+`echidna_registry_canonical` checks INV-CTF-2 (every registered market is a root market whose
+partitions are the ascending singletons covering every outcome, with root position IDs that map
+back to the condition) and `echidna_diamond_holds_no_positions` that settlement never leaves
+outcome tokens in the Diamond. The trade actions settle only the seeded binary market, so the
+insolvency a partial registration leads to (CTF-001) is covered by
+`test/audit/CTF-001-003-market-registry.test.js`, not by fuzzing.
+
+- **Expected result:** every property passes.
+- **Negative control (manual):** build the harness against the contracts from before the CTF
+  fixes — e.g. `git archive 3c78b6f contracts | tar -x -C <dir>`, copy
+  `contracts/audit/DoefinInvariantHarness.sol` from HEAD into it, and fuzz that tree (mount it in
+  a one-off `docker compose run` of the audit service). It **must fail**
+  `echidna_registry_canonical`. To show the completeness clause specifically, pin `_shape` to
+  index 4 (the partial `[1, 2]` on the 3-outcome condition) and `nested` to false in the scratch
+  copy: the property must still fail.
+
 All tool output lands under `audit/output/` (a Docker named volume; gitignored).
 Scope exclusions (`audit-exclusion-guidance.md`) are encoded in
 `slither.config.json`, `.solhintignore`, and `.solcover.js`.

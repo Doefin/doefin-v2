@@ -15,7 +15,8 @@
  *      a Mint match then a Merge match between two fresh wallets, the Diamond ending with no
  *      outcome tokens and its collateral back where it started; a reordered split mints but
  *      leaves the registry unchanged; voidCondition, legacy createCondition and the resolution
- *      fee cap enforce their new access rules;
+ *      fee cap enforce their new access rules; getResolutionFeeBps reads the live rate for the
+ *      live market and 0 for a condition resolved before the cut, even after a fee raise;
  *   6. checks the new market rules on the live state as a real market maker: a difficulty
  *      market for the current period reverts DifficultyAlreadyDecided, one for the next period
  *      is created, BlockCount reverts QuestionTypeDisabled, and creation reverts OracleStale
@@ -35,6 +36,8 @@ const { tipHeight, headersRange } = require("../lib/bitcoin-headers.js");
 
 const QuestionType = { DifficultyThreshold: 0, DifficultyRange: 1, BlockCount: 2, MiningDuration: 3 };
 const MARKET_MAKER = process.env.REHEARSAL_MARKET_MAKER || "0xd0500c4c09fc3f33d3470d647b94294d6259a74c"; // created 22 of the mainnet markets
+// A mainnet condition resolved before the cut (block 50329355, while the live fee was 500 bps).
+const PRE_CUT_RESOLVED = process.env.REHEARSAL_RESOLVED_CONDITION || "0xe545b4aa8dbd32aec096d1ad68c36d5acaac545c2ccf0ce78adf2a261dc0e5e2";
 const STALENESS = 10800;
 const PERIOD = 2016;
 
@@ -218,6 +221,16 @@ async function ctfChecks({ diamond, conditionId, marketBefore, failures }) {
   check(err === null, `legacy createCondition (resolver of the caller's choice) is owner-only${err ? `: ${err}` : ""}`, failures);
   err = await expectRevert(adminConfig.connect(owner).callStatic.setResolutionFeeBps(501), "FeeTooHigh");
   check(err === null, `resolution fee above 500 bps is refused${err ? `: ${err}` : ""}`, failures);
+
+  // Per-condition fee (CTF-007): a pre-cut resolution has no snapshot and is charged 0 — also after a raise.
+  const [, liveFee] = await adminConfig.getFees();
+  check((await adminConfig.getResolutionFeeBps(conditionId)) === liveFee, `getResolutionFeeBps(live market) = the live rate (${liveFee} bps)`, failures);
+  const raised = liveFee === 500 ? 400 : 500;
+  await (await adminConfig.connect(owner).setResolutionFeeBps(raised)).wait();
+  const preCutFee = await adminConfig.getResolutionFeeBps(PRE_CUT_RESOLVED);
+  check(preCutFee === 0, `a condition resolved before the cut (${PRE_CUT_RESOLVED.slice(0, 10)}…) is charged 0 after the fee is raised to ${raised} bps (got ${preCutFee})`, failures);
+  check((await adminConfig.getResolutionFeeBps(conditionId)) === raised, `the unresolved live market would capture the raised rate (${raised} bps)`, failures);
+  await (await adminConfig.connect(owner).setResolutionFeeBps(liveFee)).wait();
 }
 
 async function main() {

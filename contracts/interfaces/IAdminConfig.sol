@@ -27,6 +27,11 @@ interface IAdminConfig {
 
     function getFees() external view returns (address feeReceiver, uint16 resolutionFeeBps);
 
+    /// @notice Resolution fee (bps) charged on `conditionId`'s payouts: the rate snapshotted at
+    ///         resolution (CTF-007); 0 for a void or a resolution from before the snapshot existed;
+    ///         the live rate while unresolved.
+    function getResolutionFeeBps(bytes32 conditionId) external view returns (uint16);
+
     // ----------------------------------------
     // Token Symbol Management
     // ----------------------------------------
