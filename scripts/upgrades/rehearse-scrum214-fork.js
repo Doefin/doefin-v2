@@ -1,8 +1,8 @@
 /* global ethers */
 /**
- * SCRUM-214 — oracle + CTF hardening cut, rehearsed against a fork of Base mainnet.
+ * SCRUM-214 — oracle + CTF hardening cut, rehearsed against a fork of Base mainnet or Base Sepolia.
  *
- * Forks Base mainnet LOOKBACK blocks in the past (default 3600 ≈ 2 h) so real Bitcoin blocks
+ * Forks the network LOOKBACK blocks in the past (default 3600 ≈ 2 h) so real Bitcoin blocks
  * exist beyond the oracle's tip at the fork point, then:
  *   1. records the live oracle state and every pending question at the known settlement heights;
  *   2. applies upgrade-scrum214-hardening.js with the owner impersonated, including
@@ -24,20 +24,46 @@
  *   7. checks the exact-retarget input for the next boundary (the period's first-block
  *      timestamp) is recorded on-chain.
  *
- * Run:  npm run upgrade:scrum214:rehearse
- * Needs BASE_MAINNET_RPC_ENDPOINT (archive-capable); FORK_BLOCK_NUMBER pins the fork instead of
- * LOOKBACK. Reads mempool.space (MEMPOOL_API). Never sends anything to mainnet.
+ * Run:  npm run upgrade:scrum214:rehearse            (Base mainnet fork)
+ *       npm run upgrade:scrum214:rehearse:sepolia    (Base Sepolia fork; REHEARSAL_NETWORK=baseSepolia)
+ * Needs BASE_MAINNET_RPC_ENDPOINT / BASE_SEPOLIA_RPC_ENDPOINT (archive-capable); FORK_BLOCK_NUMBER
+ * pins the fork instead of LOOKBACK. Reads mempool.space (MEMPOOL_API). Never sends anything to a
+ * live network.
  */
 
 const hre = require("hardhat");
+const fs = require("fs");
+const os = require("os");
+const path = require("path");
 const { runUpgrade } = require("./upgrade-scrum214-hardening.js");
-const { readOracleState, printState, BASE_MAINNET_DIAMOND } = require("./upgrade-scrum521-oracle-reorg-underflow.js");
-const { tipHeight, headersRange } = require("../lib/bitcoin-headers.js");
+const { readOracleState, printState, BASE_MAINNET_DIAMOND, BASE_SEPOLIA_DIAMOND } = require("./upgrade-scrum521-oracle-reorg-underflow.js");
+const { tipHeight, headersRange, headerAt } = require("../lib/bitcoin-headers.js");
 
 const QuestionType = { DifficultyThreshold: 0, DifficultyRange: 1, BlockCount: 2, MiningDuration: 3 };
-const MARKET_MAKER = process.env.REHEARSAL_MARKET_MAKER || "0xd0500c4c09fc3f33d3470d647b94294d6259a74c"; // created 22 of the mainnet markets
-// A mainnet condition resolved before the cut (block 50329355, while the live fee was 500 bps).
-const PRE_CUT_RESOLVED = process.env.REHEARSAL_RESOLVED_CONDITION || "0xe545b4aa8dbd32aec096d1ad68c36d5acaac545c2ccf0ce78adf2a261dc0e5e2";
+// Per-network inputs; each is overridable by env. `settlements`: the settlement heights of the
+// questions pending at the time of writing; `preCutResolved`: a condition resolved while the live
+// resolution fee was still 500 bps (each network's only ResolutionFeeUpdated is 500 → 0).
+const PROFILES = {
+  base: {
+    label: "Base mainnet",
+    rpcEnv: "BASE_MAINNET_RPC_ENDPOINT",
+    diamond: BASE_MAINNET_DIAMOND,
+    settlements: "977766,979782,987846",
+    preCutResolved: "0xe545b4aa8dbd32aec096d1ad68c36d5acaac545c2ccf0ce78adf2a261dc0e5e2", // resolved at block 50329355
+  },
+  baseSepolia: {
+    label: "Base Sepolia",
+    rpcEnv: "BASE_SEPOLIA_RPC_ENDPOINT",
+    diamond: BASE_SEPOLIA_DIAMOND,
+    settlements: "973734",
+    preCutResolved: "0x3d631445aeeada05fd2a09193205dbea9c4f1f36324a574c019ce219fe8829f8", // resolved at block 41959620
+  },
+};
+const NETWORK = process.env.REHEARSAL_NETWORK || "base";
+const PROFILE = PROFILES[NETWORK];
+if (!PROFILE) throw new Error(`REHEARSAL_NETWORK must be one of ${Object.keys(PROFILES).join(", ")}`);
+const MARKET_MAKER = process.env.REHEARSAL_MARKET_MAKER || "0xd0500c4c09fc3f33d3470d647b94294d6259a74c"; // market maker on both networks
+const PRE_CUT_RESOLVED = process.env.REHEARSAL_RESOLVED_CONDITION || PROFILE.preCutResolved;
 const STALENESS = 10800;
 const PERIOD = 2016;
 
@@ -56,9 +82,9 @@ async function expectRevert(promise, errorName) {
   }
 }
 
-async function forkBaseMainnet() {
-  const rpc = process.env.BASE_MAINNET_RPC_ENDPOINT;
-  if (!rpc) throw new Error("BASE_MAINNET_RPC_ENDPOINT is required to fork Base mainnet");
+async function forkNetwork() {
+  const rpc = process.env[PROFILE.rpcEnv];
+  if (!rpc) throw new Error(`${PROFILE.rpcEnv} is required to fork ${PROFILE.label}`);
   let blockNumber = process.env.FORK_BLOCK_NUMBER ? Number(process.env.FORK_BLOCK_NUMBER) : null;
   if (!blockNumber) {
     const live = await new ethers.providers.JsonRpcProvider(rpc).getBlockNumber();
@@ -234,9 +260,9 @@ async function ctfChecks({ diamond, conditionId, marketBefore, failures }) {
 }
 
 async function main() {
-  if (hre.network.name !== "hardhat") throw new Error("Run on the in-process hardhat network (the script forks Base mainnet itself)");
-  const forkBlock = await forkBaseMainnet();
-  const diamond = BASE_MAINNET_DIAMOND;
+  if (hre.network.name !== "hardhat") throw new Error(`Run on the in-process hardhat network (the script forks ${PROFILE.label} itself)`);
+  const forkBlock = await forkNetwork();
+  const diamond = PROFILE.diamond;
   if ((await ethers.provider.getCode(diamond)) === "0x") throw new Error("No Diamond bytecode — fork failed");
 
   const oracle = await ethers.getContractAt("IDoefinBlockHeaderOracle", diamond);
@@ -244,22 +270,43 @@ async function main() {
   const failures = [];
 
   console.log("==========================================================");
-  console.log("  SCRUM-214 — oracle + CTF hardening, mainnet-fork rehearsal");
+  console.log(`  SCRUM-214 — oracle + CTF hardening, ${PROFILE.label} fork rehearsal`);
   console.log("==========================================================");
   console.log(`  Fork block ${forkBlock}  Diamond ${diamond}`);
   const before = await readOracleState(oracle);
   printState("Oracle at fork", before);
 
+  // The new facet validates every header against data the old facet stored (MTP window, retarget
+  // period start): every stored header must be on the real chain with its real timestamp recorded.
+  const ring = await (await ethers.getContractAt("DoefinV1BlockHeaderOracle", diamond)).getAllBlockHeaders();
+  let ringBad = 0;
+  for (const h of ring.filter((x) => x.blockNumber.toNumber() > 0)) {
+    const real = await headerAt(h.blockNumber.toNumber());
+    const recordedTs = (await adapter.getBlockTimestamp(h.blockNumber)).toNumber();
+    if (real.blockHash.toLowerCase() !== h.blockHash.toLowerCase() || recordedTs !== Number(real.timestamp)) ringBad++;
+  }
+  check(ringBad === 0, `all ${ring.length} stored headers are canonical Bitcoin blocks with their real timestamps recorded (${ringBad} mismatched)`, failures);
+
   // Pending threshold questions at the settlement heights live today (audit/findings-ledger.md ORACLE).
-  const settlementHeights = (process.env.REHEARSAL_SETTLEMENTS || "977766,979782,987846").split(",").map(Number);
+  const settlementHeights = (process.env.REHEARSAL_SETTLEMENTS || PROFILE.settlements).split(",").map(Number);
   const pendingBefore = {};
   for (const h of settlementHeights) pendingBefore[h] = (await adapter.getThresholdQuestionsAtBlock(h)).map((q) => q.questionId);
   console.log(`  Pending threshold questions: ${settlementHeights.map((h) => `${h}: ${pendingBefore[h].length}`).join(", ")}`);
 
-  // Live market for the CTF checks: the question settling last stays unresolved throughout.
-  const liveQuestion = (await adapter.getThresholdQuestionsAtBlock(Math.max(...settlementHeights)))[0];
-  if (!liveQuestion) throw new Error("No pending question at the last settlement height — set REHEARSAL_SETTLEMENTS");
-  const marketBefore = await (await ethers.getContractAt("MarketDataFacet", diamond)).getMarketsByCondition(liveQuestion.conditionId);
+  // Live market for the CTF checks: a pending question with a registered (seeded) market, taken
+  // from the latest settlement height first so it stays unresolved throughout.
+  const marketData = await ethers.getContractAt("MarketDataFacet", diamond);
+  let liveQuestion;
+  let marketBefore;
+  for (const h of [...settlementHeights].sort((a, b) => b - a)) {
+    for (const q of await adapter.getThresholdQuestionsAtBlock(h)) {
+      const markets = await marketData.getMarketsByCondition(q.conditionId);
+      if (markets.length) [liveQuestion, marketBefore] = [q, markets];
+      if (liveQuestion) break;
+    }
+    if (liveQuestion) break;
+  }
+  if (!liveQuestion) throw new Error("No pending question with a registered market at the listed heights — set REHEARSAL_SETTLEMENTS");
 
   // Every pending question must be accounted for (created − resolved == block-keyed questions found at
   // the listed heights). The cut only disables BlockCount CREATION: a BlockCount question registered
@@ -279,7 +326,38 @@ async function main() {
   );
 
   console.log("\n>>> Applying the cut (owner impersonated) with setMaxOracleStaleness(10800)\n");
-  await runUpgrade({ diamond, impersonateOwner: true, skipVerify: true, record: false, maxOracleStaleness: STALENESS });
+  // Real headers past the fork tip, fetched now: the first lands between the cut and the
+  // post-check — as the block-indexer's would during a live ceremony — to exercise the post-check's
+  // tolerance; the record is written to a temp dir and read back.
+  const btcTip = await tipHeight();
+  const from = before.height + 1;
+  const to = Math.min(btcTip, from + 11);
+  const headers = to >= from + 1 ? await headersRange(from, to) : [];
+  const [sender] = await ethers.getSigners();
+  const syncClock = async () => {
+    // Move the fork's clock to now so the 2-hour future-timestamp rule sees real time.
+    const now = Math.floor(Date.now() / 1000);
+    if (now > (await ethers.provider.getBlock("latest")).timestamp) await hre.network.provider.send("evm_setNextBlockTimestamp", [now]);
+  };
+  const recordDir = fs.mkdtempSync(path.join(os.tmpdir(), "scrum214-rehearsal-"));
+  await runUpgrade({
+    diamond,
+    impersonateOwner: true,
+    skipVerify: true,
+    record: true,
+    recordDir,
+    maxOracleStaleness: STALENESS,
+    afterCut: async () => {
+      if (!headers.length) return;
+      await syncClock();
+      await (await oracle.connect(sender).submitNextBlock(headers[0])).wait();
+      console.log(`  (rehearsal: a header #${from} lands between the cut and the post-check, as the block-indexer's would)`);
+    },
+  });
+  const rec = JSON.parse(fs.readFileSync(path.join(recordDir, fs.readdirSync(recordDir)[0]), "utf8"));
+  check(rec.postCheck && rec.postCheck.ok === true, `deployment record written, post-check passed (${((rec.postCheck && rec.postCheck.notes) || []).join("; ") || "no live activity"})`, failures);
+  check(!headers.length || (rec.postCheck.notes || []).some((n) => n.includes("oracle advanced")), "the post-check tolerated the oracle advancing during the ceremony", failures);
+  check(Object.keys(rec.previousRouting).length === 51 && rec.gitCommit && rec.cutBlock, `record carries commit ${String(rec.gitCommit).slice(0, 7)}, cut block ${rec.cutBlock} and the previous routing of ${Object.keys(rec.previousRouting).length} selectors`, failures);
 
   for (const h of settlementHeights) {
     const now = (await adapter.getThresholdQuestionsAtBlock(h)).map((q) => q.questionId);
@@ -287,23 +365,17 @@ async function main() {
   }
 
   // --- real headers past the fork tip ------------------------------------------------
-  const btcTip = await tipHeight();
-  const from = before.height + 1;
-  const to = Math.min(btcTip, from + 11);
   check(to >= from + 1, `Bitcoin has mined ${btcTip - before.height} block(s) past the fork tip #${before.height}`, failures);
   if (to >= from + 1) {
-    const headers = await headersRange(from, to);
-    // Move the fork's clock to now so the 2-hour future-timestamp rule sees real time.
-    const now = Math.floor(Date.now() / 1000);
-    const latest = (await ethers.provider.getBlock("latest")).timestamp;
-    if (now > latest) await hre.network.provider.send("evm_setNextBlockTimestamp", [now]);
-    const [sender] = await ethers.getSigners();
-    const single = headers.slice(0, Math.min(3, headers.length - 1));
+    // headers[0] was submitted inside the ceremony (afterCut); the rest go one by one, then batched.
+    await syncClock();
+    const rest = headers.slice(1);
+    const single = rest.slice(0, Math.min(2, rest.length - 1));
     for (const h of single) await (await oracle.connect(sender).submitNextBlock(h)).wait();
-    await (await oracle.connect(sender).submitBatchBlocks(headers.slice(single.length))).wait();
+    await (await oracle.connect(sender).submitBatchBlocks(rest.slice(single.length))).wait();
     const after = await readOracleState(oracle);
     printState("Oracle after real headers", after);
-    check(after.height === to, `real headers ${from}..${to} accepted (${single.length} single + ${headers.length - single.length} batched)`, failures);
+    check(after.height === to, `real headers ${from}..${to} accepted (${single.length + 1} single + ${rest.length - single.length} batched)`, failures);
     check(after.tipHash.toLowerCase() === headers[headers.length - 1].blockHash.toLowerCase(), "stored tip is the canonical Bitcoin block", failures);
   }
 
@@ -337,7 +409,12 @@ async function main() {
   const boundary = (Math.floor(tip / PERIOD) + 1) * PERIOD;
   const periodStart = boundary - PERIOD;
   const recorded = (await adapter.getBlockTimestamp(periodStart)).toNumber();
-  check(recorded > 0, `first-block timestamp of the current period (${periodStart}) is recorded (${recorded}) — boundary ${boundary} will use the exact retarget rule`, failures);
+  const realStart = Number((await headerAt(periodStart)).timestamp);
+  check(
+    recorded === realStart,
+    `first-block timestamp of the current period (${periodStart}) is recorded and equals the real header (${recorded} vs ${realStart}) — boundary ${boundary} will retarget from correct data`,
+    failures
+  );
 
   console.log("\n==========================================================");
   if (failures.length) {
@@ -346,7 +423,7 @@ async function main() {
     console.log("==========================================================\n");
     process.exit(1);
   }
-  console.log("  ✅ REHEARSAL PASSED — the oracle + CTF hardening cut is safe on the live mainnet state");
+  console.log(`  ✅ REHEARSAL PASSED — the oracle + CTF hardening cut is safe on the live ${PROFILE.label} state`);
   console.log("==========================================================\n");
 }
 
