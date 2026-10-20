@@ -336,13 +336,20 @@ library LibCTFCondition {
     }
 
     /// @notice Resolution fee (bps) charged on payouts of `conditionId` — the rate captured when it
-    ///         resolved (CTF-007), or the live rate for conditions resolved before snapshots existed.
+    ///         resolved (CTF-007); 0 for a condition resolved before snapshots existed; the live
+    ///         rate for an unresolved condition (the rate it would capture now — views only, since
+    ///         redemption and the fee-paying merge need a resolved condition).
+    /// @dev A condition resolved before the SCRUM-214 cut has no snapshot. Charging it the live rate
+    ///      would let a later fee raise reach its unredeemed winnings (the CTF-007 behaviour), so it
+    ///      is charged 0 — what it pays today, the live rate having been 0 since before the cut.
     /// @param conditionId The condition whose payouts are being paid
     /// @return The fee in basis points
     function resolutionFeeBps(bytes32 conditionId) internal view returns (uint16) {
         LibAdminConfigStorage.AdminConfigStorage storage acs = LibAdminConfigStorage.adminConfigStorage();
         LibAdminConfigStorage.ResolutionFeeSnapshot storage snap = acs.resolutionFeeAtResolution[conditionId];
-        return snap.set ? snap.bps : acs.resolutionFeeBps;
+        if (snap.set) return snap.bps;
+        if (LibDoefinStorage.appStorage().conditionalTokens.payoutDenominator[conditionId] != 0) return 0;
+        return acs.resolutionFeeBps;
     }
 
     /// @dev Capture the live resolution fee for `conditionId` (CTF-007).

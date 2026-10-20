@@ -11,7 +11,8 @@
 // FIX (SCRUM-214):
 //   - setResolutionFeeBps is capped at MAX_RESOLUTION_FEE_BPS = 500 (5%).
 //   - The rate is snapshotted per condition when payouts are reported; redemption and the
-//     post-resolution merge charge the snapshot (live rate only for pre-upgrade resolutions).
+//     post-resolution merge charge the snapshot. A condition resolved before the cut has no
+//     snapshot and is charged 0, so a later fee raise cannot reach its unredeemed winnings.
 //   - A root merge of a full set after resolution charges that fee (FEE_KIND_RESOLUTION).
 //
 // Tests tagged [pre-fix: …] fail on the pre-fix contracts (run recorded in the fix commit).
@@ -82,6 +83,29 @@ describe("AUDIT · CTF-004 / CTF-007 — the resolution fee", function () {
       const fee = AMOUNT.mul(100).div(10_000);
       expect((await collateral.balanceOf(buyer.address)).sub(before)).to.equal(AMOUNT.sub(fee));
       expect((await accrued()).sub(feesBefore)).to.equal(fee);
+    });
+
+    it("a condition resolved before the cut (no snapshot) is charged 0, even after the fee is raised [pre-fix and 22c741a..: the live rate]", async function () {
+      const { owner, buyer } = ctx.signers;
+      const { collateral, conditionalTokens } = ctx.contracts;
+      const facet = await (await ethers.getContractFactory("LegacyStateWriterFacet")).deploy();
+      const selector = facet.interface.getSighash("clearResolutionFeeSnapshot(bytes32)");
+      await (await ethers.getContractAt("IDiamondCut", ctx.diamondAddress))
+        .connect(owner)
+        .diamondCut([{ facetAddress: facet.address, action: 0 /* Add */, functionSelectors: [selector] }], ethers.constants.AddressZero, "0x");
+      const legacy = await ethers.getContractAt("LegacyStateWriterFacet", ctx.diamondAddress);
+
+      await setFee(0);
+      const { questionId, conditionId } = await splitCondition(buyer);
+      await resolveYes(questionId);
+      await legacy.clearResolutionFeeSnapshot(conditionId); // as every pre-cut resolution is
+      await setFee(500); // raised after the cut
+
+      const before = await collateral.balanceOf(buyer.address);
+      const feesBefore = await accrued();
+      await conditionalTokens.connect(buyer).redeemPositions(collateral.address, ROOT, conditionId, [1, 2]);
+      expect((await collateral.balanceOf(buyer.address)).sub(before)).to.equal(AMOUNT);
+      expect(await accrued()).to.equal(feesBefore);
     });
 
     it("lowering the fee after resolution does not change it either (the snapshot is the rate at resolution)", async function () {

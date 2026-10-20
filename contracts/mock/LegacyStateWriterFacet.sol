@@ -2,6 +2,7 @@
 pragma solidity ^0.8.20;
 
 import {LibPositionRegistry} from "../libraries/LibPositionRegistry.sol";
+import {LibAdminConfigStorage} from "../libraries/LibAdminConfigStorage.sol";
 
 /**
  * @title LegacyStateWriterFacet
@@ -11,6 +12,8 @@ import {LibPositionRegistry} from "../libraries/LibPositionRegistry.sol";
  *           splitPosition did for any partition. Since the fix only a canonical root split
  *           registers, so this is the only way to drive SettlementFacet._conditionAndPartition's
  *           full-partition guard.
+ *         - clearResolutionFeeSnapshot (CTF-007): a resolved condition without a resolution-fee
+ *           snapshot, as every condition resolved before the cut is.
  * @dev Never cut into a production Diamond.
  */
 contract LegacyStateWriterFacet {
@@ -23,5 +26,10 @@ contract LegacyStateWriterFacet {
         address collateralToken
     ) external {
         LibPositionRegistry.registerPositionPairs(positionIds, partitions, conditionId, parentCollectionId, collateralToken);
+    }
+
+    /// @notice Drop `conditionId`'s resolution-fee snapshot, leaving it as a pre-cut resolution.
+    function clearResolutionFeeSnapshot(bytes32 conditionId) external {
+        delete LibAdminConfigStorage.adminConfigStorage().resolutionFeeAtResolution[conditionId];
     }
 }
