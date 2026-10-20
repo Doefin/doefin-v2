@@ -34,6 +34,8 @@ Not covered by the generic standards — verify explicitly:
 ## Project-specific scope
 
 `audit-exclusion-guidance.md` (repo root) defines what is **out of scope**:
-Gnosis-imported CTF, Diamond-reference boilerplate, and mocks. The block-header oracle was
+Diamond-reference boilerplate and mocks. The block-header oracle was
 **re-scoped IN** by SCRUM-521 (2026-09-23) after its former exclusion hid SEC-015; work the SCSVS V10 lens on it.
+The conditional tokens (CTF) were **re-scoped IN** by SCRUM-214 (2026-10-19) after the review found
+CTF-001 (Critical) .. CTF-008 in the Doefin additions (`audit/findings/ctf-review.md`).
 Findings located in those files are marked OUT OF SCOPE, not rated.
