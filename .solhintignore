@@ -7,6 +7,3 @@ contracts/facets/DiamondCutFacet.sol
 contracts/facets/DiamondLoupeFacet.sol
 contracts/facets/OwnershipFacet.sol
 contracts/libraries/LibDiamond.sol
-contracts/facets/ConditionalTokensFacet.sol
-contracts/libraries/LibCTHelpers.sol
-contracts/libraries/LibCTFCondition.sol

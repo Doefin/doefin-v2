@@ -40,6 +40,7 @@
 const { expect } = require("chai");
 const { ethers } = require("hardhat");
 const { setupAuditFixture } = require("../utils/auditFixture.js");
+const { getCollectionId, getPositionId } = require("../utils/ctfUtils.js");
 
 describe("PENTEST · SEC-001 (HIGH) — settlement-path token mismatch", function () {
   let ctx;
@@ -107,10 +108,19 @@ describe("PENTEST · SEC-001 (HIGH) — settlement-path token mismatch", functio
   it("CONTROL — when both orders use the same collateral token, settlement succeeds", async function () {
     // Same harness, but the taker now signs in the alt token too. This proves
     // the SEC-001 guard rejects ONLY genuine mismatches, not all complementary
-    // matches that touch the alt token.
-    const { settlement, erc1155Facet } = ctx.contracts;
+    // matches that touch the alt token. Since CTF-003 a position must belong to a
+    // market in the order's collateral, so the seller seeds the condition's
+    // alt-token market and the pair trades that market's outcome-A position.
+    const { settlement, erc1155Facet, conditionalTokens } = ctx.contracts;
     const { buyer, seller, operator } = ctx.signers;
-    const { positionIdA } = ctx.market;
+    const { conditionId } = ctx.market;
+    await conditionalTokens.connect(seller).splitPosition(
+      altCollateral.address, ethers.constants.HashZero, conditionId, [1, 2], ethers.utils.parseUnits("1000", 6),
+    );
+    const positionIdA = getPositionId(
+      altCollateral.address,
+      await getCollectionId(ethers.constants.HashZero, conditionId, 1, ethers.provider),
+    );
     const { UNIT } = ctx.constants;
     const { makeOrder, signOrder } = ctx.helpers;
 

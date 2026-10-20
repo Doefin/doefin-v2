@@ -113,6 +113,12 @@ library Errors {
     /// @notice Thrown when condition is not active
     error ConditionNotActive();
 
+    /// @notice CTF-005 — a condition must be cancelled before it can be voided
+    error ConditionStillActive();
+
+    /// @notice CTF-006 — payout numerators sum above the bound redemption arithmetic supports
+    error InvalidPayouts();
+
     // ========================================
     // COLLATERAL ERRORS
     // ========================================
@@ -126,6 +132,12 @@ library Errors {
 
     /// @notice Thrown when a reentrant call is detected
     error ReentrantCall();
+
+    /// @notice CTF-008 — the Diamond may not call its own public split / merge
+    error SelfCallNotAllowed();
+
+    /// @notice CTF-008 — an internal split / merge variant ran without the caller holding the lock
+    error ReentrancyLockNotHeld();
 
     // ========================================
     // ORDERBOOK / PRICE ERRORS

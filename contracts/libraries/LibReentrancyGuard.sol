@@ -45,6 +45,16 @@ library LibReentrancyGuard {
     }
 
     /**
+     * @notice Revert unless the guard is currently entered — for internal helpers that run inside
+     *         a caller's nonReentrant window instead of taking the lock themselves (CTF-008).
+     */
+    function _enforceEntered() internal view {
+        if (LibDoefinStorage.appStorage().reentrancyStorage._status != _ENTERED) {
+            revert Errors.ReentrancyLockNotHeld();
+        }
+    }
+
+    /**
      * @notice Reset the reentrancy guard. Call at the end of a protected function.
      */
     function _nonReentrantAfter() internal {

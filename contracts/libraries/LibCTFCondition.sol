@@ -12,6 +12,7 @@ import {Errors} from "./Errors.sol";
 import {Events} from "./Events.sol";
 import {LibPositionRegistry} from "./LibPositionRegistry.sol";
 import {LibReentrancyGuard} from "./LibReentrancyGuard.sol";
+import {LibConstants} from "./LibConstants.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 library LibCTFCondition {
@@ -23,6 +24,8 @@ library LibCTFCondition {
         if (oracle == address(0)) {
             revert Errors.InvalidOracleAddress();
         }
+        // CTF-006: as upstream Gnosis CTF — a condition needs at least two outcomes.
+        if (outcomeSlotCount < 2) revert Errors.InvalidOutcomeSlotCount();
 
         LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
         conditionId = LibCTHelpers.getConditionId(oracle, questionId, outcomeSlotCount);
@@ -42,6 +45,9 @@ library LibCTFCondition {
         uint256[] memory partition,
         uint256 amount
     ) internal {
+        // CTF-008: the public path never runs as the Diamond itself — that case skipped the
+        // collateral movement and is reserved for the lock-holding internal variants.
+        if (sender == address(this)) revert Errors.SelfCallNotAllowed();
         (uint256 fullIndexSet, uint256 freeIndexSet, uint256[] memory positionIds, uint256[] memory amounts) = _validateAndBuildPartitionPositions(
             collateralToken,
             parentCollectionId,
@@ -55,10 +61,17 @@ library LibCTFCondition {
 
         if (freeIndexSet == 0) {
             if (parentCollectionId == bytes32(0)) {
-                /// @dev Skip token transfer when contract calls itself to avoid circular transfers
-                if (sender != address(this)) {
-                    IERC20(collateralToken).safeTransfer(sender, amount);
+                // CTF-004: once the condition has resolved, turning a full set back into
+                // collateral is a redemption — charge the same resolution fee, or winners
+                // bypass it by pairing their tokens with (worthless) losing ones.
+                uint256 fee = LibDoefinStorage.appStorage().conditionalTokens.payoutDenominator[conditionId] != 0
+                    ? (amount * resolutionFeeBps(conditionId)) / LibConstants.BPS_DENOMINATOR
+                    : 0;
+                if (fee > 0) {
+                    LibAdminConfigStorage.adminConfigStorage().accruedFees[collateralToken] += fee;
+                    emit Events.FeeAccrued(collateralToken, fee, LibConstants.FEE_KIND_RESOLUTION);
                 }
+                IERC20(collateralToken).safeTransfer(sender, amount - fee);
             } else {
                 uint256 parentPosId = LibCTHelpers.getPositionId(collateralToken, parentCollectionId);
                 LibERC1155._mint(sender, parentPosId, amount, "");
@@ -79,6 +92,8 @@ library LibCTFCondition {
         uint256 amount,
         uint256[] memory partition
     ) internal {
+        // CTF-008: see _mergePositions — a self-call would mint positions without collateral.
+        if (sender == address(this)) revert Errors.SelfCallNotAllowed();
         if (!LibAdminConfigStorage.adminConfigStorage().isAllowed[collateralToken]) {
             revert Errors.TokenNotAllowed();
         }
@@ -91,19 +106,24 @@ library LibCTFCondition {
             amount
         );
 
-        LibPositionRegistry.registerPositionPairs(positionIds, partition, conditionId, parentCollectionId, collateralToken);
+        // CTF-001 / CTF-002: only a canonical root split defines a settlement market — no parent,
+        // a full partition, ascending singletons [1, 2, 4, …]. Any other split (partial, reordered,
+        // nested) is ordinary CTF use and leaves the registry alone, so no caller can choose a
+        // market's outcome set, outcome order, parent collection or condition mapping. Settlement
+        // treats a registered pair as complete outcomes; a registered partial set let a Merge pay
+        // full collateral for an incomplete one.
+        if (_isCanonicalRootPartition(parentCollectionId, freeIndexSet, partition)) {
+            LibPositionRegistry.registerPositionPairs(positionIds, partition, conditionId, parentCollectionId, collateralToken);
+        }
 
         LibReentrancyGuard._nonReentrantBefore();
         if (freeIndexSet == 0) {
             if (parentCollectionId == bytes32(0)) {
-                /// @dev Skip token transfer when contract calls itself to avoid circular transfers
-                if (sender != address(this)) {
-                    // `sender` is `msg.sender` at the public entrypoint
-                    // (`ConditionalTokensFacet.splitPosition`); a user splits their own
-                    // collateral — they cannot pass a third-party `from`.
-                    // slither-disable-next-line arbitrary-send-erc20
-                    IERC20(collateralToken).safeTransferFrom(sender, address(this), amount);
-                }
+                // `sender` is `msg.sender` at the public entrypoint
+                // (`ConditionalTokensFacet.splitPosition`); a user splits their own
+                // collateral — they cannot pass a third-party `from`.
+                // slither-disable-next-line arbitrary-send-erc20
+                IERC20(collateralToken).safeTransferFrom(sender, address(this), amount);
             } else {
                 uint256 parentPosId = LibCTHelpers.getPositionId(collateralToken, parentCollectionId);
                 LibERC1155._burn(sender, parentPosId, amount);
@@ -119,10 +139,11 @@ library LibCTFCondition {
         LibReentrancyGuard._nonReentrantAfter();
     }
 
-    /// @notice Split position without reentrancy guard — caller MUST already hold the lock.
-    /// @dev Only for use by SettlementFacet (or other internal callers that hold nonReentrant).
-    ///      When sender == address(this), no external calls are made (safeTransferFrom is skipped),
-    ///      so there is no reentrancy risk.
+    /// @notice Split position inside the caller's reentrancy window — the caller MUST hold the lock.
+    /// @dev Only for SettlementFacet (or another caller holding nonReentrant); CTF-008 enforces the
+    ///      lock instead of assuming it. With sender == address(this) the collateral pull is skipped
+    ///      (it is already in the Diamond), but the ERC-1155 mint to the Diamond is not an
+    ///      external call only because LibERC1155 skips the acceptance check for self-transfers.
     function _splitPositionInternal(
         address sender,
         address collateralToken,
@@ -131,6 +152,7 @@ library LibCTFCondition {
         uint256 amount,
         uint256[] memory partition
     ) internal {
+        LibReentrancyGuard._enforceEntered();
         if (!LibAdminConfigStorage.adminConfigStorage().isAllowed[collateralToken]) {
             revert Errors.TokenNotAllowed();
         }
@@ -170,10 +192,9 @@ library LibCTFCondition {
         LibERC1155._batchMint(sender, positionIds, amounts, "");
     }
 
-    /// @notice Merge positions without reentrancy guard — caller MUST already hold the lock.
-    /// @dev Only for use by SettlementFacet (or other internal callers that hold nonReentrant).
-    ///      When sender == address(this), no external calls are made (safeTransfer is skipped),
-    ///      so there is no reentrancy risk.
+    /// @notice Merge positions inside the caller's reentrancy window — the caller MUST hold the lock.
+    /// @dev Only for SettlementFacet (or another caller holding nonReentrant); CTF-008 enforces the
+    ///      lock instead of assuming it. See _splitPositionInternal for the self-transfer note.
     function _mergePositionsInternal(
         address sender,
         address collateralToken,
@@ -182,6 +203,7 @@ library LibCTFCondition {
         uint256[] memory partition,
         uint256 amount
     ) internal {
+        LibReentrancyGuard._enforceEntered();
         (uint256 fullIndexSet, uint256 freeIndexSet, uint256[] memory positionIds, uint256[] memory amounts) = _validateAndBuildPartitionPositions(
             collateralToken,
             parentCollectionId,
@@ -208,8 +230,13 @@ library LibCTFCondition {
         }
     }
 
+    /// @dev CTF-006: payout numerators may sum to at most 2^64 − 1, so redemption's
+    ///      `stake * numerator` cannot overflow for any realistic stake.
+    uint256 internal constant MAX_PAYOUT_DENOMINATOR = type(uint64).max;
+
     function _reportPayouts(address oracle, bytes32 questionId, uint256[] memory payouts) internal {
-        if (payouts.length == 0 || payouts.length > type(uint8).max) {
+        // CTF-006: at least two outcomes, as upstream (a single-slot vector was accepted).
+        if (payouts.length < 2 || payouts.length > type(uint8).max) {
             revert Errors.InvalidPayoutLength();
         }
         uint8 outcomeSlotCount = uint8(payouts.length);
@@ -239,7 +266,9 @@ library LibCTFCondition {
         if (den == 0) {
             revert Errors.AllZeroPayouts();
         }
+        if (den > MAX_PAYOUT_DENOMINATOR) revert Errors.InvalidPayouts();
         ds.conditionalTokens.payoutDenominator[conditionId] = den;
+        _snapshotResolutionFee(conditionId);
 
         emit Events.ConditionResolution(conditionId, oracle, questionId, outcomeSlotCount, numerators);
     }
@@ -275,6 +304,66 @@ library LibCTFCondition {
             amounts[i] = amount;
             unchecked { ++i; } // GAS-007: counter is bounded by partition.length
         }
+    }
+
+    /**
+     * @notice Resolve `conditionId` as void: every outcome pays an equal share (numerators all 1).
+     * @dev CTF-005 — the only payout writer was `_reportPayouts`, bound to the condition's oracle,
+     *      so a condition that can never be reported (a stalled oracle, an orphaned question)
+     *      locked one-sided collateral until an emergency upgrade. A void is a refund: the
+     *      resolution fee is snapshotted as 0. Callers gate who may void and when.
+     * @param conditionId The condition to resolve as void
+     * @param oracle The condition's oracle, for the ConditionResolution event
+     * @param questionId The condition's question, for the ConditionResolution event
+     * @custom:reverts ConditionNotPrepared, ConditionAlreadyResolved
+     */
+    function _voidPayouts(bytes32 conditionId, address oracle, bytes32 questionId) internal {
+        LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
+        uint256[] storage numerators = ds.conditionalTokens.payoutNumerators[conditionId];
+        uint256 slots = numerators.length;
+        if (slots == 0) revert Errors.ConditionNotPrepared();
+        if (ds.conditionalTokens.payoutDenominator[conditionId] != 0) revert Errors.ConditionAlreadyResolved();
+
+        for (uint256 i = 0; i < slots;) {
+            numerators[i] = 1;
+            unchecked { ++i; }
+        }
+        ds.conditionalTokens.payoutDenominator[conditionId] = slots;
+        LibAdminConfigStorage.adminConfigStorage().resolutionFeeAtResolution[conditionId] =
+            LibAdminConfigStorage.ResolutionFeeSnapshot({set: true, bps: 0});
+
+        emit Events.ConditionResolution(conditionId, oracle, questionId, uint8(slots), numerators);
+    }
+
+    /// @notice Resolution fee (bps) charged on payouts of `conditionId` — the rate captured when it
+    ///         resolved (CTF-007), or the live rate for conditions resolved before snapshots existed.
+    /// @param conditionId The condition whose payouts are being paid
+    /// @return The fee in basis points
+    function resolutionFeeBps(bytes32 conditionId) internal view returns (uint16) {
+        LibAdminConfigStorage.AdminConfigStorage storage acs = LibAdminConfigStorage.adminConfigStorage();
+        LibAdminConfigStorage.ResolutionFeeSnapshot storage snap = acs.resolutionFeeAtResolution[conditionId];
+        return snap.set ? snap.bps : acs.resolutionFeeBps;
+    }
+
+    /// @dev Capture the live resolution fee for `conditionId` (CTF-007).
+    function _snapshotResolutionFee(bytes32 conditionId) internal {
+        LibAdminConfigStorage.AdminConfigStorage storage acs = LibAdminConfigStorage.adminConfigStorage();
+        acs.resolutionFeeAtResolution[conditionId] = LibAdminConfigStorage.ResolutionFeeSnapshot({set: true, bps: acs.resolutionFeeBps});
+    }
+
+    /// @dev True for a split from collateral (no parent) over every outcome, listed as ascending
+    ///      singletons: partition[i] == 1 << i. `freeIndexSet == 0` means the partition is full.
+    function _isCanonicalRootPartition(
+        bytes32 parentCollectionId,
+        uint256 freeIndexSet,
+        uint256[] memory partition
+    ) internal pure returns (bool) {
+        if (parentCollectionId != bytes32(0) || freeIndexSet != 0) return false;
+        for (uint256 i = 0; i < partition.length;) {
+            if (partition[i] != uint256(1) << i) return false;
+            unchecked { ++i; }
+        }
+        return true;
     }
 
     function _getPositionId(

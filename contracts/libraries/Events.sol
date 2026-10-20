@@ -87,6 +87,11 @@ library Events {
     /// @param cancelledBy Address that cancelled the condition
     event ConditionCancelled(bytes32 indexed conditionId, address indexed cancelledBy);
 
+    /// @notice CTF-005 — a cancelled condition was resolved as void: every outcome pays an equal share
+    /// @param conditionId The voided condition
+    /// @param voidedBy Address that voided it (the contract owner)
+    event ConditionVoided(bytes32 indexed conditionId, address indexed voidedBy);
+
     // ========================================
     // CONDITIONAL TOKENS EVENTS
     // ========================================

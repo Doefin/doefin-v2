@@ -437,52 +437,37 @@ describe("MarketDataFacet - Advanced Test Cases", function () {
       ).to.be.revertedWith("InvalidComplement()");
     });
 
-    it("should handle partial position splits", async () => {
-      // Create condition and split only some outcomes
+    it("should not register a market for a grouped split (CTF-002); the canonical singleton split registers every outcome", async () => {
+      // A full partition into groups ([3, 12] = {0,1} vs {2,3}) is valid CTF, but if it
+      // registered, the first splitter would choose the market's outcome structure and block
+      // the canonical singleton market forever. Only [1, 2, 4, 8] registers (CTF-001 / CTF-002).
       const questionIdPartial = ethers.utils.id("partial-split");
-      const conditionIdPartial = getConditionId(
-        oracle.address,
-        questionIdPartial,
-        4
-      );
+      const conditionIdPartial = getConditionId(oracle.address, questionIdPartial, 4);
+      await conditionManagerFacet.connect(owner).createCondition(oracle.address, questionIdPartial, 4, "ipfs://partial");
 
-      await conditionManagerFacet
-        .connect(owner)
-        .createCondition(
-          oracle.address,
-          questionIdPartial,
-          4,
-          "ipfs://partial"
-        );
-
-      // Split only 2 out of 4 possible outcomes
-      const [partialPositionIds, _] = await splitConditionAndGetPositionIds({
+      const [groupedPositionIds] = await splitConditionAndGetPositionIds({
         user: owner,
         amount: ethers.utils.parseEther("4"),
         conditionId: conditionIdPartial,
-        indexSets: [3, 12], // Binary: 0011, 1100 (complementary)
+        indexSets: [3, 12],
         erc20,
         conditionalFacet,
       });
+      expect(groupedPositionIds).to.have.lengthOf(2);
+      expect(await marketDataFacet.getMarketsByCondition(conditionIdPartial)).to.have.lengthOf(0);
 
-      expect(partialPositionIds).to.have.lengthOf(2);
-
-      const markets = await marketDataFacet.getMarketsByCondition(
-        conditionIdPartial
-      );
+      const [singletonPositionIds] = await splitConditionAndGetPositionIds({
+        user: owner,
+        amount: ethers.utils.parseEther("4"),
+        conditionId: conditionIdPartial,
+        indexSets: [1, 2, 4, 8],
+        erc20,
+        conditionalFacet,
+      });
+      const markets = await marketDataFacet.getMarketsByCondition(conditionIdPartial);
       expect(markets).to.have.lengthOf(1);
-      expect(markets[0].positionIds).to.have.lengthOf(2);
-
-      // Verify complement relationship
-      const complement1 = await marketDataFacet.getComplement(
-        partialPositionIds[0]
-      );
-      const complement2 = await marketDataFacet.getComplement(
-        partialPositionIds[1]
-      );
-
-      expect(complement1).to.equal(partialPositionIds[1]);
-      expect(complement2).to.equal(partialPositionIds[0]);
+      expect(markets[0].positionIds.map((p) => p.toString())).to.deep.equal(singletonPositionIds.map((p) => p.toString()));
+      expect(markets[0].partitions.map(Number)).to.deep.equal([1, 2, 4, 8]);
     });
   });
 

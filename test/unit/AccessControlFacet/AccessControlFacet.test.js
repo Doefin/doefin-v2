@@ -1,6 +1,14 @@
 const { deployDiamond } = require("../../../scripts/deploy.js");
 const { expect } = require("chai");
 const { ethers } = require("hardhat");
+const { QuestionType, encodeMiningDuration } = require("../../utils/oracleAdapterUtils.js");
+
+// The market-maker-gated entry point. (Legacy createCondition is owner-only since CTF-006.)
+function createMarket(conditionManagerFacet, signer, uri) {
+  return conditionManagerFacet
+    .connect(signer)
+    .createConditionWithMetadata(QuestionType.MiningDuration, encodeMiningDuration(1, 1, [600]), 2, uri, ethers.utils.id(uri));
+}
 
 const {
   takeSnapshot,
@@ -160,35 +168,15 @@ describe("AccessControlFacet", function () {
         diamondAddress
       );
 
-      const questionId = ethers.utils.id("test-question");
-      const outcomeSlotCount = 2;
 
       // Should fail without market maker role
-      await expect(
-        conditionManagerFacet
-          .connect(user1)
-          .createCondition(
-            user1.address,
-            questionId,
-            outcomeSlotCount,
-            "ipfs://test"
-          )
-      ).to.be.revertedWith("NotMarketMaker()");
+      await expect(createMarket(conditionManagerFacet, user1, "ipfs://test")).to.be.revertedWith("NotMarketMaker()");
 
       // Add user as market maker
       await accessControlFacet.connect(owner).addMarketMaker(user1.address);
 
       // Should succeed with market maker role
-      await expect(
-        conditionManagerFacet
-          .connect(user1)
-          .createCondition(
-            user1.address,
-            questionId,
-            outcomeSlotCount,
-            "ipfs://test"
-          )
-      ).to.not.be.reverted;
+      await expect(createMarket(conditionManagerFacet, user1, "ipfs://test")).to.not.be.reverted;
     });
 
     it("should maintain access control after market maker removal", async () => {
@@ -201,20 +189,9 @@ describe("AccessControlFacet", function () {
       await accessControlFacet.connect(owner).addMarketMaker(user1.address);
       await accessControlFacet.connect(owner).removeMarketMaker(user1.address);
 
-      const questionId = ethers.utils.id("test-question-2");
-      const outcomeSlotCount = 2;
 
       // Should fail after removal
-      await expect(
-        conditionManagerFacet
-          .connect(user1)
-          .createCondition(
-            user1.address,
-            questionId,
-            outcomeSlotCount,
-            "ipfs://test-2"
-          )
-      ).to.be.revertedWith("NotMarketMaker()");
+      await expect(createMarket(conditionManagerFacet, user1, "ipfs://test-2")).to.be.revertedWith("NotMarketMaker()");
     });
   });
 

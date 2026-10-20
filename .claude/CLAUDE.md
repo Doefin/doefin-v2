@@ -99,7 +99,11 @@ the match type is determined per maker.
 - A separate `resolutionFeeBps` (redemption fee, charged in `ConditionalTokensFacet` when
   winning positions are redeemed) is distinct from the operator trading-fee surface and
   still exists; under SCRUM-236 it accrues into the same `accruedFees` bank via
-  `FEE_KIND_RESOLUTION`.
+  `FEE_KIND_RESOLUTION`. Since SCRUM-214 (CTF-004/007) it is capped at 500 bps
+  (`AdminConfigFacet.MAX_RESOLUTION_FEE_BPS`), snapshotted per condition at resolution
+  (`acs.resolutionFeeAtResolution`; conditions resolved before the snapshot existed read the
+  live rate), charged on a root full-set merge of a resolved condition as well as on
+  redemption, and zero for a condition voided by the owner (`voidCondition`).
 
 ### Storage (EIP-7201 namespaced — SCRUM-229)
 

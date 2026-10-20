@@ -60,6 +60,18 @@ library LibAdminConfigStorage {
         ///         older than this many seconds of chain time. 0 disables the check.
         /// @dev Appended after every existing field: no existing slot moves.
         uint32 maxOracleStaleness;
+        /// @notice CTF-007 (SCRUM-214) — resolution fee rate captured when a condition resolves.
+        /// @dev Redemption (and a post-resolution merge, CTF-004) charges this rate, so a later
+        ///      setResolutionFeeBps cannot reach winners of an already-resolved condition.
+        ///      `set == false` (conditions resolved before this field existed) falls back to the
+        ///      live rate. Appended after every existing field: no existing slot moves.
+        mapping(bytes32 => ResolutionFeeSnapshot) resolutionFeeAtResolution;
+    }
+
+    /// @notice Resolution fee rate captured at resolution time (CTF-007).
+    struct ResolutionFeeSnapshot {
+        bool set;
+        uint16 bps;
     }
 
     /// @notice Returns the admin-config storage struct at its EIP-7201 namespace slot.

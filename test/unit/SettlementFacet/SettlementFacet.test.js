@@ -2100,12 +2100,20 @@ describe("SettlementFacet", function () {
 
       it("should still settle a complementary match when both collateral tokens match", async function () {
         // Control: identical tokens (the alt token) settle normally — proves the
-        // guard rejects only genuine mismatches.
-        const takerOrder = makeOrder(buyer.address, positionIdA, 0, fillAmount, price, {
+        // guard rejects only genuine mismatches. Since CTF-003 the position must belong
+        // to a market in the order's collateral: the seller seeds the alt-token market.
+        await conditionalTokens.connect(seller).splitPosition(
+          altCollateral.address, ethers.constants.HashZero, conditionId, [1, 2], fillAmount.mul(10),
+        );
+        const altPositionIdA = getPositionId(
+          altCollateral.address,
+          await getCollectionId(ethers.constants.HashZero, conditionId, 1, ethers.provider),
+        );
+        const takerOrder = makeOrder(buyer.address, altPositionIdA, 0, fillAmount, price, {
           salt: 40001,
           collateralToken: altCollateral.address,
         });
-        const makerOrder = makeOrder(seller.address, positionIdA, 1, fillAmount, price, {
+        const makerOrder = makeOrder(seller.address, altPositionIdA, 1, fillAmount, price, {
           salt: 40001,
           collateralToken: altCollateral.address,
         });

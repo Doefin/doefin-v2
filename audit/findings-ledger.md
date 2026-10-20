@@ -7,14 +7,14 @@ Produced by triage from: 4 domain reviews, Slither (27 raw), Mythril (3), Echidn
 
 | Severity | Count | IDs |
 |---|---|---|
-| Critical | 1 | ORC-001 (oracle review, SCRUM-214 — fixed in code; mainnet cut pending, still live on mainnet) |
-| High | 6 | SEC-001, SEC-002, SEC-015 (post-audit — production incident 2026-09-15, fixed SCRUM-521); ORC-002, ORC-003, ORC-004 (oracle review — fixed in code; cut pending) |
-| Medium | 11 | SEC-003, SEC-004, SEC-005, SEC-006, SEC-007, BIZ-001, GAS-001; ORC-005, ORC-006, ORC-008, ORC-009 (fixed in code; cut pending) |
-| Low | 14 | SEC-008, SEC-009, SEC-010, SEC-011, BIZ-002, BIZ-004, BIZ-005, BIZ-006, CPX-003, CPX-005, CPX-006, CPX-007; ORC-007, ORC-010 (fixed in code; cut pending) |
+| Critical | 2 | ORC-001 (oracle review, SCRUM-214 — fixed in code; mainnet cut pending, still live on mainnet); CTF-001 (CTF review, SCRUM-214 — fixed in code; cut pending; not armed on mainnet) |
+| High | 7 | SEC-001, SEC-002, SEC-015 (post-audit — production incident 2026-09-15, fixed SCRUM-521); ORC-002, ORC-003, ORC-004 (oracle review — fixed in code; cut pending); CTF-002 (CTF review — fixed in code; cut pending) |
+| Medium | 15 | SEC-003, SEC-004, SEC-005, SEC-006, SEC-007, BIZ-001, GAS-001; ORC-005, ORC-006, ORC-008, ORC-009 (fixed in code; cut pending); CTF-003, CTF-004, CTF-005, CTF-006 (fixed in code; cut pending) |
+| Low | 16 | SEC-008, SEC-009, SEC-010, SEC-011, BIZ-002, BIZ-004, BIZ-005, BIZ-006, CPX-003, CPX-005, CPX-006, CPX-007; ORC-007, ORC-010 (fixed in code; cut pending); CTF-007, CTF-008 (fixed in code; cut pending) |
 | Informational | 7 | SEC-012, SEC-013, SEC-014, BIZ-008, CPX-A2, CPX-A4567; ORC-011 (fixed in code; cut pending) |
 | Gas (≤ MEDIUM) | 6 | GAS-002 (M), GAS-005 (M), GAS-003/004/006/007 (L) |
 
-**Total confirmed: 39** (28 from the original audit + 11 from the SCRUM-214 oracle review; excludes 4 `duplicate`). **Mainnet-blocking: SEC-001, SEC-002** (fixed). **Post-audit production incident: SEC-015** (block-header oracle, out of the original scope — fixed SCRUM-521).
+**Total confirmed: 47** (28 from the original audit + 11 from the SCRUM-214 oracle review + 8 from the SCRUM-214 CTF review; excludes 4 `duplicate`). **Mainnet-blocking: SEC-001, SEC-002** (fixed). **Post-audit production incident: SEC-015** (block-header oracle, out of the original scope — fixed SCRUM-521).
 
 **Dedup map (raw → canonical):**
 - SEC-005 + CPX-001 + REMAINING-1 + Slither `assembly`×3 + `low-level-calls`×1 → **SEC-005**
@@ -198,7 +198,54 @@ fixed facet (`846f7a8`), 2026-10-19: Echidna 50,000 calls — all 15 properties 
 50,000 calls, 4 workers — 33/33 tests pass. Negative control (pre-SCRUM-521 facet): both engines
 independently fail exactly `echidna_no_panic_nonempty`, `echidna_valid_chains_accepted` and
 `echidna_empty_batch_no_panic` (the SEC-015 Panic(0x11) class). Mainnet-fork rehearsal of the cut:
-`scripts/upgrades/rehearse-scrum214-oracle-fork.js` (passed, see `b815d0e`).
+passed for the oracle-only cut (`b815d0e`); the cut now also ships the CTF fixes — see the CTF
+section for the combined rehearsal.
+
+## CTF — review of the conditional-tokens contracts (SCRUM-214)
+
+Formerly excluded as "imported from Gnosis CTF". Full review: `audit/findings/ctf-review.md`. The
+upstream arithmetic and index-set rules are faithful; every defect is in the Doefin additions
+(position registry, settlement internals, resolution fee, condition lifecycle).
+
+Proof approach: guard tests (`test/audit/CTF-0NN-*.test.js`) that assert the fixed behaviour, run
+against the pre-fix contracts as a negative control in each fix commit — every guard test failed
+there and passes with the fix (step-by-step exploit walkthroughs were not written). Status column =
+the protocol's `reverify` field: `pending` until the production cut and the Phase-6 re-verify.
+
+Mainnet exposure checked 2026-10-19: 27 conditions, all 2-outcome and oracle-resolved; 29 market
+registrations, all canonical ([1,2], root); 41 splits, none 0-amount — CTF-001 / CTF-002 were not
+armed. Live resolution fee 0 bps.
+
+| ID | Sev | Finding | Fix | Status |
+|---|---|---|---|---|
+| CTF-001 | Critical | A free 0-amount partial split registered an incomplete "binary" market; a Merge then paid full collateral for a partial set (Diamond insolvency) | only a canonical root split (no parent, ascending singletons [1, 2, 4, …]) registers; settlement requires the two index sets to cover every outcome (`bc40f48`) | pending |
+| CTF-002 | High | First-come registry write: reordered (YES/NO flip), nested and crafted-parent splits chose market structure, labels and condition mapping, or blocked the canonical seed | as CTF-001 (`bc40f48`) | pending |
+| CTF-003 | Medium | Settlement ignored the registry market's parent / collateral (Diamond holdings as inventory); unregistered positions skipped the cancelled / resolved gate | `_validateOrder` requires a registered root-market position in the order's collateral (`bc40f48`) | pending |
+| CTF-004 | Medium | Resolution fee avoidable by merging winning + losing tokens after resolution | a root full-set merge of a resolved condition pays the snapshotted resolution fee (`22c741a`) | pending |
+| CTF-005 | Medium | No void / force-resolve path: one-sided collateral of a never-resolving condition locked until a diamondCut | owner `voidCondition` (cancelled + unresolved → equal shares, fee 0); the oracle adapter skips already-resolved conditions (`8c86393`) | pending |
+| CTF-006 | Medium | Market maker could appoint any resolver; `reportPayouts` accepted any vector and ignored cancellation | legacy `createCondition` owner-only; cancelled managed conditions refuse reports; ≥ 2 slots; numerators ≤ 2^64 − 1 (`8c86393`) | pending |
+| CTF-007 | Low | Resolution fee read at redemption time, up to 100%: owner could take winnings after resolution | capped at 500 bps; rate snapshotted per condition at resolution (`22c741a`) | pending |
+| CTF-008 | Low | Public split / merge skipped collateral for a Diamond self-call; internal variants did not check the lock; settlement depended on the Diamond accepting its own ERC-1155 transfers | self-calls revert; lock enforced; self-acceptance check skipped (`6be7c06`) | pending |
+
+Fuzzing (`contracts/audit/DoefinInvariantHarness.sol`, extended in `4c893c7` with any-shape
+split / merge on an unseeded 3-outcome condition and two invariants — `echidna_registry_canonical`,
+`echidna_diamond_holds_no_positions`): on the fixed tree Echidna 50,080 calls, 9/9 properties hold;
+Medusa 51,387 calls, 33/33 pass. Negative control (contracts at `3c78b6f`, before the fixes): both
+engines fail `echidna_registry_canonical` and nothing else. The fuzzer's trade actions use only the
+seeded binary market, so the insolvency CTF-001 leads to is covered by the guard tests, not by
+fuzzing.
+
+Tooling on the fixed tree (2026-10-19): Slither 19 results — the pre-fix baseline (`3c78b6f`, 18)
+plus `cyclomatic-complexity` on `SettlementFacet._validateOrder` (12; the CTF-003 registry gate),
+informational, accepted. Solhint 0 errors. Neither tool detects CTF-001 / CTF-002 (business logic).
+
+Deployment: one Safe cut with the oracle fixes (`scripts/upgrades/upgrade-scrum214-hardening.js`,
+six facets — oracle, ConditionManager, AdminConfig, ConditionalTokens, ERC1155, Settlement; every
+other facet is byte-identical). Mainnet-fork rehearsal (`npm run upgrade:scrum214:rehearse`, fork
+block 52824881): passed — 50 selectors (47 Replace, 3 Add), oracle state / pending questions / fee
+settings untouched, real headers accepted, and on the live cbBTC market `0x1537d5eb…` the real
+operator settled a Mint then a Merge match between two fresh wallets with the Diamond's collateral
+and outcome-token holdings back where they started; a reordered split left the registry unchanged.
 
 ## Slither — 27 raw results, all triaged
 
