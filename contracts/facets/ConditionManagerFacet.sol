@@ -155,7 +155,10 @@ contract ConditionManagerFacet is IConditionManager {
      * @return conditionId The CTF condition identifier
      * @custom:emits ConditionCreated with condition details
      * @custom:reverts InvalidOutcomeSlotCount if outcomeSlotCount <= 1
-     * @custom:security Only market makers can create conditions
+     * @custom:reverts NotContractOwner if the caller is not the contract owner
+     * @custom:security Only the contract owner (Safe) can create conditions (CTF-006): the caller
+     *      appoints the resolver. Market makers use createConditionWithMetadata, whose resolver is
+     *      always this Diamond.
      * @custom:note Oracle must manually call reportPayouts to resolve condition
      * @custom:deprecated Prefer createConditionWithMetadata for Bitcoin questions
      */
@@ -203,9 +206,11 @@ contract ConditionManagerFacet is IConditionManager {
 
     /**
      * @notice Cancels an active condition before resolution
-     * @dev Deactivates the condition preventing new position creation
+     * @dev Deactivates the condition: settlement refuses its orders (SCRUM-235) and its resolver
+     *      can no longer report payouts (CTF-006). Split, merge and redeem stay open.
      * @dev Only condition creator or contract owner can cancel conditions
-     * @dev Existing positions remain tradeable but condition won't be resolved
+     * @dev A cancelled condition can still resolve: its pending oracle question settles as usual,
+     *      or the owner resolves it as void with voidCondition (CTF-005).
      * @param conditionId The CTF condition identifier to cancel
      * @custom:emits ConditionCancelled with condition ID and canceler address
      * @custom:reverts ConditionDoesNotExist if condition was never created
