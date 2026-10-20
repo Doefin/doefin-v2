@@ -2,6 +2,7 @@
 
 **Reviewer:** `sc-manual-reviewer` (manual reading only; no tool, test or PoC was run)
 **Date:** 2026-10-19
+**Ticket:** SCRUM-214 (fixes `bc40f48`..`6be7c06`, follow-ups from the PR #31 CodeRabbit triage `audit/coderabbit-triage/PR-31.md`; deployment `audit/follow-ups.md` CTF-MAINNET-CUT)
 **Branch:** `worktree-agent-a178dfb0cb78d8154` @ `c506fe3` (contracts as on `dev`)
 **Deployment context:** live on Base mainnet. Diamond `0x71C424Ef79819c852952e517c082C4d17f89Fdf9` holds the collateral behind every outcome token, and the same ERC-20 balance also holds the SCRUM-236 fee bank.
 **Why this review:** the original audit excluded the CTF as "imported from Gnosis CTF" (`audit/00-scope.md:43-45`). It is not a plain import. It runs on Diamond storage, adds internal split/merge variants used by settlement, a resolution fee that accrues into the fee bank, a market registry written by `splitPosition`, and condition cancellation.
@@ -55,7 +56,15 @@
 
 ## 2. Findings
 
+Each heading keeps the reviewer's triage at `c506fe3` ("new — fix"). The lifecycle fields under it
+follow `security/audit-protocol.md` and were added with the fix commits (SCRUM-214).
+
 ### CTF-001 — CRITICAL — new — fix — Free partial-partition registration makes `_settleMerge` release full collateral for an incomplete outcome set (Diamond insolvency)
+
+- **status:** confirmed · **decision:** fix · **reverify:** pending · **ticket:** SCRUM-214
+- **poc:** `test/audit/CTF-001-003-market-registry.test.js` — the `[pre-fix: …]` cases fail on the pre-fix contracts (run recorded in the fix commit); walkthrough: the exploit scenario below; §7 PoC-CTF-001.
+- **fix-commit:** `bc40f48` (fixed in code, guard tests green, full suite green; production cut (`audit/follow-ups.md` CTF-MAINNET-CUT) and Phase-6 re-verify outstanding). The settlement-side guard (`SettlementFacet._conditionAndPartition`) is defence in depth, reachable only through a legacy non-canonical registry entry (none on mainnet or Base Sepolia); its direct test and the completeness clause of `echidna_registry_canonical` came from the PR #31 triage (CR-4319907524, CR-4319907478). Fuzzing did not independently show CTF-001 until that clause existed — see the ledger's CTF fuzzing correction.
+- **fix-test:** `test/audit/CTF-001-003-market-registry.test.js`
 - **location:**
   - `contracts/libraries/LibCTFCondition.sol:86-94`: `_splitPosition` registers the caller's partition. Nothing requires it to be complete or non-zero in amount.
   - `contracts/libraries/LibCTFCondition.sol:247-278`: no full-partition or `amount > 0` check.
@@ -122,6 +131,11 @@
   ```
 
 ### CTF-002 — HIGH — new — fix — Anyone writes the market registry, for free and first come first served. Outcome order (YES/NO labels), condition mapping and market listing are attacker-controlled
+
+- **status:** confirmed · **decision:** fix · **reverify:** pending · **ticket:** SCRUM-214
+- **poc:** `test/audit/CTF-001-003-market-registry.test.js` — the `[pre-fix: …]` cases fail on the pre-fix contracts (run recorded in the fix commit); walkthrough: the exploit scenario below; §7 PoC-CTF-002a/b.
+- **fix-commit:** `bc40f48` (fixed in code, guard tests green, full suite green; production cut (`audit/follow-ups.md` CTF-MAINNET-CUT) and Phase-6 re-verify outstanding). No registry clean-up needed: mainnet 29/29 and Base Sepolia 15/15 entries are canonical (read-only, 2026-10-19 / 2026-10-20).
+- **fix-test:** `test/audit/CTF-001-003-market-registry.test.js`
 - **location:**
   - `contracts/libraries/LibCTFCondition.sol:94`
   - `contracts/libraries/LibPositionRegistry.sol:103-158`: first-write-wins at `:118-128`; the cross-market lock at `:149-156`.
@@ -163,6 +177,11 @@
   - Operationally, until fixed: seed in the same transaction as creation (a Safe MultiSend `createConditionWithMetadata` plus `splitPosition`), and audit the mainnet registry (CTF-001 recommendation 5).
 
 ### CTF-003 — MEDIUM — new — fix — Settlement Mint/Merge ignore the registry market's `parentCollectionId` and `collateralToken`, so the Diamond's own ERC-1155 balance becomes settlement inventory
+
+- **status:** confirmed · **decision:** fix · **reverify:** pending · **ticket:** SCRUM-214
+- **poc:** `test/audit/CTF-001-003-market-registry.test.js` — the `[pre-fix: …]` cases fail on the pre-fix contracts (run recorded in the fix commit); walkthrough: the exploit scenario below.
+- **fix-commit:** `bc40f48` (fixed in code, guard tests green, full suite green; production cut (`audit/follow-ups.md` CTF-MAINNET-CUT) and Phase-6 re-verify outstanding).
+- **fix-test:** `test/audit/CTF-001-003-market-registry.test.js`
 - **location:**
   - `contracts/facets/SettlementFacet.sol:656-671`: the split uses `bytes32(0)` and `taker.collateralToken`, then transfers `taker/maker.positionId` out of the Diamond.
   - `contracts/facets/SettlementFacet.sol:716-733`: sellers' IDs come in, and root IDs of the order's collateral are burned.
@@ -188,6 +207,11 @@
   - Gate unregistered positions in `_validateOrder` (revert `InvalidPositionId`) instead of skipping the condition checks.
 
 ### CTF-004 — MEDIUM — new — fix — The resolution fee is fully avoidable by fabricating losing tokens (self-nested split plus fee-free redemption to a parent) and merging to collateral
+
+- **status:** confirmed · **decision:** fix · **reverify:** pending · **ticket:** SCRUM-214
+- **poc:** `test/audit/CTF-004-007-resolution-fee.test.js` — the `[pre-fix: …]` cases fail on the pre-fix contracts (run recorded in the fix commit); walkthrough: §7 PoC-CTF-004.
+- **fix-commit:** `22c741a` (fixed in code, guard tests green, full suite green; production cut (`audit/follow-ups.md` CTF-MAINNET-CUT) and Phase-6 re-verify outstanding).
+- **fix-test:** `test/audit/CTF-004-007-resolution-fee.test.js`
 - **location:**
   - `contracts/facets/ConditionalTokensFacet.sol:190-198`: a fee is charged only when `parentCollectionId == 0`.
   - `contracts/libraries/LibCTFCondition.sol:37-72`: a root merge has no fee and no resolved-condition check.
@@ -206,6 +230,11 @@
   - Optionally reject `splitPosition` on resolved conditions. This alone is not enough, because step 1 can be done before resolution.
 
 ### CTF-005 — MEDIUM — new — fix — No void or force-resolve path. One-sided collateral of conditions that can never resolve is locked until an ad-hoc `diamondCut`
+
+- **status:** confirmed · **decision:** fix · **reverify:** pending · **ticket:** SCRUM-214
+- **poc:** `test/audit/CTF-005-006-resolution-authority.test.js` — the `[pre-fix: …]` cases fail on the pre-fix contracts (run recorded in the fix commit); walkthrough: the `[pre-fix]` cases (no void path existed).
+- **fix-commit:** `8c86393` (fixed in code, guard tests green, full suite green; production cut (`audit/follow-ups.md` CTF-MAINNET-CUT) and Phase-6 re-verify outstanding). Deviation from the recommendation: no timelock or deadline (owner Safe, after `cancelCondition`). The pending question is skipped at its settlement height rather than removed at void, and is counted as resolved so INV-ORC-4 holds (`8dbeaed`, PR #31 CR-4319907533).
+- **fix-test:** `test/audit/CTF-005-006-resolution-authority.test.js`
 - **location:**
   - `contracts/libraries/LibCTFCondition.sol:211-245`: the only writer of payouts. Its only callers are `LibOracleAdapter` (`:270, 291, 326, 351`) and the external `reportPayouts`, which is oracle-bound.
   - `contracts/facets/ConditionManagerFacet.sol:144-167`: `createCondition(address(this), …)` registers no oracle question.
@@ -224,6 +253,11 @@
 - **recommendation:** add an owner (Safe) `voidCondition(conditionId)` that reports an equal-split vector. Allow it only when `!active` or after a per-condition deadline has passed, behind a timelock, and emit an event. Pop or flag any pending oracle question.
 
 ### CTF-006 — MEDIUM — new — fix — Legacy `createCondition` lets a market maker appoint any resolver. `reportPayouts` accepts arbitrary vectors and ignores cancellation
+
+- **status:** confirmed · **decision:** fix · **reverify:** pending · **ticket:** SCRUM-214
+- **poc:** `test/audit/CTF-005-006-resolution-authority.test.js` — the `[pre-fix: …]` cases fail on the pre-fix contracts (run recorded in the fix commit); walkthrough: the `[pre-fix]` cases.
+- **fix-commit:** `8c86393` (fixed in code, guard tests green, full suite green; production cut (`audit/follow-ups.md` CTF-MAINNET-CUT) and Phase-6 re-verify outstanding).
+- **fix-test:** `test/audit/CTF-005-006-resolution-authority.test.js`
 - **location:**
   - `contracts/facets/ConditionManagerFacet.sol:144-167`: the oracle is chosen by the caller.
   - `contracts/facets/ConditionalTokensFacet.sol:64-73`.
@@ -246,6 +280,11 @@
   - In `prepareCondition`, require `outcomeSlotCount >= 2`.
 
 ### CTF-007 — LOW — new — fix — The resolution fee is read at redemption time and can be up to 100%, with no cap or timelock
+
+- **status:** confirmed · **decision:** fix · **reverify:** pending · **ticket:** SCRUM-214
+- **poc:** `test/audit/CTF-004-007-resolution-fee.test.js` — the `[pre-fix: …]` cases fail on the pre-fix contracts (run recorded in the fix commit); walkthrough: the `[pre-fix]` cases.
+- **fix-commit:** `22c741a` (fixed in code, guard tests green, full suite green; production cut (`audit/follow-ups.md` CTF-MAINNET-CUT) and Phase-6 re-verify outstanding). Conditions resolved before the cut have no snapshot and are charged 0, so a later fee raise cannot reach their unredeemed winnings (`c1de64a`; owner decision 2026-10-20, PR #31 triage OOB-4). `AdminConfigFacet.getResolutionFeeBps(conditionId)` exposes the charged rate (`d4fff04`, CR-4319907505).
+- **fix-test:** `test/audit/CTF-004-007-resolution-fee.test.js`
 - **location:** `contracts/facets/AdminConfigFacet.sol:127-136` (bound at `:129` is `<= 10000`); `contracts/facets/ConditionalTokensFacet.sol:226, 239` (read at redeem time)
 - **source:** manual-reviewer · **swc:** — · **owasp:** SC01 · **upgrade-safe:** yes for a cap; a per-condition snapshot needs a new namespace
 - **description:** The fee in force when a user redeems applies to markets that resolved earlier. The owner (Safe) can raise it to 100% after resolution and before users redeem. The whole payout then goes to `accruedFees`, which only the owner can withdraw. Trading fees have a 10% hard cap (`AdminConfigFacet.sol:30`); resolution fees do not.
@@ -253,6 +292,11 @@
 - **recommendation:** add a hard cap (for example `MAX_RESOLUTION_FEE_BPS = 500`). Optionally snapshot the rate into the condition at creation or resolution, and timelock changes.
 
 ### CTF-008 — LOW — new — fix — The `sender == address(this)` transfer skip in the **public** split/merge is a latent free mint; the internal variants' safety claims are not enforced
+
+- **status:** confirmed · **decision:** fix · **reverify:** pending · **ticket:** SCRUM-214
+- **poc:** `test/audit/CTF-008-self-calls-and-lock.test.js` — the `[pre-fix: …]` cases fail on the pre-fix contracts (run recorded in the fix commit); walkthrough: the `[pre-fix]` cases.
+- **fix-commit:** `6be7c06` (fixed in code, guard tests green, full suite green; production cut (`audit/follow-ups.md` CTF-MAINNET-CUT) and Phase-6 re-verify outstanding).
+- **fix-test:** `test/audit/CTF-008-self-calls-and-lock.test.js`
 - **location:**
   - `contracts/libraries/LibCTFCondition.sol:59-61` and `:100-106`: public paths.
   - `contracts/libraries/LibCTFCondition.sol:122-209`: internal variants and their NatSpec.
