@@ -218,13 +218,13 @@ armed. Live resolution fee 0 bps.
 
 | ID | Sev | Finding | Fix | Status |
 |---|---|---|---|---|
-| CTF-001 | Critical | A free 0-amount partial split registered an incomplete "binary" market; a Merge then paid full collateral for a partial set (Diamond insolvency) | only a canonical root split (no parent, ascending singletons [1, 2, 4, …]) registers; settlement requires the two index sets to cover every outcome (`bc40f48`) | pending |
+| CTF-001 | Critical | A free 0-amount partial split registered an incomplete "binary" market; a Merge then paid full collateral for a partial set (Diamond insolvency) | only a canonical root split (no parent, ascending singletons [1, 2, 4, …]) registers; settlement requires the two index sets to cover every outcome (`bc40f48`; settlement-guard test `9c06520`) | pending |
 | CTF-002 | High | First-come registry write: reordered (YES/NO flip), nested and crafted-parent splits chose market structure, labels and condition mapping, or blocked the canonical seed | as CTF-001 (`bc40f48`) | pending |
 | CTF-003 | Medium | Settlement ignored the registry market's parent / collateral (Diamond holdings as inventory); unregistered positions skipped the cancelled / resolved gate | `_validateOrder` requires a registered root-market position in the order's collateral (`bc40f48`) | pending |
 | CTF-004 | Medium | Resolution fee avoidable by merging winning + losing tokens after resolution | a root full-set merge of a resolved condition pays the snapshotted resolution fee (`22c741a`) | pending |
-| CTF-005 | Medium | No void / force-resolve path: one-sided collateral of a never-resolving condition locked until a diamondCut | owner `voidCondition` (cancelled + unresolved → equal shares, fee 0); the oracle adapter skips already-resolved conditions (`8c86393`) | pending |
+| CTF-005 | Medium | No void / force-resolve path: one-sided collateral of a never-resolving condition locked until a diamondCut | owner `voidCondition` (cancelled + unresolved → equal shares, fee 0); the oracle adapter skips already-resolved conditions and counts the skipped question as resolved, keeping INV-ORC-4 (`8c86393`, `8dbeaed`) | pending |
 | CTF-006 | Medium | Market maker could appoint any resolver; `reportPayouts` accepted any vector and ignored cancellation | legacy `createCondition` owner-only; cancelled managed conditions refuse reports; ≥ 2 slots; numerators ≤ 2^64 − 1 (`8c86393`) | pending |
-| CTF-007 | Low | Resolution fee read at redemption time, up to 100%: owner could take winnings after resolution | capped at 500 bps; rate snapshotted per condition at resolution (`22c741a`) | pending |
+| CTF-007 | Low | Resolution fee read at redemption time, up to 100%: owner could take winnings after resolution | capped at 500 bps; rate snapshotted per condition at resolution (`22c741a`); conditions resolved before the cut are charged 0 (`c1de64a`); `getResolutionFeeBps(conditionId)` exposes the charged rate (`d4fff04`) | pending |
 | CTF-008 | Low | Public split / merge skipped collateral for a Diamond self-call; internal variants did not check the lock; settlement depended on the Diamond accepting its own ERC-1155 transfers | self-calls revert; lock enforced; self-acceptance check skipped (`6be7c06`) | pending |
 
 Fuzzing (`contracts/audit/DoefinInvariantHarness.sol`, extended in `4c893c7` with any-shape
@@ -235,6 +235,19 @@ engines fail `echidna_registry_canonical` and nothing else. The fuzzer's trade a
 seeded binary market, so the insolvency CTF-001 leads to is covered by the guard tests, not by
 fuzzing.
 
+**Correction (2026-10-20, PR #31 CR-4319907478):** as committed in `4c893c7`,
+`echidna_registry_canonical` checked parent and ordering, not completeness, so it could not see the
+CTF-001 registration itself — the partial `[1, 2]` on the 3-outcome condition (`_shape` index 4) is
+ascending singletons. The negative-control failures recorded above are CTF-002 shapes: Echidna's
+shrunk reproducer is the reordered `[4, 2, 1]` root split (index 3; first hit: grouped `[3, 4]`
+nested under outcome A), Medusa's the grouped `[3, 4]` root split (index 5). The property now
+implements INV-CTF-2 (`audit/findings/ctf-review.md` §7: every outcome covered, root position IDs,
+reverse mapping; `8199193`). Re-run on the fixed tree: Echidna 50,081 calls, 9/9 properties hold; Medusa 50,334 calls,
+33/33 pass. Negative control (`3c78b6f` + the new harness): Medusa fails `echidna_registry_canonical`
+and nothing else (50,489 calls). Pinned to the CTF-001 shape (scratch copy: `_shape` forced to
+index 4, root only) on `3c78b6f`: Echidna falsifies `echidna_registry_canonical` within a minute,
+shrunk to a single zero-amount partial split; the other 8 properties hold.
+
 Tooling on the fixed tree (2026-10-19): Slither 19 results — the pre-fix baseline (`3c78b6f`, 18)
 plus `cyclomatic-complexity` on `SettlementFacet._validateOrder` (12; the CTF-003 registry gate),
 informational, accepted. Solhint 0 errors. Neither tool detects CTF-001 / CTF-002 (business logic).
@@ -242,10 +255,14 @@ informational, accepted. Solhint 0 errors. Neither tool detects CTF-001 / CTF-00
 Deployment: one Safe cut with the oracle fixes (`scripts/upgrades/upgrade-scrum214-hardening.js`,
 six facets — oracle, ConditionManager, AdminConfig, ConditionalTokens, ERC1155, Settlement; every
 other facet is byte-identical). Mainnet-fork rehearsal (`npm run upgrade:scrum214:rehearse`, fork
-block 52824881): passed — 50 selectors (47 Replace, 3 Add), oracle state / pending questions / fee
+block 52824881; re-run after the PR #31 CodeRabbit round at fork block 52848576): passed — 51
+selectors (47 Replace, 4 Add, incl. `getResolutionFeeBps`), oracle state / pending questions / fee
 settings untouched, real headers accepted, and on the live cbBTC market `0x1537d5eb…` the real
 operator settled a Mint then a Merge match between two fresh wallets with the Diamond's collateral
-and outcome-token holdings back where they started; a reordered split left the registry unchanged.
+and outcome-token holdings back where they started; a reordered split left the registry unchanged;
+a market resolved before the cut (`0xe545b4aa…`, resolved while the live fee was 500 bps) is
+charged 0 after the fee is raised on the fork. Relative to mainnet the cut appends two AdminConfig
+fields (`maxOracleStaleness`, `resolutionFeeAtResolution`); no migration.
 
 ## Slither — 27 raw results, all triaged
 
