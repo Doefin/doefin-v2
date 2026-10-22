@@ -163,6 +163,10 @@ library LibERC1155 {
         uint256 value,
         bytes memory data
     ) private {
+        // CTF-008: the Diamond holds positions during Mint / Merge settlement; asking itself to
+        // accept them was an external self-call that made settlement depend on the
+        // ERC1155ReceiverFacet selectors staying routed.
+        if (to == address(this)) return;
         if (to.code.length > 0) {
             if (IERC1155TokenReceiver(to).onERC1155Received(operator, from, id, value, data) != IERC1155TokenReceiver.onERC1155Received.selector)
                 revert Errors.ERC1155ReceiverRejectedTokens();
@@ -177,6 +181,7 @@ library LibERC1155 {
         uint256[] memory values,
         bytes memory data
     ) private {
+        if (to == address(this)) return; // CTF-008, see _doSafeTransferAcceptanceCheck
         if (to.code.length > 0) {
             if (
                 IERC1155TokenReceiver(to).onERC1155BatchReceived(operator, from, ids, values, data) !=

@@ -2,7 +2,7 @@
 pragma solidity ^0.8.20;
 
 import {LibAdminConfigStorage} from "../libraries/LibAdminConfigStorage.sol";
-import {LibConstants} from "../libraries/LibConstants.sol";
+import {LibCTFCondition} from "../libraries/LibCTFCondition.sol";
 import {LibReentrancyGuard} from "../libraries/LibReentrancyGuard.sol";
 import {IAdminConfig} from "../interfaces/IAdminConfig.sol";
 import {LibDiamond} from "../libraries/LibDiamond.sol";
@@ -28,6 +28,9 @@ contract AdminConfigFacet is IAdminConfig {
     ///      then supplies the per-leg fee amount at settlement, bounded by the
     ///      configured `maxFeeRateBps` (see SettlementFacet._validateFee).
     uint16 internal constant MAX_FEE_RATE_BPS_CAP = 1000;
+
+    /// @notice CTF-007 (SCRUM-214) — hard ceiling on the resolution (redemption) fee: 5%.
+    uint16 internal constant MAX_RESOLUTION_FEE_BPS = 500;
 
     /**
      * @notice Adds a new collateral token to the protocol with specified unit configuration
@@ -115,18 +118,22 @@ contract AdminConfigFacet is IAdminConfig {
 
     /**
      * @notice Sets the resolution fee charged when redeeming winning positions
-     * @dev Fee is charged as a percentage of the payout amount in basis points
-     * @dev Resolution fee is deducted when users redeem their winning positions
-     * @param bps Fee percentage in basis points (100 bps = 1%, max 10000 bps = 100%)
+     * @dev Fee is charged as a percentage of the payout amount in basis points. It is deducted
+     *      on redemption and on a root full-set merge of a resolved condition (CTF-004).
+     * @param bps Fee percentage in basis points (100 bps = 1%, max MAX_RESOLUTION_FEE_BPS = 5%)
      * @custom:emits ResolutionFeeUpdated with old and new fee amounts
-     * @custom:reverts FeeTooHigh if bps exceeds 10,000 (100%)
+     * @custom:reverts FeeTooHigh if bps exceeds MAX_RESOLUTION_FEE_BPS
      * @custom:reverts NoChangeRequired if bps is the same as current setting
      * @custom:security Only callable by contract owner
-     * @custom:note Fee change affects future redemptions immediately
+     * @custom:note Applies to conditions resolved after the change: each condition snapshots the
+     *      rate when it resolves (CTF-007). Conditions resolved before snapshots existed (the
+     *      SCRUM-214 cut) are charged 0.
      */
     function setResolutionFeeBps(uint16 bps) external override {
         LibDiamond.enforceIsContractOwner();
-        if (bps > LibConstants.BPS_DENOMINATOR) revert Errors.FeeTooHigh();
+        // CTF-007: a hard ceiling (was 100%) — and the rate is snapshotted per condition at
+        // resolution, so a change never reaches winners of an already-resolved condition.
+        if (bps > MAX_RESOLUTION_FEE_BPS) revert Errors.FeeTooHigh();
 
         LibAdminConfigStorage.AdminConfigStorage storage acs = LibAdminConfigStorage.adminConfigStorage();
         uint16 oldFeeBps = acs.resolutionFeeBps;
@@ -161,6 +168,30 @@ contract AdminConfigFacet is IAdminConfig {
     }
 
     /**
+     * @notice Set how stale the oracle may be for new markets to be created
+     * @dev ORC-006 — `ConditionManagerFacet.createConditionWithMetadata` reverts
+     *      `OracleAdapter_OracleStale` while `block.timestamp` is more than `_seconds` past the
+     *      oracle's latest Bitcoin header timestamp. 0 disables the check (the default).
+     * @param _seconds Maximum oracle staleness in seconds (0 = disabled)
+     * @custom:emits MaxOracleStalenessUpdated with old and new limits
+     * @custom:reverts NoChangeRequired if `_seconds` equals the current value
+     * @custom:security Only callable by contract owner
+     */
+    function setMaxOracleStaleness(uint32 _seconds) external override {
+        LibDiamond.enforceIsContractOwner();
+        LibAdminConfigStorage.AdminConfigStorage storage acs = LibAdminConfigStorage.adminConfigStorage();
+        uint32 oldSeconds = acs.maxOracleStaleness;
+        if (oldSeconds == _seconds) revert Errors.NoChangeRequired();
+        acs.maxOracleStaleness = _seconds;
+        emit Events.MaxOracleStalenessUpdated(oldSeconds, _seconds);
+    }
+
+    /// @notice Returns the oracle-staleness limit for market creation, in seconds (0 = disabled)
+    function getMaxOracleStaleness() external view override returns (uint32) {
+        return LibAdminConfigStorage.adminConfigStorage().maxOracleStaleness;
+    }
+
+    /**
      * @notice Returns the configured maximum settlement fee rate
      * @return The maximum fee rate in basis points
      */
@@ -181,11 +212,27 @@ contract AdminConfigFacet is IAdminConfig {
     /**
      * @notice Returns the protocol fee configuration
      * @return feeReceiver Address that receives protocol fees
-     * @return resolutionFeeBps Resolution fee charged on redemption, in basis points
+     * @return resolutionFeeBps The LIVE resolution fee, in basis points: the rate a condition captures
+     *         when it resolves (CTF-007). For the rate charged on a resolved condition's payouts, use
+     *         getResolutionFeeBps(conditionId).
      */
     function getFees() external view override returns (address feeReceiver, uint16 resolutionFeeBps) {
         LibAdminConfigStorage.AdminConfigStorage storage cfg = LibAdminConfigStorage.adminConfigStorage();
         return (cfg.feeReceiver, cfg.resolutionFeeBps);
+    }
+
+    /**
+     * @notice Resolution fee (bps) charged on `conditionId`'s redemptions and post-resolution root
+     *         full-set merges.
+     * @dev CTF-007: the rate captured when the condition resolved; 0 for a voided condition
+     *      (CTF-005) and for one resolved before snapshots existed (the SCRUM-214 cut); for an
+     *      unresolved condition, the live rate it would capture now. Same source as the charge
+     *      (LibCTFCondition.resolutionFeeBps).
+     * @param conditionId The condition to inspect
+     * @return The fee rate in basis points
+     */
+    function getResolutionFeeBps(bytes32 conditionId) external view override returns (uint16) {
+        return LibCTFCondition.resolutionFeeBps(conditionId);
     }
 
     // ----------------------------------------

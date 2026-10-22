@@ -12,6 +12,7 @@ import {LibConditionMetadata} from "../libraries/LibConditionMetadata.sol";
 import {LibOracleAdapter} from "../libraries/LibOracleAdapter.sol";
 import {LibCTHelpers} from "../libraries/LibCTHelpers.sol";
 import {LibDoefinBlockHeaderOracle} from "../libraries/LibDoefinBlockHeaderOracle.sol";
+import {LibAdminConfigStorage} from "../libraries/LibAdminConfigStorage.sol";
 import {IConditionManager} from "../interfaces/IConditionManager.sol";
 import {Errors} from "../libraries/Errors.sol";
 import {Events} from "../libraries/Events.sol";
@@ -61,6 +62,10 @@ contract ConditionManagerFacet is IConditionManager {
 
         LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
 
+        // ORC-006: every rule below is relative to the oracle's tip, so refuse to create markets
+        // while the oracle lags Bitcoin (owner-set limit; 0 disables the check).
+        _enforceOracleFresh();
+
         // Get current block height for validation
         uint256 currentBlockHeight = LibDoefinBlockHeaderOracle.getCurrentBlockHeight();
 
@@ -101,13 +106,10 @@ contract ConditionManagerFacet is IConditionManager {
             // Create oracle question
             LibOracleAdapter.createDifficultyRangeQuestion(questionId, conditionId, targetBlockHeight, buckets);
         } else if (questionType == LibDoefinStorage.QuestionType.BlockCount) {
-            (uint256 startTimestamp, uint256 endTimestamp, uint256[] memory countBuckets) = LibConditionMetadata.decodeBlockCount(metadata);
-
-            // Validate parameters
-            LibConditionMetadata.validateBlockCount(startTimestamp, endTimestamp, countBuckets, outcomeSlotCount);
-
-            // Create oracle question
-            LibOracleAdapter.createBlockCountQuestion(questionId, conditionId, startTimestamp, endTimestamp, countBuckets);
+            // ORC-004: disabled. Resolution needs a block at an exact probed second and a header
+            // inside the end bucket, so a BlockCount question either froze the oracle at settlement
+            // or never resolved. Redesign tracked separately; the question type stays in the enum.
+            revert Errors.OracleAdapter_QuestionTypeDisabled();
         } else if (questionType == LibDoefinStorage.QuestionType.MiningDuration) {
             (uint256 startBlockHeight, uint256 blockCount, uint256[] memory durationBuckets) = LibConditionMetadata.decodeMiningDuration(metadata);
 
@@ -126,6 +128,22 @@ contract ConditionManagerFacet is IConditionManager {
     }
 
     /**
+     * @dev ORC-006 — refuse market creation while the oracle's tip is older than the owner-set
+     *      `maxOracleStaleness` (seconds of chain time; 0 disables the check). Creation rules
+     *      compare against the oracle's height, so during an oracle stall heights Bitcoin has
+     *      already mined (and difficulty periods already decided) would otherwise pass.
+     * @custom:reverts OracleAdapter_OracleStale if the latest header is older than the limit
+     */
+    function _enforceOracleFresh() internal view {
+        uint256 maxStaleness = LibAdminConfigStorage.adminConfigStorage().maxOracleStaleness;
+        if (maxStaleness == 0) return;
+        uint256 tipTime = LibDoefinBlockHeaderOracle.getLatestBlockHeader().timestamp;
+        // Coarse staleness window (hours); a few seconds of sequencer skew is irrelevant.
+        // slither-disable-next-line timestamp
+        if (block.timestamp > tipTime + maxStaleness) revert Errors.OracleAdapter_OracleStale();
+    }
+
+    /**
      * @notice Creates a simple condition without Oracle integration (legacy compatibility)
      * @dev Maintains backwards compatibility with basic condition creation
      * @dev Does not integrate with Oracle adapter - manual resolution required
@@ -137,7 +155,10 @@ contract ConditionManagerFacet is IConditionManager {
      * @return conditionId The CTF condition identifier
      * @custom:emits ConditionCreated with condition details
      * @custom:reverts InvalidOutcomeSlotCount if outcomeSlotCount <= 1
-     * @custom:security Only market makers can create conditions
+     * @custom:reverts NotContractOwner if the caller is not the contract owner
+     * @custom:security Only the contract owner (Safe) can create conditions (CTF-006): the caller
+     *      appoints the resolver. Market makers use createConditionWithMetadata, whose resolver is
+     *      always this Diamond.
      * @custom:note Oracle must manually call reportPayouts to resolve condition
      * @custom:deprecated Prefer createConditionWithMetadata for Bitcoin questions
      */
@@ -147,7 +168,10 @@ contract ConditionManagerFacet is IConditionManager {
         uint8 outcomeSlotCount,
         string calldata metadataURI
     ) external override returns (bytes32 conditionId) {
-        LibAccessControl.enforceIsMarketMaker();
+        // CTF-006: this path lets the caller appoint any resolver, which then reports any payout
+        // vector — owner (Safe) only. Market makers create oracle-backed markets through
+        // createConditionWithMetadata, whose resolver is always this Diamond.
+        LibDiamond.enforceIsContractOwner();
         if (outcomeSlotCount <= 1) {
             revert Errors.InvalidOutcomeSlotCount();
         }
@@ -182,9 +206,11 @@ contract ConditionManagerFacet is IConditionManager {
 
     /**
      * @notice Cancels an active condition before resolution
-     * @dev Deactivates the condition preventing new position creation
+     * @dev Deactivates the condition: settlement refuses its orders (SCRUM-235) and its resolver
+     *      can no longer report payouts (CTF-006). Split, merge and redeem stay open.
      * @dev Only condition creator or contract owner can cancel conditions
-     * @dev Existing positions remain tradeable but condition won't be resolved
+     * @dev A cancelled condition can still resolve: its pending oracle question settles as usual,
+     *      or the owner resolves it as void with voidCondition (CTF-005).
      * @param conditionId The CTF condition identifier to cancel
      * @custom:emits ConditionCancelled with condition ID and canceler address
      * @custom:reverts ConditionDoesNotExist if condition was never created
@@ -211,5 +237,24 @@ contract ConditionManagerFacet is IConditionManager {
 
         cond.active = false;
         emit Events.ConditionCancelled(conditionId, msg.sender);
+    }
+
+    /**
+     * @notice Resolve a cancelled, unresolved condition as void: every outcome pays an equal share,
+     *         so holders recover their collateral (a full set redeems to its full amount).
+     * @dev CTF-005 — owner (Safe) only, and only after `cancelCondition`, so a live market cannot be
+     *      voided in one step. A pending oracle question for the condition is skipped when its
+     *      settlement block arrives (LibOracleAdapter), so voiding cannot freeze the oracle.
+     * @param conditionId The condition to void
+     * @custom:emits ConditionVoided, ConditionResolution
+     * @custom:reverts ConditionDoesNotExist, ConditionStillActive, ConditionAlreadyResolved
+     */
+    function voidCondition(bytes32 conditionId) external override {
+        LibDiamond.enforceIsContractOwner();
+        LibDoefinStorage.Condition storage cond = LibDoefinStorage.appStorage().conditionalTokens.conditions[conditionId];
+        if (cond.creator == address(0)) revert Errors.ConditionDoesNotExist();
+        if (cond.active) revert Errors.ConditionStillActive();
+        LibCTFCondition._voidPayouts(conditionId, cond.oracle, cond.questionId);
+        emit Events.ConditionVoided(conditionId, msg.sender);
     }
 }

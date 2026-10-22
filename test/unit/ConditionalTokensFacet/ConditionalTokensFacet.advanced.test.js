@@ -251,21 +251,19 @@ describe("ConditionalTokensFacet Advanced", function () {
       ).to.be.revertedWith("AllZeroPayouts()");
     });
 
-    it("should handle maximum payout values", async () => {
-      const maxPayouts = [
-        ethers.constants.MaxUint256,
-        ethers.constants.Zero,
-        ethers.constants.Zero,
-      ];
+    it("should accept payouts summing to the 2^64 − 1 bound and refuse anything above it (CTF-006)", async () => {
+      // Redemption computes stake * numerator; the bound keeps that product far below 2^256.
+      const maxDen = ethers.BigNumber.from(2).pow(64).sub(1);
+      await expect(
+        conditionalTokensFacet.connect(oracle).reportPayouts(testQuestionId, [maxDen.add(1), 0, 0])
+      ).to.be.revertedWith("InvalidPayouts()");
+      await expect(
+        conditionalTokensFacet.connect(oracle).reportPayouts(testQuestionId, [ethers.constants.MaxUint256, 0, 0])
+      ).to.be.revertedWith("InvalidPayouts()");
 
-      await conditionalTokensFacet
-        .connect(oracle)
-        .reportPayouts(testQuestionId, maxPayouts);
-
-      const storedPayouts = await conditionalTokensFacet.getPayoutNumerators(
-        testConditionId
-      );
-      expect(storedPayouts[0]).to.equal(ethers.constants.MaxUint256);
+      await conditionalTokensFacet.connect(oracle).reportPayouts(testQuestionId, [maxDen.sub(1), 1, 0]);
+      const storedPayouts = await conditionalTokensFacet.getPayoutNumerators(testConditionId);
+      expect(storedPayouts.map(String)).to.deep.equal([maxDen.sub(1).toString(), "1", "0"]); // sums to the bound
     });
   });
 

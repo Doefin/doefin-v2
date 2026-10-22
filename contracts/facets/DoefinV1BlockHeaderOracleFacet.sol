@@ -7,6 +7,7 @@ pragma solidity ^0.8.20;
 import {Errors} from "../libraries/Errors.sol";
 import {Events} from "../libraries/Events.sol";
 import {LibDoefinStorage} from "../libraries/LibDoefinStorage.sol";
+import {LibDiamond} from "../libraries/LibDiamond.sol";
 import {LibDoefinBlockHeaderOracle} from "../libraries/LibDoefinBlockHeaderOracle.sol";
 import {BlockHeaderUtils} from "../libraries/BlockHeaderUtils.sol";
 import {LibOracleAdapter} from "../libraries/LibOracleAdapter.sol";
@@ -61,12 +62,19 @@ contract DoefinV1BlockHeaderOracle is IDoefinBlockHeaderOracle {
      * @dev Prevents re-initialization once currentBlockHeight is set
      * @param initialBlockHistory Array of exactly 17 consecutive Bitcoin block headers
      * @param initialBlockHeight The block number of the first header in the array
+     * @custom:reverts LibDiamond.NotContractOwner if the caller is not the Diamond owner
      * @custom:reverts AlreadyInitialized if oracle has already been initialized
      * @custom:reverts BlockHeaderOracle_InvalidInitialHistoryLength if not exactly 17 headers
-     * @custom:security One-time initialization prevents data corruption from duplicate calls
+     * @custom:reverts BlockHeaderOracle_PrevBlockHashMismatch if the headers are not one linked chain
+     * @custom:reverts BlockHeaderOracle_InvalidBlockHash / InvalidTargetNBits if a header lacks valid proof of work
+     * @custom:security ORC-008 — owner-only, and the seed must be a linked, proof-of-work-valid chain:
+     *      every later header is checked against it, so whoever seeds the oracle defines it.
+     *      The seed's timestamps are recorded in `blockHeightToTimestamp` so the median-time
+     *      and retarget rules can read them.
      * @custom:gas High initial cost due to 17 block header storage writes
      */
     function initializeBlockHeaderOracle(LibDoefinStorage.BlockHeader[] calldata initialBlockHistory, uint256 initialBlockHeight) external {
+        LibDiamond.enforceIsContractOwner();
         LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
 
         // Prevent re-initialization
@@ -78,12 +86,23 @@ contract DoefinV1BlockHeaderOracle is IDoefinBlockHeaderOracle {
             revert Errors.BlockHeaderOracle_InvalidInitialHistoryLength();
         }
 
+        bytes32 prevBlockHash = bytes32(0);
         for (uint256 i = 0; i < initialBlockHistory.length; ++i) {
             LibDoefinStorage.BlockHeader memory blockHeader = initialBlockHistory[i];
             blockHeader.blockHash = BlockHeaderUtils.calculateBlockHash(blockHeader);
             blockHeader.blockNumber = initialBlockHeight + i;
 
+            if (i > 0 && blockHeader.prevBlockHash != prevBlockHash) {
+                revert Errors.BlockHeaderOracle_PrevBlockHashMismatch();
+            }
+            if (!BlockHeaderUtils.meetsOwnTarget(blockHeader)) {
+                revert Errors.BlockHeaderOracle_InvalidBlockHash();
+            }
+            prevBlockHash = blockHeader.blockHash;
+
             ds.blockHeaderOracleStorage.blockHeaders[i] = blockHeader;
+            ds.oracleAdapterStorage.blockHeightToTimestamp[blockHeader.blockNumber] = blockHeader.timestamp;
+            ds.oracleAdapterStorage.timestampToBlockHeight[blockHeader.timestamp] = blockHeader.blockNumber;
         }
 
         ds.blockHeaderOracleStorage.nextBlockIndex = 0;
@@ -109,12 +128,34 @@ contract DoefinV1BlockHeaderOracle is IDoefinBlockHeaderOracle {
     }
 
     /// @inheritdoc IDoefinBlockHeaderOracle
+    /// @dev Reorg replay: `_findForkPoint` locates the first header's parent in the ring
+    ///      buffer (fork height `f`, depth `d = currentBlockHeight - f`, `0 <= d <= 16`),
+    ///      the pointer and height are rewound to `f`, and `_applyChain` overwrites the
+    ///      slots after it. The rewind uses the wrap-safe idiom
+    ///      `(nextBlockIndex + NUM_OF_BLOCK_HEADERS - d) % NUM_OF_BLOCK_HEADERS`.
+    ///      SCRUM-521: the previous checked left-to-right form
+    ///      `nextBlockIndex + forkHeight - currentBlockHeight` underflowed (Panic 0x11)
+    ///      whenever `nextBlockIndex <= d`, which froze the Base-mainnet oracle on an
+    ///      orphaned block on 2026-09-15.
+    /// @custom:reverts BlockHeaderOracle_CannotFindForkPoint if the first header's parent is
+    ///      not in the buffer or its `blockNumber` is not the parent's height + 1
+    /// @dev ORC-001: the branch must carry strictly more proof of work than the stored blocks it
+    ///      replaces (Bitcoin's most-work rule; a tie keeps the current chain). Counting blocks let a
+    ///      longer branch of easier-target headers displace the real chain.
+    /// @custom:reverts BlockHeaderOracle_EmptyBatch if `newBlockHeaders` is empty (ORC-011)
+    /// @custom:reverts BlockHeaderOracle_NewChainNotLonger if the branch's work does not exceed the
+    ///      work of the stored blocks above `f`
+    /// @custom:reverts BlockHeaderOracle_PrevBlockHashMismatch, BlockHeaderOracle_InvalidTimestamp,
+    ///      BlockHeaderOracle_TimestampTooNew, BlockHeaderOracle_UnexpectedDifficulty,
+    ///      BlockHeaderOracle_InvalidTargetNBits or BlockHeaderOracle_InvalidBlockHash from
+    ///      `_verifyBlockHeader` on any header of the batch
     function submitBatchBlocks(LibDoefinStorage.BlockHeader[] calldata newBlockHeaders) external {
+        if (newBlockHeaders.length == 0) revert Errors.BlockHeaderOracle_EmptyBatch();
         LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
         LibDoefinStorage.BlockHeader memory latestBlockHeaderInBatch = newBlockHeaders[newBlockHeaders.length - 1];
         uint256 forkHeight = _findForkPoint(newBlockHeaders[0]);
 
-        if (forkHeight + newBlockHeaders.length <= ds.blockHeaderOracleStorage.currentBlockHeight) {
+        if (_branchWork(newBlockHeaders) <= _storedWorkAbove(forkHeight)) {
             revert Errors.BlockHeaderOracle_NewChainNotLonger();
         }
 
@@ -122,16 +163,21 @@ contract DoefinV1BlockHeaderOracle is IDoefinBlockHeaderOracle {
             emit Events.BlockReorged(latestBlockHeaderInBatch.merkleRootHash);
         }
 
-        LibDoefinStorage.BlockHeader memory prevBlockHeader = forkHeight == ds.blockHeaderOracleStorage.currentBlockHeight
+        // SCRUM-521: rewind by `depth` slots. `_findForkPoint` only returns fork points inside
+        // the buffer, so `depth <= NUM_OF_BLOCK_HEADERS - 1`; adding the buffer size before
+        // subtracting keeps every intermediate value non-negative in checked math — the same
+        // idiom `_findForkPoint` and `LibDoefinBlockHeaderOracle.getBlockHeaderByNumber` use.
+        uint256 numHeaders = LibDoefinStorage.NUM_OF_BLOCK_HEADERS;
+        uint256 depth = ds.blockHeaderOracleStorage.currentBlockHeight - forkHeight; // 0 on a plain extension
+
+        LibDoefinStorage.BlockHeader memory prevBlockHeader = depth == 0
             ? getLatestBlockHeader()
             : ds.blockHeaderOracleStorage.blockHeaders[
-                (ds.blockHeaderOracleStorage.nextBlockIndex + forkHeight - ds.blockHeaderOracleStorage.currentBlockHeight - 1) %
-                    LibDoefinStorage.NUM_OF_BLOCK_HEADERS
+                (ds.blockHeaderOracleStorage.nextBlockIndex + numHeaders - depth - 1) % numHeaders
             ];
 
         ds.blockHeaderOracleStorage.nextBlockIndex =
-            (ds.blockHeaderOracleStorage.nextBlockIndex + forkHeight - ds.blockHeaderOracleStorage.currentBlockHeight) %
-            LibDoefinStorage.NUM_OF_BLOCK_HEADERS;
+            (ds.blockHeaderOracleStorage.nextBlockIndex + numHeaders - depth) % numHeaders;
         ds.blockHeaderOracleStorage.currentBlockHeight = forkHeight;
 
         _applyChain(prevBlockHeader, newBlockHeaders);
@@ -139,19 +185,25 @@ contract DoefinV1BlockHeaderOracle is IDoefinBlockHeaderOracle {
 
     /// @inheritdoc IDoefinBlockHeaderOracle
     function medianBlockTime() public view returns (uint256) {
+        return _medianTimePast(LibDoefinStorage.appStorage().blockHeaderOracleStorage.currentBlockHeight + 1);
+    }
+
+    /**
+     * @dev Median timestamp of the 11 canonical blocks before `height` (Bitcoin's median-time-past).
+     * @dev ORC-007: read by height from `blockHeightToTimestamp` — written for every applied header
+     *      and rewritten on a reorg replay — instead of the last 11 ring slots. After a rewind of
+     *      depth >= 7 those slots wrapped into the orphaned branch, so the median was taken over the
+     *      wrong blocks and a canonical replacement chain could be rejected.
+     */
+    function _medianTimePast(uint256 height) internal view returns (uint256) {
         LibDoefinStorage.AppStorage storage ds = LibDoefinStorage.appStorage();
         // Solidity zero-initializes fixed-size memory arrays; the loop below fills every
         // slot deterministically before `BlockHeaderUtils.median` reads any element.
         // slither-disable-next-line uninitialized-local
         uint256[11] memory timestamps;
-        uint256 startIndex = (ds.blockHeaderOracleStorage.nextBlockIndex + LibDoefinStorage.NUM_OF_BLOCK_HEADERS - 1) %
-            LibDoefinStorage.NUM_OF_BLOCK_HEADERS;
-
-        for (uint256 i = 0; i < 11; ++i) {
-            uint256 j = (startIndex + LibDoefinStorage.NUM_OF_BLOCK_HEADERS - i) % LibDoefinStorage.NUM_OF_BLOCK_HEADERS;
-            timestamps[i] = ds.blockHeaderOracleStorage.blockHeaders[j].timestamp;
+        for (uint256 i = 0; i < 11 && i < height; ++i) {
+            timestamps[i] = ds.oracleAdapterStorage.blockHeightToTimestamp[height - 1 - i];
         }
-
         return BlockHeaderUtils.median(timestamps);
     }
 
@@ -224,6 +276,15 @@ contract DoefinV1BlockHeaderOracle is IDoefinBlockHeaderOracle {
     }
 
     /// @notice Verifies a single block header against consensus rules
+    /// @dev `newBlockHeader.blockNumber` must already be set to its height.
+    /// @custom:security ORC-001 / ORC-002 / ORC-010 — Bitcoin Core's header rules:
+    ///      linkage; timestamp strictly above the median of the previous 11 blocks and at most
+    ///      2 h ahead of the chain's clock; nBits equal to the parent's inside a difficulty period
+    ///      and equal to the retarget result at a period boundary; proof of work against the
+    ///      header's OWN target. Checking the hash against the parent's target while never
+    ///      checking the new nBits let one block of real work declare an arbitrary easy target
+    ///      for every block after it (ORC-001), and rejected the honest first block after a
+    ///      downward retarget whenever its hash fell between the old and new target (ORC-002).
     /// @param prevBlockHeader The previous block header
     /// @param newBlockHeader The new block header to verify
     function _verifyBlockHeader(
@@ -234,12 +295,73 @@ contract DoefinV1BlockHeaderOracle is IDoefinBlockHeaderOracle {
             revert Errors.BlockHeaderOracle_PrevBlockHashMismatch();
         }
 
-        if (newBlockHeader.timestamp < medianBlockTime()) {
+        if (newBlockHeader.timestamp <= _medianTimePast(newBlockHeader.blockNumber)) {
             revert Errors.BlockHeaderOracle_InvalidTimestamp();
         }
+        // Bitcoin's own rule is relative to wall-clock time; block.timestamp is the chain's clock.
+        // slither-disable-next-line timestamp
+        if (newBlockHeader.timestamp > block.timestamp + BlockHeaderUtils.MAX_FUTURE_BLOCK_TIME) {
+            revert Errors.BlockHeaderOracle_TimestampTooNew();
+        }
 
-        if (!BlockHeaderUtils.isValidBlockHeaderHash(prevBlockHeader, newBlockHeader)) {
+        _verifyDifficulty(prevBlockHeader, newBlockHeader);
+
+        if (!BlockHeaderUtils.meetsOwnTarget(newBlockHeader)) {
             revert Errors.BlockHeaderOracle_InvalidBlockHash();
+        }
+    }
+
+    /**
+     * @dev Bitcoin's difficulty rule. Inside a 2016-block period nBits must equal the parent's.
+     *      At a period boundary it must equal `CalculateNextWorkRequired` over the closing period,
+     *      whose first timestamp is read from `blockHeightToTimestamp`. That record exists for every
+     *      boundary the oracle has run across a full period; when it does not (the first boundary
+     *      after initialising mid-period) the new target is held within Bitcoin's 4x clamp instead.
+     * @custom:reverts BlockHeaderOracle_UnexpectedDifficulty if nBits is not the required value
+     * @custom:reverts BlockHeaderOracle_InvalidTargetNBits if either nBits is not a valid encoding
+     */
+    function _verifyDifficulty(
+        LibDoefinStorage.BlockHeader memory prevBlockHeader,
+        LibDoefinStorage.BlockHeader memory newBlockHeader
+    ) internal view {
+        uint256 height = newBlockHeader.blockNumber;
+        if (height % BlockHeaderUtils.DIFFICULTY_ADJUSTMENT_INTERVAL != 0) {
+            if (newBlockHeader.nBits != prevBlockHeader.nBits) revert Errors.BlockHeaderOracle_UnexpectedDifficulty();
+            return;
+        }
+
+        uint256 prevTarget = BlockHeaderUtils.decodeCompactStrict(prevBlockHeader.nBits);
+        uint256 periodStartTime = LibDoefinStorage.appStorage().oracleAdapterStorage.blockHeightToTimestamp[
+            height - BlockHeaderUtils.DIFFICULTY_ADJUSTMENT_INTERVAL
+        ];
+        if (periodStartTime != 0) {
+            uint256 expected = BlockHeaderUtils.nextPeriodTarget(prevTarget, periodStartTime, prevBlockHeader.timestamp);
+            if (newBlockHeader.nBits != BlockHeaderUtils.encodeCompact(expected)) {
+                revert Errors.BlockHeaderOracle_UnexpectedDifficulty();
+            }
+        } else {
+            uint256 newTarget = BlockHeaderUtils.decodeCompactStrict(newBlockHeader.nBits);
+            if (newTarget < prevTarget / 4 || newTarget / 4 > prevTarget) {
+                revert Errors.BlockHeaderOracle_UnexpectedDifficulty();
+            }
+        }
+    }
+
+    /// @dev Total declared work of a submitted branch (saturating: a crafted tiny target cannot overflow).
+    function _branchWork(LibDoefinStorage.BlockHeader[] calldata headers) internal pure returns (uint256 total) {
+        for (uint256 i = 0; i < headers.length; ++i) {
+            uint256 w = BlockHeaderUtils.blockWork(BlockHeaderUtils.decodeCompactStrict(headers[i].nBits));
+            total = total > type(uint256).max - w ? type(uint256).max : total + w;
+        }
+    }
+
+    /// @dev Total work of the stored blocks above `forkHeight` — the blocks a reorg would replace.
+    function _storedWorkAbove(uint256 forkHeight) internal view returns (uint256 total) {
+        uint256 currentHeight = LibDoefinStorage.appStorage().blockHeaderOracleStorage.currentBlockHeight;
+        for (uint256 h = forkHeight + 1; h <= currentHeight; ++h) {
+            LibDoefinStorage.BlockHeader memory stored = LibDoefinBlockHeaderOracle.getBlockHeaderByNumber(h);
+            uint256 w = BlockHeaderUtils.blockWork(BlockHeaderUtils.decodeCompactStrict(stored.nBits));
+            total = total > type(uint256).max - w ? type(uint256).max : total + w;
         }
     }
 

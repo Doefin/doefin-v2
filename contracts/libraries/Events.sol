@@ -45,6 +45,9 @@ library Events {
     /// @param newRate New maximum fee rate in basis points
     event MaxFeeRateUpdated(uint16 oldRate, uint16 newRate);
 
+    /// @notice ORC-006 — the oracle-staleness limit for market creation changed (seconds; 0 = off)
+    event MaxOracleStalenessUpdated(uint32 oldSeconds, uint32 newSeconds);
+
     // ========================================
     // ACCESS CONTROL EVENTS
     // ========================================
@@ -83,6 +86,11 @@ library Events {
     /// @param conditionId Unique identifier for the condition
     /// @param cancelledBy Address that cancelled the condition
     event ConditionCancelled(bytes32 indexed conditionId, address indexed cancelledBy);
+
+    /// @notice CTF-005 — a cancelled condition was resolved as void: every outcome pays an equal share
+    /// @param conditionId The voided condition
+    /// @param voidedBy Address that voided it (the contract owner)
+    event ConditionVoided(bytes32 indexed conditionId, address indexed voidedBy);
 
     // ========================================
     // CONDITIONAL TOKENS EVENTS

@@ -7,14 +7,14 @@ Produced by triage from: 4 domain reviews, Slither (27 raw), Mythril (3), Echidn
 
 | Severity | Count | IDs |
 |---|---|---|
-| Critical | 0 | — |
-| High | 2 | SEC-001, SEC-002 |
-| Medium | 7 | SEC-003, SEC-004, SEC-005, SEC-006, SEC-007, BIZ-001, GAS-001 |
-| Low | 12 | SEC-008, SEC-009, SEC-010, SEC-011, BIZ-002, BIZ-004, BIZ-005, BIZ-006, CPX-003, CPX-005, CPX-006, CPX-007 |
-| Informational | 6 | SEC-012, SEC-013, SEC-014, BIZ-008, CPX-A2, CPX-A4567 |
+| Critical | 2 | ORC-001 (oracle review, SCRUM-214 — fixed in code; mainnet cut pending, still live on mainnet); CTF-001 (CTF review, SCRUM-214 — fixed in code; cut pending; not armed on mainnet) |
+| High | 7 | SEC-001, SEC-002, SEC-015 (post-audit — production incident 2026-09-15, fixed SCRUM-521); ORC-002, ORC-003, ORC-004 (oracle review — fixed in code; cut pending); CTF-002 (CTF review — fixed in code; cut pending) |
+| Medium | 15 | SEC-003, SEC-004, SEC-005, SEC-006, SEC-007, BIZ-001, GAS-001; ORC-005, ORC-006, ORC-008, ORC-009 (fixed in code; cut pending); CTF-003, CTF-004, CTF-005, CTF-006 (fixed in code; cut pending) |
+| Low | 16 | SEC-008, SEC-009, SEC-010, SEC-011, BIZ-002, BIZ-004, BIZ-005, BIZ-006, CPX-003, CPX-005, CPX-006, CPX-007; ORC-007, ORC-010 (fixed in code; cut pending); CTF-007, CTF-008 (fixed in code; cut pending) |
+| Informational | 7 | SEC-012, SEC-013, SEC-014, BIZ-008, CPX-A2, CPX-A4567; ORC-011 (fixed in code; cut pending) |
 | Gas (≤ MEDIUM) | 6 | GAS-002 (M), GAS-005 (M), GAS-003/004/006/007 (L) |
 
-**Total confirmed: 27** (excludes 4 `duplicate`). **Mainnet-blocking: SEC-001, SEC-002.**
+**Total confirmed: 47** (28 from the original audit + 11 from the SCRUM-214 oracle review + 8 from the SCRUM-214 CTF review; excludes 4 `duplicate`). **Mainnet-blocking: SEC-001, SEC-002** (fixed). **Post-audit production incident: SEC-015** (block-header oracle, out of the original scope — fixed SCRUM-521).
 
 **Dedup map (raw → canonical):**
 - SEC-005 + CPX-001 + REMAINING-1 + Slither `assembly`×3 + `low-level-calls`×1 → **SEC-005**
@@ -38,6 +38,13 @@ Produced by triage from: 4 domain reviews, Slither (27 raw), Mythril (3), Echidn
 - **description:** `_validateOrder` checks cancelled/nonce/salt/expiration only — no `isAllowed[collateralToken]` gate, no non-zero `unitPerPair` check. A removed token has `unit==0` (div-by-zero panic); worse, a zero-fee order (`feeRateBps==0` early-returns in `_computeFee` *before* its `price>unit` guard) against a mis-set `unitPerPair` settles at a wrong price with no revert.
 - **impact:** Compromised operator settles trades for an unwhitelisted/removed/mis-`unit` token; the whitelist is silently not enforced. Compounds SEC-001. HIGH.
 - **recommendation:** Central gate in `_validateOrder`: `if (!ds.adminConfigStorage.isAllowed[order.collateralToken]) revert Errors.TokenNotAllowed(); if (ds.adminConfigStorage.unitPerPair[order.collateralToken] == 0) revert Errors.InvalidUnitPerPair();`. Implement with BIZ-004 and BIZ-006 (same `_validateOrder` site).
+
+### SEC-015 — HIGH — confirmed — fix — `submitBatchBlocks` reorg-rewind index underflows (Panic 0x11) whenever `nextBlockIndex <= depth`; froze the Base-mainnet oracle
+- **location:** `contracts/facets/DoefinV1BlockHeaderOracleFacet.sol:125-135` (pre-fix) · **source:** production incident 2026-09-15 (block-indexer CRITICAL `unreplayable_on_chain`; SCRUM-521) · **swc:** SWC-101 · **scsvs:** V10.3 (`doefin-backend/security/lenses/scsvs.md` — "verify ring-buffer index arithmetic cannot underflow/wrap") · **owasp:** SC08 · **upgrade-safe:** yes (no storage-layout change; single-selector Replace cut)
+- **description:** On a reorg replay `_findForkPoint` returns `forkHeight` (depth `d = currentBlockHeight - forkHeight`, `1 <= d <= 16`). The prev-header lookup `(nextBlockIndex + forkHeight - currentBlockHeight - 1) % 17` and the pointer rewind `(nextBlockIndex + forkHeight - currentBlockHeight) % 17` are evaluated left-to-right in checked `uint256` math, i.e. as `(nextBlockIndex - d) - 1` and `nextBlockIndex - d`, and revert `Panic(0x11)` whenever `nextBlockIndex <= d`. For the common depth-1 orphan that is `nextBlockIndex ∈ {0, 1}` — the orphan sitting in ring slot 16 or 0 (2 of 17 positions); depth `d` fails in `(d + 1) / 17` of states. Sibling code (`_findForkPoint`, `LibDoefinBlockHeaderOracle.getBlockHeaderByNumber`) already uses the wrap-safe `(nextBlockIndex + NUM_OF_BLOCK_HEADERS - i - 1) % NUM_OF_BLOCK_HEADERS`.
+- **impact:** Self-locking liveness failure of the settlement-triggering oracle. 2026-09-15 15:36 UTC block-indexer stored a Bitcoin 967143 that was orphaned 19 s later, landing in slot 16 (`nextBlockIndex` 15 → 0). Every replay since reverts; the linear path needs a PoW-valid child of the orphan (none exists); `initializeBlockHeaderOracle` is one-shot; no admin reset. Base mainnet (Diamond `0x71C424Ef79819c852952e517c082C4d17f89Fdf9`) has been pinned at the orphaned 967143 for 7+ days — **no market can resolve on any later block**. Base Sepolia escaped by timing only. HIGH (protocol-wide liveness; no unprivileged fund loss).
+- **why the audit missed it:** the block-header oracle was scoped OUT as "Block-header v1 (superseded)" (`audit/00-scope.md`, `audit-exclusion-guidance.md`) although it is the live production oracle; SCSVS V10.3 names exactly this check; `ComprehensiveReorgTest` only replays at `nextBlockIndex = 13`.
+- **recommendation / fix (SCRUM-521):** `depth = currentBlockHeight - forkHeight`; prev-header slot `(nextBlockIndex + numHeaders - depth - 1) % numHeaders`; pointer `(nextBlockIndex + numHeaders - depth) % numHeaders`. `NewChainNotLonger`, `BlockReorged`, `_applyChain` untouched. Regression: `test/integration/OracleReorgIndexUnderflow.test.js` — the real 967110-967160 headers with the orphan in every one of the 17 slots × depths {1, 2, 3, 6} (68 replays) + negatives; 19 cases fail on the pre-fix facet, all `Panic(0x11)`. Deploy via single-selector `diamondCut` Replace (`scripts/upgrades/upgrade-scrum521-oracle-reorg-underflow.js`, rehearsed on a mainnet fork by `scripts/upgrades/rehearse-scrum521-fork.js`), then replay the held batch (`scripts/oracle-replay-batch.js`). Recovery runbook: cut → `npm run oracle:replay:base` → deploy the block-indexer build without the `unreplayable_on_chain` guard in the same rollout window. The guard cannot see the facet version and re-arms on the next orphan that lands in ring slot 16/0 (see `audit/follow-ups.md` SCRUM-521-BE-GUARD).
 
 ---
 
@@ -158,6 +165,104 @@ Magic numbers (`0x1626ba7e`, `10000`), "Fix N" comments, stale NatSpec, floating
 ### GAS-007 — LOW — confirmed — fix — `unchecked` for loop counters + the four guarded subtractions only. Keep all guards; do NOT `unchecked` the fee/collateral multiplications.
 
 ---
+
+## ORACLE — SCSVS V10 review of the block-header oracle and question code (SCRUM-214)
+
+The oracle was excluded from the original audit as "superseded" (that exclusion hid SEC-015). Full
+review: `audit/findings/oracle-scsvs-v10-review.md`. Every finding has a proof test under
+`test/audit/ORC-0NN-*.test.js` that demonstrated the defect on the unfixed code (commits
+`3efc5f8`..`8969331`) and was flipped to ATTACK BLOCKED / FIX VERIFIED by the fix commit.
+Status column = the protocol's `reverify` field. `pending` = fixed in code, proof flipped, full suite
+green — **not yet deployed** (mainnet cut tracked in `audit/follow-ups.md` ORC-MAINNET-CUT). It becomes
+`fixed-clean` once the cut and the Phase-6 re-verify are recorded (same rule as SEC-015).
+
+| ID | Sev | Finding | Fix | Status |
+|---|---|---|---|---|
+| ORC-001 | Critical | New header's nBits never validated, PoW checked against the parent's target, fork choice by block count — one block of real work captures every resolution | PoW vs the header's own target; nBits = parent's inside a period, = `CalculateNextWorkRequired` at a boundary; most-cumulative-work fork choice (`6aa74de`) | pending |
+| ORC-002 | High | Honest first block after a downward retarget rejected (hash between old and new target) → oracle frozen | as ORC-001 — real block 689472 now accepted; retarget maths matches 10 real boundaries (`cfb08be`, `6aa74de`) | pending |
+| ORC-003 | High | MiningDuration with blockCount ≥ 11 reads outside the ring; end < start underflows — either freezes the oracle | timestamps read from `blockHeightToTimestamp`; negative duration = 0 (`8f5b6bf`) | pending |
+| ORC-004 | High | BlockCount exact-second lookup reverts (~99%) or the 600 s bucket gate strands the question | BlockCount creation disabled (`OracleAdapter_QuestionTypeDisabled`); redesign = ORC-004-REDESIGN (`8f5b6bf`) | pending (disabled) |
+| ORC-005 | Medium | Resolving a BlockCount question pops the LAST element, losing an unresolved one and re-resolving another | swap-and-pop of the resolved element (`8f5b6bf`) | pending |
+| ORC-006 | Medium | Difficulty markets creatable once their answer is decided; oracle lag widens the window | period rule ⌊(tip+1)/2016⌋ < ⌊T/2016⌋; owner-set `maxOracleStaleness` on creation (`8f5b6bf`) | pending (limit to be set on mainnet) |
+| ORC-007 | Low | Replays deeper than 6 used a median window full of orphans; ≥ 12 deep froze the oracle (supersedes SCRUM-521-DEEP-REORG-MTP) | median-time-past read by height (`6aa74de`) | pending |
+| ORC-008 | Medium | `initializeBlockHeaderOracle` permissionless and unvalidated | owner-only; seed must be linked and PoW-valid (`6aa74de`) | pending |
+| ORC-009 | Medium | Unbounded questions per settlement height can exceed the 2^24 per-tx gas cap | ≤ 25 per height (`OracleAdapter_SettlementBlockFull`); 25 heaviest settle in 3.48M gas (`8f5b6bf`) | pending |
+| ORC-010 | Low | timestamp == median accepted; no 2 h future limit; malformed nBits accepted | strict `> MTP`, `<= block.timestamp + 2 h`, SetCompact decoding (`cfb08be`, `6aa74de`) | pending |
+| ORC-011 | Info | `submitBatchBlocks([])` reverts with a bare Panic(0x11) | `BlockHeaderOracle_EmptyBatch` (`6aa74de`) | pending |
+
+Tooling on the oracle and question code (exclusions lifted, `458202e`..`e69894a`): solhint 0 errors;
+Slither 4 results in the newly analysed files, all false positives; Mythril no issues (32% /
+16% coverage — symbolic execution cannot produce PoW); coverage measured. Fuzzing:
+`contracts/audit/OracleInvariantHarness.sol` (15 properties over two real Bitcoin forks). On the
+fixed facet (`846f7a8`), 2026-10-19: Echidna 50,000 calls — all 15 properties hold; Medusa
+50,000 calls, 4 workers — 33/33 tests pass. Negative control (pre-SCRUM-521 facet): both engines
+independently fail exactly `echidna_no_panic_nonempty`, `echidna_valid_chains_accepted` and
+`echidna_empty_batch_no_panic` (the SEC-015 Panic(0x11) class). Mainnet-fork rehearsal of the cut:
+passed for the oracle-only cut (`b815d0e`); the cut now also ships the CTF fixes — see the CTF
+section for the combined rehearsal.
+
+## CTF — review of the conditional-tokens contracts (SCRUM-214)
+
+Formerly excluded as "imported from Gnosis CTF". Full review: `audit/findings/ctf-review.md`. The
+upstream arithmetic and index-set rules are faithful; every defect is in the Doefin additions
+(position registry, settlement internals, resolution fee, condition lifecycle).
+
+Proof approach: guard tests (`test/audit/CTF-0NN-*.test.js`) that assert the fixed behaviour, run
+against the pre-fix contracts as a negative control in each fix commit — every guard test failed
+there and passes with the fix (step-by-step exploit walkthroughs were not written). Status column =
+the protocol's `reverify` field: `pending` until the production cut and the Phase-6 re-verify.
+
+Mainnet exposure checked 2026-10-19: 27 conditions, all 2-outcome and oracle-resolved; 29 market
+registrations, all canonical ([1,2], root); 41 splits, none 0-amount — CTF-001 / CTF-002 were not
+armed. Live resolution fee 0 bps.
+
+| ID | Sev | Finding | Fix | Status |
+|---|---|---|---|---|
+| CTF-001 | Critical | A free 0-amount partial split registered an incomplete "binary" market; a Merge then paid full collateral for a partial set (Diamond insolvency) | only a canonical root split (no parent, ascending singletons [1, 2, 4, …]) registers; settlement requires the two index sets to cover every outcome (`bc40f48`; settlement-guard test `9c06520`) | pending |
+| CTF-002 | High | First-come registry write: reordered (YES/NO flip), nested and crafted-parent splits chose market structure, labels and condition mapping, or blocked the canonical seed | as CTF-001 (`bc40f48`) | pending |
+| CTF-003 | Medium | Settlement ignored the registry market's parent / collateral (Diamond holdings as inventory); unregistered positions skipped the cancelled / resolved gate | `_validateOrder` requires a registered root-market position in the order's collateral (`bc40f48`) | pending |
+| CTF-004 | Medium | Resolution fee avoidable by merging winning + losing tokens after resolution | a root full-set merge of a resolved condition pays the snapshotted resolution fee (`22c741a`) | pending |
+| CTF-005 | Medium | No void / force-resolve path: one-sided collateral of a never-resolving condition locked until a diamondCut | owner `voidCondition` (cancelled + unresolved → equal shares, fee 0); the oracle adapter skips already-resolved conditions and counts the skipped question as resolved, keeping INV-ORC-4 (`8c86393`, `8dbeaed`) | pending |
+| CTF-006 | Medium | Market maker could appoint any resolver; `reportPayouts` accepted any vector and ignored cancellation | legacy `createCondition` owner-only; cancelled managed conditions refuse reports; ≥ 2 slots; numerators ≤ 2^64 − 1 (`8c86393`) | pending |
+| CTF-007 | Low | Resolution fee read at redemption time, up to 100%: owner could take winnings after resolution | capped at 500 bps; rate snapshotted per condition at resolution (`22c741a`); conditions resolved before the cut are charged 0 (`c1de64a`); `getResolutionFeeBps(conditionId)` exposes the charged rate (`d4fff04`) | pending |
+| CTF-008 | Low | Public split / merge skipped collateral for a Diamond self-call; internal variants did not check the lock; settlement depended on the Diamond accepting its own ERC-1155 transfers | self-calls revert; lock enforced; self-acceptance check skipped (`6be7c06`) | pending |
+
+Fuzzing (`contracts/audit/DoefinInvariantHarness.sol`, extended in `4c893c7` with any-shape
+split / merge on an unseeded 3-outcome condition and two invariants — `echidna_registry_canonical`,
+`echidna_diamond_holds_no_positions`): on the fixed tree Echidna 50,080 calls, 9/9 properties hold;
+Medusa 51,387 calls, 33/33 pass. Negative control (contracts at `3c78b6f`, before the fixes): both
+engines fail `echidna_registry_canonical` and nothing else. The fuzzer's trade actions use only the
+seeded binary market, so the insolvency CTF-001 leads to is covered by the guard tests, not by
+fuzzing.
+
+**Correction (2026-10-20, PR #31 CR-4319907478):** as committed in `4c893c7`,
+`echidna_registry_canonical` checked parent and ordering, not completeness, so it could not see the
+CTF-001 registration itself — the partial `[1, 2]` on the 3-outcome condition (`_shape` index 4) is
+ascending singletons. The negative-control failures recorded above are CTF-002 shapes: Echidna's
+shrunk reproducer is the reordered `[4, 2, 1]` root split (index 3; first hit: grouped `[3, 4]`
+nested under outcome A), Medusa's the grouped `[3, 4]` root split (index 5). The property now
+implements INV-CTF-2 (`audit/findings/ctf-review.md` §7: every outcome covered, root position IDs,
+reverse mapping; `8199193`). Re-run on the fixed tree: Echidna 50,081 calls, 9/9 properties hold; Medusa 50,334 calls,
+33/33 pass. Negative control (`3c78b6f` + the new harness): Medusa fails `echidna_registry_canonical`
+and nothing else (50,489 calls). Pinned to the CTF-001 shape (scratch copy: `_shape` forced to
+index 4, root only) on `3c78b6f`: Echidna falsifies `echidna_registry_canonical` within a minute,
+shrunk to a single zero-amount partial split; the other 8 properties hold.
+
+Tooling on the fixed tree (2026-10-19): Slither 19 results — the pre-fix baseline (`3c78b6f`, 18)
+plus `cyclomatic-complexity` on `SettlementFacet._validateOrder` (12; the CTF-003 registry gate),
+informational, accepted. Solhint 0 errors. Neither tool detects CTF-001 / CTF-002 (business logic).
+
+Deployment: one Safe cut with the oracle fixes (`scripts/upgrades/upgrade-scrum214-hardening.js`,
+six facets — oracle, ConditionManager, AdminConfig, ConditionalTokens, ERC1155, Settlement; every
+other facet is byte-identical). Mainnet-fork rehearsal (`npm run upgrade:scrum214:rehearse`, fork
+block 52824881; re-run after the PR #31 CodeRabbit round at fork block 52848576): passed — 51
+selectors (47 Replace, 4 Add, incl. `getResolutionFeeBps`), oracle state / pending questions / fee
+settings untouched, real headers accepted, and on the live cbBTC market `0x1537d5eb…` the real
+operator settled a Mint then a Merge match between two fresh wallets with the Diamond's collateral
+and outcome-token holdings back where they started; a reordered split left the registry unchanged;
+a market resolved before the cut (`0xe545b4aa…`, resolved while the live fee was 500 bps) is
+charged 0 after the fee is raised on the fork. Relative to mainnet the cut appends two AdminConfig
+fields (`maxOracleStaleness`, `resolutionFeeAtResolution`); no migration.
 
 ## Slither — 27 raw results, all triaged
 

@@ -57,6 +57,36 @@
       "offset": 0,
       "type": "mapping(address => uint256)",
       "bytes": "32"
+    },
+    {
+      "field": "maxOracleStaleness",
+      "slot": "5",
+      "offset": 0,
+      "type": "uint32",
+      "bytes": "4"
+    },
+    {
+      "field": "resolutionFeeAtResolution",
+      "slot": "6",
+      "offset": 0,
+      "type": "mapping(bytes32 => struct LibAdminConfigStorage.ResolutionFeeSnapshot)",
+      "bytes": "32"
+    }
+  ],
+  "struct LibAdminConfigStorage.ResolutionFeeSnapshot": [
+    {
+      "field": "set",
+      "slot": "0",
+      "offset": 0,
+      "type": "bool",
+      "bytes": "1"
+    },
+    {
+      "field": "bps",
+      "slot": "0",
+      "offset": 1,
+      "type": "uint16",
+      "bytes": "2"
     }
   ],
   "struct LibDoefinStorage.AppStorage": [

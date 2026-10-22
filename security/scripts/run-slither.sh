@@ -6,6 +6,10 @@ cd /src
 OUT=audit/output/slither
 mkdir -p "$OUT"
 CFG="security/slither.config.json"
+# Slither refuses to overwrite --json / --sarif output ("overwrite is prevented") and
+# carries on, leaving the previous run's report in place. Remove both so the files
+# always reflect this run.
+rm -f "$OUT/slither-report.json" "$OUT/slither.sarif"
 
 echo "[slither] whole-project analysis"
 slither . --config-file "$CFG" \

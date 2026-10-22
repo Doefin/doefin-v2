@@ -1,0 +1,32 @@
+{
+  "_comment": "Reconstructed from chain data: the upgrade script executed the cut but its post-check read a lagging RPC replica (old facet still reported) and threw before writing this record. Verified afterwards: submitBatchBlocks routes to newFacet on three consecutive reads, newFacet runtime bytecode is byte-identical to the local fixed build (library address substituted), the library is byte-identical to the local BlockHeaderUtils, the other 11 oracle selectors remain on oldFacet, and the oracle state is unchanged by the cut.",
+  "ticket": "SCRUM-521",
+  "network": "base",
+  "chainId": 8453,
+  "diamond": "0x71C424Ef79819c852952e517c082C4d17f89Fdf9",
+  "owner": "0x42B0c3471AE41780cFC4b6cEf8B06A103Cd83486",
+  "cutRoute": "safe",
+  "selector": "0x7ea1b3d8",
+  "oldFacet": "0x966584f48641d3839ceedF20eADaC6B156063121",
+  "newFacet": "0xeC0Eb4E8312d93C66c57Cef0e80FAD8f80eC2Eb0",
+  "blockHeaderUtils": "0xD5920Eb2fBB96a93fC462a6078Bc1f36fB2F8Fb6",
+  "deployer": "0x6f8014ef311259Dd74C4966C4D68945Ba9877670",
+  "deployNonces": { "blockHeaderUtils": 93, "newFacet": 94, "safeExecution": 95 },
+  "cutTxHash": "0xc5ca6a69a06350ec5f5c2d352ef2346cfe3b01782d10aec4d1879632b1206bbe",
+  "cutBlock": 51690983,
+  "cutGasUsed": 196595,
+  "safeTxHash": null,
+  "oracleStateBefore": {
+    "height": 967143,
+    "nextBlockIndex": 0,
+    "tipNumber": 967143,
+    "tipHash": "0x000000000000000000008e0c9e34ebe57c450b3ca5537c0da6a946ad32df314c"
+  },
+  "oracleStateAfter": {
+    "height": 967143,
+    "nextBlockIndex": 0,
+    "tipNumber": 967143,
+    "tipHash": "0x000000000000000000008e0c9e34ebe57c450b3ca5537c0da6a946ad32df314c"
+  },
+  "timestamp": "2026-09-23T13:48:33.000Z"
+}

@@ -65,6 +65,12 @@ async function main() {
     
     const questionText = `Will BTC reach $100k by EOY 2026? (Run ${Date.now()})`;
     
+    // CTF-006 (SCRUM-214): legacy createCondition (resolver of the caller's choice) is owner-only.
+    const owner = await (await ethers.getContractAt("OwnershipFacet", DIAMOND_ADDRESS)).owner();
+    if (owner.toLowerCase() !== deployer.address.toLowerCase()) {
+        throw new Error(`❌ createCondition is owner-only since CTF-006; ${deployer.address} is not the owner (${owner})`);
+    }
+
     // Use the old createCondition for simplicity
     const oracle = DIAMOND_ADDRESS;
     const questionId = ethers.utils.keccak256(ethers.utils.toUtf8Bytes(questionText));

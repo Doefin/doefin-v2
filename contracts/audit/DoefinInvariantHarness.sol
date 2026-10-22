@@ -86,6 +86,7 @@ import {ISettlement} from "../interfaces/ISettlement.sol";
 import {ISettlementAdmin} from "../interfaces/ISettlementAdmin.sol";
 
 import {LibDoefinOrder} from "../libraries/LibDoefinOrder.sol";
+import {LibDoefinStorage} from "../libraries/LibDoefinStorage.sol";
 import {MockERC20} from "../mock/MockERC20.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
@@ -189,6 +190,15 @@ contract DoefinInvariantHarness {
     /// @notice SCRUM-236 — redemption-market questionId, needed by `reportPayouts`.
     bytes32 internal immutable redeemQuestionId;
 
+    /// @notice SCRUM-214 (CTF) — a 3-outcome condition that is NOT seeded up front, so the
+    ///         fuzzer's arbitrary-shape splits race the canonical one for its registry entry
+    ///         (CTF-001 / CTF-002). Never resolved.
+    bytes32 public immutable triConditionId;
+
+    /// @notice Collateral backing full root sets of `triConditionId` (ghost; joins
+    ///         `outstandingPairs` in the solvency invariant).
+    uint256 internal triOutstanding;
+
     // ========================================
     // ACTOR STATE
     // ========================================
@@ -277,6 +287,9 @@ contract DoefinInvariantHarness {
             true /* split seed amount so the harness can redeem */
         );
         redeemQuestionId = keccak256("doefin-invariant-harness-redeem-question");
+        triConditionId = IConditionManager(diamond).createCondition(
+            address(this), keccak256("doefin-invariant-harness-tri-question"), 3, "ipfs://harness-tri"
+        );
         _setupActors();
 
         // SCRUM-236: snapshot the (FEE_RECEIVER balance + per-token accruedFees)
@@ -995,6 +1008,85 @@ contract DoefinInvariantHarness {
         _syncFeeReceiverHighWater();
     }
 
+    // ========================================
+    // FUZZ ACTIONS — CTF partition shapes (SCRUM-214, CTF-001 / CTF-002 / CTF-003)
+    // ========================================
+
+    /// @dev Partition shapes the fuzzer may use. Index → (condition, partition). Shapes 0 and 2 are
+    ///      the canonical ascending singletons; the rest are reordered, grouped (full) or partial.
+    function _shape(uint8 raw) internal view returns (bytes32 cId, uint256[] memory partition) {
+        uint8 k = raw % 8;
+        if (k <= 1) {
+            cId = conditionId;
+            partition = new uint256[](2);
+            (partition[0], partition[1]) = k == 0 ? (uint256(1), uint256(2)) : (uint256(2), uint256(1));
+            return (cId, partition);
+        }
+        cId = triConditionId;
+        if (k == 2 || k == 3) {
+            partition = new uint256[](3);
+            (partition[0], partition[1], partition[2]) = k == 2 ? (uint256(1), uint256(2), uint256(4)) : (uint256(4), uint256(2), uint256(1));
+        } else {
+            partition = new uint256[](2);
+            if (k == 4) (partition[0], partition[1]) = (uint256(1), uint256(2)); // partial {0},{1}
+            else if (k == 5) (partition[0], partition[1]) = (uint256(3), uint256(4)); // grouped full
+            else if (k == 6) (partition[0], partition[1]) = (uint256(1), uint256(6)); // grouped full
+            else (partition[0], partition[1]) = (uint256(2), uint256(4)); // partial {1},{2}
+        }
+    }
+
+    /// @dev True when `partition` covers every outcome of `cId` (collateral moves at the root).
+    function _isFull(bytes32 cId, uint256[] memory partition) internal view returns (bool) {
+        uint256 slots = cId == triConditionId ? 3 : 2;
+        uint256 acc;
+        for (uint256 i; i < partition.length; ++i) acc |= partition[i];
+        return acc == (uint256(1) << slots) - 1;
+    }
+
+    /// @notice Fuzz an actor splitting with any partition shape, at the root or nested under the
+    ///         trading market's outcome A, for any amount including 0.
+    function fuzz_splitAnyShape(uint8 rawActor, uint8 rawShape, bool nested, uint128 rawAmount) external {
+        uint256 idx = rawActor % ACTOR_COUNT;
+        (bytes32 cId, uint256[] memory partition) = _shape(rawShape);
+        uint128 amount = rawAmount % 4 == 0 ? 0 : _boundAmount(rawAmount, uint128(1_000 * UNIT));
+        bytes32 parent = nested ? ctf.getCollectionId(bytes32(0), conditionId, 1) : bytes32(0);
+        // A nested split burns the parent position (outcome A of the trading market).
+        if (nested && amount > 0) _fundActorPosition(idx, positionIdA, amount);
+
+        vm.prank(actors[idx]);
+        try ctf.splitPosition(address(collateral), parent, cId, partition, amount) {
+            if (!nested && _isFull(cId, partition)) {
+                if (cId == triConditionId) triOutstanding += amount;
+                else outstandingPairs += amount;
+            }
+        } catch {
+            // Acceptable — e.g. a partial split without the union position.
+        }
+        _syncFeeReceiverHighWater();
+    }
+
+    /// @notice Fuzz an actor merging with any partition shape at the root.
+    function fuzz_mergeAnyShape(uint8 rawActor, uint8 rawShape, uint128 rawAmount) external {
+        uint256 idx = rawActor % ACTOR_COUNT;
+        (bytes32 cId, uint256[] memory partition) = _shape(rawShape);
+        uint128 amount = _boundAmount(rawAmount, uint128(1_000 * UNIT));
+        if (amount == 0) return;
+
+        vm.prank(actors[idx]);
+        try ctf.mergePositions(address(collateral), bytes32(0), cId, partition, amount) {
+            if (_isFull(cId, partition)) {
+                if (cId == triConditionId) {
+                    if (triOutstanding >= amount) triOutstanding -= amount;
+                } else if (outstandingPairs >= amount) {
+                    outstandingPairs -= amount;
+                }
+            }
+        } catch {
+            // Acceptable — the actor may not hold the positions.
+        }
+        _syncFeeReceiverHighWater();
+    }
+
     /// @notice SCRUM-236 — fuzz an owner-initiated fee bank sweep.
     /// @dev The harness is the Diamond owner, so it calls `withdrawFees` directly.
     ///      The driver clamps `rawAmount` to `[1, accruedFees[collateral]]` so the
@@ -1171,7 +1263,47 @@ contract DoefinInvariantHarness {
     function echidna_diamond_solvent() external view returns (bool) {
         uint256 accrued = IAdminConfig(diamond).getAccruedFees(address(collateral));
         return collateral.balanceOf(diamond) + ROUNDING_TOLERANCE
-            >= outstandingPairs + accrued;
+            >= outstandingPairs + triOutstanding + accrued;
+    }
+
+    /// @notice CTF-001 / CTF-002 — every registered settlement market is canonical (INV-CTF-2,
+    ///         audit/findings/ctf-review.md §7): a root market (no parent) whose partitions are the
+    ///         ascending singletons [1, 2, 4, …] covering EVERY outcome, whose position IDs are the
+    ///         root positions of those index sets, and whose positions map back to the condition.
+    /// @dev Completeness is the CTF-001 clause: a partial [1, 2] on the 3-outcome condition is
+    ///      ascending singletons too, so an ordering-only check cannot see it (_shape index 4).
+    function echidna_registry_canonical() external view returns (bool) {
+        return _registryCanonical(conditionId) && _registryCanonical(triConditionId);
+    }
+
+    /// @notice CTF-001 / CTF-003 — the Diamond never keeps outcome tokens: settlement mints, burns
+    ///         or forwards every position it touches within the same call.
+    function echidna_diamond_holds_no_positions() external view returns (bool) {
+        if (erc1155.balanceOf(diamond, positionIdA) != 0 || erc1155.balanceOf(diamond, positionIdB) != 0) return false;
+        for (uint256 indexSet = 1; indexSet < 7; ++indexSet) {
+            uint256 pos = ctf.getPositionId(address(collateral), ctf.getCollectionId(bytes32(0), triConditionId, indexSet));
+            if (erc1155.balanceOf(diamond, pos) != 0) return false;
+        }
+        return true;
+    }
+
+    function _registryCanonical(bytes32 cId) internal view returns (bool) {
+        uint256 slots = cId == triConditionId ? 3 : 2;
+        LibDoefinStorage.MarketMetadata[] memory markets = IMarketData(diamond).getMarketsByCondition(cId);
+        for (uint256 m; m < markets.length; ++m) {
+            LibDoefinStorage.MarketMetadata memory market = markets[m];
+            if (market.parentCollectionId != bytes32(0)) return false;
+            if (market.partitions.length != slots || market.positionIds.length != slots) return false;
+            for (uint256 i; i < slots; ++i) {
+                if (market.partitions[i] != uint256(1) << i) return false;
+                uint256 expected = ctf.getPositionId(
+                    market.collateralToken, ctf.getCollectionId(bytes32(0), cId, market.partitions[i])
+                );
+                if (market.positionIds[i] != expected) return false;
+                if (IMarketData(diamond).getConditionId(expected) != cId) return false;
+            }
+        }
+        return true;
     }
 
     /// @notice No order is ever filled beyond its signed amount.

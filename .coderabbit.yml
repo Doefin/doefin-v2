@@ -69,6 +69,14 @@ reviews:
     unit_tests:
       enabled: true
 
+  # PR-30 CR-triage (ISSUE-6275665276): the "Docstring Coverage" pre-merge check counts every
+  # touched function — JS test helpers, upgrade / rehearsal scripts, fuzz-harness internals —
+  # so it is not the project's rule. It fired on PRs #26, #28, #29 and #30; PR #26's ledger set
+  # "teach if it recurs". Documentation is enforced by the path-scoped NatSpec instructions below.
+  pre_merge_checks:
+    docstrings:
+      mode: "off"
+
   # Path filters — gitignore syntax. Strip noise so review tokens go to code.
   # NOTE: the `audit/` deliverables are included on purpose — CodeRabbit
   # cross-references them against the diff (e.g. "this change weakens
@@ -232,34 +240,58 @@ reviews:
         check (every read MUST go through `LibPositionRegistry`) IS
         load-bearing.
 
-    # ── Out-of-audit-scope contracts — light-touch review ──
+    # ── Conditional tokens — IN SCOPE since SCRUM-214 (audit/findings/ctf-review.md) ──
     - path: "contracts/facets/ConditionalTokensFacet.sol"
       instructions: |
-        CTF from Gnosis — excluded from audit per
-        audit-exclusion-guidance.md. Review only for:
-        - changes to the public surface that affect SettlementFacet's
-          mint / merge / redeem paths
-        - reentrancy guards around `_handlePayoutTransfer` (the only
-          place this facet sets `_ENTERED`)
+        Conditional tokens (split / merge / redeem / reportPayouts). IN SCOPE
+        since SCRUM-214: the "imported from Gnosis" exclusion hid CTF-001
+        (Critical) .. CTF-008. Review closely and flag:
+        - a root split (no parent collection) that mints outcome tokens
+          without pulling the full `amount` of collateral, or a root
+          full-set merge that releases collateral without burning a
+          complete outcome set (INV-SOLV-4, INV-CTF-1). Nested splits and
+          merges move a parent position, not collateral; redemption
+          releases each burned position's payout share
+          (`stake * numerator / denominator`, minus the resolution fee).
+          Judge those against their own rule, not the complete-set one
+        - resolution-fee reads that bypass
+          `LibCTFCondition.resolutionFeeBps(conditionId)` (per-condition
+          snapshot, CTF-007), and root full-set merges of a resolved
+          condition that skip the fee (CTF-004)
+        - `reportPayouts` changes: >= 2 slots, denominator <= 2^64 - 1,
+          refusal for a cancelled managed condition (CTF-006)
 
     - path: "contracts/facets/ConditionManagerFacet.sol"
       instructions: |
-        Condition lifecycle (prepare / cancel / resolve). Excluded from
-        deep CTF review per audit-exclusion-guidance.md, but flag:
-        - changes to `cancelCondition` (interacts with SCRUM-235 gate)
-        - changes to authorization (creator-or-owner pattern)
-        - any new mutator that affects `Condition.active` without
-          notifying the settlement path
+        Condition lifecycle and question creation. IN SCOPE (SCRUM-214
+        oracle and CTF reviews). Flag:
+        - authorization changes: legacy `createCondition` and
+          `voidCondition` are owner-only (CTF-006 / CTF-005),
+          `cancelCondition` is creator-or-owner
+        - any new mutator of `Condition.active` or of payouts that the
+          settlement gate (SCRUM-235) or the oracle adapter's
+          already-resolved skip does not account for
+        - question-creation rule changes (ORC-003 / 004 / 006 / 009)
 
     - path: "contracts/facets/DoefinV1BlockHeaderOracleFacet.sol"
       instructions: |
-        Bitcoin block-header oracle. Excluded from deep review per
-        audit-exclusion-guidance.md, but flag:
+        Bitcoin block-header oracle — the LIVE settlement-triggering
+        authority on Base mainnet. IN SCOPE since SCRUM-521: it was
+        wrongly excluded as "superseded", which hid SEC-015 (the
+        submitBatchBlocks reorg-rewind underflow that froze the mainnet
+        oracle on 2026-09-15). Review closely and flag:
         - changes to block-header validation (PoW, hash-chaining, median
           timestamp) — these are consensus-shaped
-        - the ring-buffer arithmetic in `_applyChain` and any view
-          function that reads it (we already routed the views through
-          LibDoefinBlockHeaderOracle — flag if a new direct-read appears)
+        - ANY ring-buffer index expression that subtracts before adding
+          `NUM_OF_BLOCK_HEADERS` — the only accepted idiom is
+          `(i + NUM_OF_BLOCK_HEADERS - k) % NUM_OF_BLOCK_HEADERS`
+          (SEC-015; `_findForkPoint`, the `submitBatchBlocks` rewind,
+          `_applyChain`, `medianBlockTime`)
+        - any view function that reads the buffer directly (views are
+          routed through LibDoefinBlockHeaderOracle — flag a new
+          direct-read)
+        - reorg-path changes must keep test/integration/
+          OracleReorgIndexUnderflow.test.js green (17 slots x depths)
 
     - path: "contracts/facets/DiamondCutFacet.sol"
       instructions: |
@@ -323,14 +355,24 @@ reviews:
 
     - path: "contracts/libraries/LibCTFCondition.sol"
       instructions: |
-        CTF library — excluded from audit per audit-exclusion-guidance.md.
-        Flag only: new public surface that affects settlement, changes to
-        `prepareCondition` or `_reportPayouts` (interacts with SCRUM-235).
+        CTF core library — IN SCOPE since SCRUM-214; inlined into
+        ConditionalTokensFacet, ERC1155Facet and SettlementFacet. Flag:
+        - a registry write outside a canonical root split
+          (`_isCanonicalRootPartition`: no parent, full partition, ascending
+          singletons — CTF-001 / CTF-002, INV-CTF-2)
+        - the internal split / merge variants without
+          `LibReentrancyGuard._enforceEntered`, or the public paths without
+          the `sender == address(this)` refusal (CTF-008)
+        - payout-vector bounds and the resolution-fee snapshot / void
+          (CTF-005 / 006 / 007)
 
-    - path: "contracts/libraries/LibCT*.sol"
+    - path: "contracts/libraries/LibCTHelpers.sol"
       instructions: |
-        CTF helpers from Gnosis. Excluded per audit-exclusion-guidance.md.
-        Flag only deviations from the upstream Gnosis CTF reference.
+        Gnosis collection / position-ID helpers (elliptic-curve scheme) — IN
+        SCOPE since SCRUM-214. Flag deviations from upstream
+        gnosis/conditional-tokens-contracts (ctf-review.md §3). Note: a
+        parent collection ID is any curve point, so nothing here proves how
+        a parent was derived (the crafted-parent class, CTF-002).
 
     - path: "contracts/libraries/LibConditionMetadata.sol"
       instructions: |
@@ -366,7 +408,8 @@ reviews:
       instructions: |
         ERC-1155 implementation. Flag:
         - any new external state mutation that bypasses the
-          `_doSafeTransferAcceptanceCheck`
+          `_doSafeTransferAcceptanceCheck` (the one intended exception:
+          transfers TO the Diamond itself skip it, CTF-008)
         - any change to the operator-approval logic
         - re-introduction of the duplicate `ApprovalForAll` emission
           (SEC-014 — single source of truth in setApprovalForAll)
@@ -392,9 +435,9 @@ reviews:
 
     - path: "contracts/libraries/BlockHeaderUtils.sol"
       instructions: |
-        Bitcoin block-header math (PoW, hash, median). Excluded from
-        deep review per audit-exclusion-guidance.md, but flag any
-        change to the difficulty / hash-chain logic.
+        Bitcoin block-header math (PoW, hash, median). IN SCOPE since
+        SCRUM-521 (was wrongly excluded as "superseded"). Flag any change
+        to the difficulty / hash-chain logic.
 
     # ── Mocks + audit harness — test-only ──
     - path: "contracts/mock/**"
@@ -494,12 +537,26 @@ reviews:
     # ── Audit docs — flag drift, recommend not re-deriving ──
     - path: "audit/findings/**"
       instructions: |
-        Audit findings. Each finding should have: status (RESOLVED /
-        ACCEPTED / IN-FLIGHT / DOCUMENTED), severity, repro / attack
-        model, fix link (commit SHA). Flag:
+        Audit findings. Every record is one block per finding in the schema of
+        `security/audit-protocol.md` ("Findings ledger — one block per
+        finding"). The lifecycle is carried by three separate enum fields, so
+        check THOSE, not an ad-hoc status vocabulary:
+          status:    new | confirmed | false-positive | duplicate | needs-info | wont-fix
+          decision:  fix | defer | accept-risk | n/a
+          reverify:  pending | fixed-clean | fixed-with-new-issue | not-fixed
+        A fixed-in-code finding whose production rollout or Phase-6 re-verify
+        is still outstanding is `status: confirmed` + `decision: fix` +
+        `reverify: pending` (the narrative goes on the `fix-commit` line).
+        Flag:
+        - a value outside these enums, or a missing severity / poc /
+          location / recommendation
+        - a record that contradicts `audit/findings-ledger.md`
         - findings unfixed AND classified CRITICAL/HIGH
-        - finding status changed without a corresponding code commit
-        - new finding without a SCRUM ticket reference
+        - a lifecycle field changed without a corresponding code commit
+          (fix-commit line)
+        - a new finding without a SCRUM ticket reference
+        Do NOT ask for RESOLVED / ACCEPTED / IN-FLIGHT / DOCUMENTED — that
+        vocabulary is not the protocol's (PR #26 CR-4081027067).
 
     - path: "audit/business-logic/**"
       instructions: |

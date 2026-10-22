@@ -1,0 +1,25 @@
+{
+  "description": "The ORPHANED Bitcoin block 967143 that the Base-mainnet oracle (0x71C424Ef79819c852952e517c082C4d17f89Fdf9) accepted on 2026-09-15 15:36:43 UTC and has been stuck on since. Read back from the contract (getLatestBlockHeader) and hash-verified; Bitcoin abandoned it 19 s later in favour of the block with the same height in blocks-mainchain-*.json.",
+  "provenance": {
+    "chain": "Base mainnet (8453)",
+    "diamond": "0x71C424Ef79819c852952e517c082C4d17f89Fdf9",
+    "submittedInTx": "0x888d3b611744a5c92ce3e1e215cbb43349f227606e9694344a7b6ba53535f0ef",
+    "l2Block": 51348629,
+    "nextBlockIndexBefore": 15,
+    "nextBlockIndexAfter": 0,
+    "ringSlotOfOrphan": 16
+  },
+  "count": 1,
+  "blocks": [
+    {
+      "blockNumber": 967143,
+      "blockHash": "0x000000000000000000008e0c9e34ebe57c450b3ca5537c0da6a946ad32df314c",
+      "prevBlockHash": "0x00000000000000000001b7b4e149553402f44180f8b750811e670ed7edd4065f",
+      "merkleRootHash": "0x5a8944339fd6d71238b4d90c652ba38e0eceee75a93d20be64d7f82460fcf809",
+      "version": 597311488,
+      "timestamp": 1789486552,
+      "nBits": 386020702,
+      "nonce": 1937228890
+    }
+  ]
+}

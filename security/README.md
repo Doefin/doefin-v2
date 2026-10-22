@@ -59,6 +59,63 @@ If the smoke test passes, the toolchain is ready.
 echidna → medusa). Echidna/Medusa are long — for the deep run, set
 `ECHIDNA_TEST_LIMIT` to 500000+ and run overnight.
 
+## Fuzz harnesses
+
+`audit:echidna` / `audit:medusa` fuzz every harness in turn (select a subset with
+`ECHIDNA_HARNESSES` / `MEDUSA_HARNESSES`, space-separated):
+
+| Harness | Target | Config (Echidna / Medusa) | Log |
+|---|---|---|---|
+| `DoefinInvariantHarness` | settlement / CTF Diamond | `echidna.config.yaml` / `medusa.json` | `echidna-run.txt` / `medusa-run.txt` |
+| `OracleInvariantHarness` | Bitcoin block-header oracle (SCRUM-521-AUDIT-SCOPE) | `echidna.oracle.config.yaml` / `medusa.oracle.json` | `echidna-oracle-run.txt` / `medusa-oracle-run.txt` |
+
+**Oracle harness.** Submission is permissionless but headers must carry real proof of
+work, so `OracleInvariantHarness` only ever submits real Bitcoin headers — two real forks
+from `test/data/` (967110–967160 + the orphan 967143 that froze mainnet, SEC-015; and
+935468–935503 + the orphan 935497) encoded into `contracts/audit/OracleHeaderFixtures.sol`
+by `node security/scripts/gen-oracle-fixtures.js`. The fuzzer chooses the *shape*: single
+headers, slices starting anywhere, replays at every depth and ring position, orphan
+branches, caller-supplied `blockNumber`/`blockHash` junk, tampered consensus fields, empty
+batches, re-initialisation, and re-deployment with a different init window (moves the
+orphan through all 17 ring slots). A reference model derives from the spec whether each
+submission must be accepted; properties check liveness, safety, post-conditions, ring-buffer
+structure and that no non-empty submission ever Panics.
+
+- **Expected result:** every `echidna_*` property passes on the production facet. Any failure,
+  including `echidna_empty_batch_no_panic` (ORC-011: `submitBatchBlocks([])` must revert
+  `BlockHeaderOracle_EmptyBatch`), is a regression. The empty-batch property is tracked separately
+  so it cannot mask a new panic.
+- **Negative control:** `ORACLE_NEGATIVE_CONTROL=1 npm run audit:echidna` (or `audit:medusa`)
+  also fuzzes `OracleInvariantHarnessPreFix` — the same harness on a verbatim copy of the
+  pre-SCRUM-521 facet. It **must fail** `echidna_no_panic_nonempty` (SEC-015, `Panic(0x11)`);
+  if it does not, the harness has lost its teeth.
+- **Library linking:** the oracle facet links the external `BlockHeaderUtils` library. The
+  oracle configs link it to `0xb10c` via crytic-compile `--compile-libraries` and predeploy it
+  there (`deployContracts` / `predeployedContracts`). The harness never calls into the library,
+  so only the link itself is load-bearing.
+- **Validated without Docker** by `npx hardhat test test/audit/OracleInvariantHarness.test.js`
+  (deterministic sequences, 17-slot and pointer×depth matrices, seeded random walks, and the
+  negative control).
+
+**Settlement / CTF harness.** `DoefinInvariantHarness` also fuzzes splits and merges of any
+partition shape — canonical, reordered, grouped, partial; at the root or nested; amount 0
+included — on an unseeded 3-outcome condition (SCRUM-214, `audit/findings/ctf-review.md`).
+`echidna_registry_canonical` checks INV-CTF-2 (every registered market is a root market whose
+partitions are the ascending singletons covering every outcome, with root position IDs that map
+back to the condition) and `echidna_diamond_holds_no_positions` that settlement never leaves
+outcome tokens in the Diamond. The trade actions settle only the seeded binary market, so the
+insolvency a partial registration leads to (CTF-001) is covered by
+`test/audit/CTF-001-003-market-registry.test.js`, not by fuzzing.
+
+- **Expected result:** every property passes.
+- **Negative control (manual):** build the harness against the contracts from before the CTF
+  fixes — e.g. `git archive 3c78b6f contracts | tar -x -C <dir>`, copy
+  `contracts/audit/DoefinInvariantHarness.sol` from HEAD into it, and fuzz that tree (mount it in
+  a one-off `docker compose run` of the audit service). It **must fail**
+  `echidna_registry_canonical`. To show the completeness clause specifically, pin `_shape` to
+  index 4 (the partial `[1, 2]` on the 3-outcome condition) and `nested` to false in the scratch
+  copy: the property must still fail.
+
 All tool output lands under `audit/output/` (a Docker named volume; gitignored).
 Scope exclusions (`audit-exclusion-guidance.md`) are encoded in
 `slither.config.json`, `.solhintignore`, and `.solcover.js`.

@@ -90,6 +90,13 @@ async function main() {
         console.log("✅ Condition doesn't exist, proceeding with creation...");
     }
     
+    // CTF-006 (SCRUM-214): legacy createCondition (resolver of the caller's choice) is owner-only.
+    const owner = await (await ethers.getContractAt("OwnershipFacet", DIAMOND_ADDRESS)).owner();
+    if (owner.toLowerCase() !== deployer.address.toLowerCase()) {
+        throw new Error(`❌ createCondition is owner-only since CTF-006; ${deployer.address} is not the owner (${owner}). ` +
+            "Use 4b-create-condition-with-metadata.js (market maker) or submit through the owner Safe.");
+    }
+
     // Create the condition
     console.log("\n4️⃣ Creating new condition...");
     try {
