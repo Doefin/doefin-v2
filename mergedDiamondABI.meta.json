@@ -1,7 +1,7 @@
 {
   "contractName": "Diamond",
   "description": "Merged ABI for the Doefin v3 Diamond proxy (all active facets).",
-  "generatedAt": "2026-10-20T10:54:08.896Z",
+  "generatedAt": "2026-11-06T21:50:51.750Z",
   "contracts": [
     "Diamond",
     "DiamondCutFacet",
@@ -21,14 +21,14 @@
     "OracleAdapterFacet",
     "MarketDataFacet"
   ],
-  "totalEntries": 238,
+  "totalEntries": 239,
   "entriesByType": {
     "constructor": 1,
     "fallback": 1,
     "receive": 1,
     "function": 98,
     "event": 41,
-    "error": 96
+    "error": 97
   },
   "perContract": [
     {
@@ -63,7 +63,7 @@
     },
     {
       "contract": "SettlementFacet",
-      "added": 38,
+      "added": 39,
       "duplicates": 5
     },
     {
@@ -4677,6 +4677,17 @@
     {
       "inputs": [],
       "name": "SelfTrade",
+      "type": "error"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "orderHash",
+          "type": "bytes32"
+        }
+      ],
+      "name": "TakerPriceBreached",
       "type": "error"
     },
     {
