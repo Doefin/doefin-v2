@@ -50,6 +50,9 @@ pragma solidity 0.8.20;
  *   - Mint          : taker BUY A  vs maker BUY  B  (splitPosition)
  *   - Merge         : taker SELL A vs maker SELL B  (mergePositions)
  *   - Operator fill : fillOrder with the harness as counterparty
+ *   - Market taker  : two independent legs, signed price is an all-in average
+ *   - Limit taker   : two independent legs, each one on, through or away from
+ *                     the crossing boundary (SCRUM-559)
  * ==========================================================================*/
 
 import {Diamond} from "../Diamond.sol";
@@ -156,6 +159,13 @@ contract DoefinInvariantHarness {
     ///      balance moves is fee receipts — strictly monotonic upward.
     address internal constant FEE_RECEIVER = address(0xFEE);
 
+    /// @notice SCRUM-559 — bits 32..63 of a market order's signed salt. Restated here because
+    ///         `SettlementFacet.MARKET_ORDER_MARKER` is internal.
+    uint256 internal constant MARKET_ORDER_MARKER = 0xef860c2e;
+
+    /// @notice SCRUM-559 — largest fill of one leg in `fuzz_matchMarketTaker` / `fuzz_matchLimitTaker`.
+    uint128 internal constant MAX_LEG_FILL = uint128(10_000 * UNIT);
+
     // ========================================
     // IMMUTABLE DEPLOYMENT STATE
     // ========================================
@@ -259,6 +269,26 @@ contract DoefinInvariantHarness {
     ///         `fuzz_withdrawFees` by the actual `w` (the resolved amount the
     ///         contract decremented), not by the raw operator input.
     mapping(address => uint256) internal sumFeesWithdrawn;
+
+    /// @notice SCRUM-559 — keeps salts distinct across the market and limit wrappers, so a
+    ///         repeated order hash cannot cut a fuzz sequence short with `OrderOverfilled`.
+    uint256 internal orderSaltCounter;
+
+    /// @notice SCRUM-559 — latched when a settled market taker's real all-in cost (buy) or
+    ///         proceeds (sell) broke its signed average. Backs `echidna_market_taker_average_holds`.
+    bool internal marketAverageBroken;
+
+    /// @notice SCRUM-559 — latched when a limit taker settled a leg that does not cross its
+    ///         signed price. Backs `echidna_limit_taker_only_settles_crossing_legs`.
+    bool internal limitNonCrossingSettled;
+
+    /// @notice SCRUM-559 — settlements `fuzz_matchMarketTaker` landed. Non-zero means the market
+    ///         property was exercised rather than holding vacuously.
+    uint256 public marketTakerSettlements;
+
+    /// @notice SCRUM-559 — settlements `fuzz_matchLimitTaker` landed. Non-zero means the limit
+    ///         property was exercised rather than holding vacuously.
+    uint256 public limitTakerSettlements;
 
     // ========================================
     // CONSTRUCTOR
@@ -1009,6 +1039,209 @@ contract DoefinInvariantHarness {
     }
 
     // ========================================
+    // FUZZ ACTIONS — market and limit takers (SCRUM-559)
+    // ========================================
+
+    /// @dev One maker leg against actor 0. `splitOrMerge` picks Mint (taker buys) or Merge (taker
+    ///      sells) over Complementary. `makerPrice` is bounded to [0, UNIT].
+    struct Leg {
+        uint256 makerIndex;
+        bool splitOrMerge;
+        uint128 fill;
+        uint128 makerPrice;
+    }
+
+    /// @notice Fuzz a market taker (actor 0) against two legs whose prices need not cross its
+    ///         signed price, which is an all-in average: only the total decides.
+    /// @dev The verdict reads the taker's real balance, not a re-derivation of the contract's maths.
+    ///      The signed price is steered onto the tightest average that passes, one raw past it, or
+    ///      anywhere, so a rounding hole in the check is reachable.
+    /// @param rawShape bit 0: taker sells. Bits 1, 2: leg 0, 1 is Mint/Merge. Above: signed-price mode.
+    function fuzz_matchMarketTaker(
+        uint128 rawFillA,
+        uint128 rawPriceA,
+        uint128 rawFillB,
+        uint128 rawPriceB,
+        uint128 rawSignedPrice,
+        uint8 rawShape
+    ) external {
+        uint8 side = rawShape & 1;
+        Leg[] memory legs = new Leg[](2);
+        legs[0] = Leg(1, (rawShape & 2) != 0, _boundAmount(rawFillA, MAX_LEG_FILL), _boundPrice(rawPriceA));
+        legs[1] = Leg(2, (rawShape & 4) != 0, _boundAmount(rawFillB, MAX_LEG_FILL), _boundPrice(rawPriceB));
+
+        uint128 signedPrice = _marketSignedPrice(side, legs, rawSignedPrice, (rawShape >> 3) % 3);
+        uint256 salt = ((++orderSaltCounter) << 64) | (MARKET_ORDER_MARKER << 32);
+
+        uint256 balanceBefore = collateral.balanceOf(actors[0]);
+        (bool settled, uint256 filled) = _settleLegs(side, signedPrice, salt, legs);
+        if (!settled) return;
+
+        marketTakerSettlements++;
+        uint256 balanceAfter = collateral.balanceOf(actors[0]);
+        uint256 bound = uint256(signedPrice) * filled;
+        bool averageHolds = side == 0
+            ? balanceAfter <= balanceBefore && (balanceBefore - balanceAfter) * UNIT <= bound
+            : balanceAfter >= balanceBefore && (balanceAfter - balanceBefore) * UNIT >= bound;
+        if (!averageHolds) marketAverageBroken = true;
+    }
+
+    /// @notice Fuzz a limit taker (actor 0) against two legs that may or may not cross its price.
+    /// @dev Each leg's maker price is steered onto the crossing boundary, one raw through it, or
+    ///      anywhere, so a hole in the per-fill check is reachable on any of the settlement paths.
+    /// @param rawShape bit 0: taker sells. Bits 1, 2: leg 0, 1 is Mint/Merge. Above: maker-price modes.
+    function fuzz_matchLimitTaker(
+        uint128 rawFillA,
+        uint128 rawPriceA,
+        uint128 rawFillB,
+        uint128 rawPriceB,
+        uint128 rawTakerPrice,
+        uint8 rawShape
+    ) external {
+        uint8 side = rawShape & 1;
+        uint128 takerPrice = _boundPrice(rawTakerPrice);
+        uint256 modes = rawShape >> 3;
+        Leg[] memory legs = new Leg[](2);
+        legs[0] = _limitLeg(1, side, (rawShape & 2) != 0, takerPrice, rawFillA, rawPriceA, modes % 3);
+        legs[1] = _limitLeg(2, side, (rawShape & 4) != 0, takerPrice, rawFillB, rawPriceB, (modes / 3) % 3);
+
+        (bool settled, ) = _settleLegs(side, takerPrice, ++orderSaltCounter, legs);
+        if (!settled) return;
+
+        limitTakerSettlements++;
+        for (uint256 i; i < legs.length; ++i) {
+            if (!_legCrosses(side, legs[i], takerPrice)) limitNonCrossingSettled = true;
+        }
+    }
+
+    /// @dev Taker fee of a leg at `FEE_BPS` of the taker's side of its cash.
+    function _takerFee(Leg memory leg) internal pure returns (uint128) {
+        return _legFee(leg.splitOrMerge ? uint128(UNIT) - leg.makerPrice : leg.makerPrice, leg.fill);
+    }
+
+    /// @dev The market taker's signed price. Mode 0: the tightest average these legs can pass.
+    ///      Mode 1: one raw past that. Mode 2: anything.
+    function _marketSignedPrice(uint8 side, Leg[] memory legs, uint128 rawSignedPrice, uint256 mode)
+        internal
+        pure
+        returns (uint128)
+    {
+        if (mode == 2) return _boundPrice(rawSignedPrice);
+
+        uint256 cash;
+        uint256 fees;
+        uint256 filled;
+        for (uint256 i; i < legs.length; ++i) {
+            uint256 makerCash = (uint256(legs[i].makerPrice) * legs[i].fill) / UNIT;
+            cash += legs[i].splitOrMerge ? legs[i].fill - makerCash : makerCash;
+            fees += _takerFee(legs[i]);
+            filled += legs[i].fill;
+        }
+        uint256 tightest = side == 0 ? ((cash + fees) * UNIT + filled - 1) / filled : ((cash - fees) * UNIT) / filled;
+        if (mode == 1) {
+            if (side == 1) tightest += 1;
+            else if (tightest > 0) tightest -= 1;
+        }
+        return tightest > UNIT ? uint128(UNIT) : uint128(tightest);
+    }
+
+    /// @dev A leg for `fuzz_matchLimitTaker`. Mode 0: maker price on the crossing boundary. Mode 1:
+    ///      one raw through it. Mode 2: anything.
+    function _limitLeg(
+        uint256 makerIndex,
+        uint8 side,
+        bool splitOrMerge,
+        uint128 takerPrice,
+        uint128 rawFill,
+        uint128 rawPrice,
+        uint256 mode
+    ) internal pure returns (Leg memory) {
+        uint128 price = _boundPrice(rawPrice);
+        if (mode != 2) {
+            // Crosses exactly at `takerPrice` on Complementary, at its complement on Mint and Merge.
+            price = splitOrMerge ? uint128(UNIT) - takerPrice : takerPrice;
+            if (mode == 1) {
+                // Through is above the boundary on a Complementary buy and on Merge, below it otherwise.
+                bool throughIsHigher = (side == 0) != splitOrMerge;
+                if (throughIsHigher && price < UNIT) price += 1;
+                else if (!throughIsHigher && price > 0) price -= 1;
+            }
+        }
+        return Leg(makerIndex, splitOrMerge, _boundAmount(rawFill, MAX_LEG_FILL), price);
+    }
+
+    /// @dev The per-fill crossing rule, stated from the docs rather than read from the facet.
+    function _legCrosses(uint8 side, Leg memory leg, uint128 takerPrice) internal pure returns (bool) {
+        if (leg.splitOrMerge) {
+            uint256 sum = uint256(takerPrice) + leg.makerPrice;
+            return side == 0 ? sum >= UNIT : sum <= UNIT;
+        }
+        return side == 0 ? leg.makerPrice <= takerPrice : leg.makerPrice >= takerPrice;
+    }
+
+    /// @dev Sign and settle actor 0 against `legs`, keeping the harness's books in step with a
+    ///      success. A revert is an acceptable outcome, as in the other wrappers.
+    /// @return settled Whether `matchOrders` went through.
+    /// @return filled The taker's total fill across the legs.
+    function _settleLegs(uint8 side, uint128 signedPrice, uint256 takerSalt, Leg[] memory legs)
+        internal
+        returns (bool settled, uint256 filled)
+    {
+        uint256 count = legs.length;
+        LibDoefinOrder.DoefinOrder[] memory makers = new LibDoefinOrder.DoefinOrder[](count);
+        bytes[] memory makerSigs = new bytes[](count);
+        uint8[] memory makerTypes = new uint8[](count);
+        uint128[] memory makerFills = new uint128[](count);
+        uint128[] memory takerFees = new uint128[](count);
+        uint128[] memory makerFees = new uint128[](count);
+        uint256 totalFees;
+
+        for (uint256 i; i < count; ++i) {
+            Leg memory leg = legs[i];
+            uint256 position = leg.splitOrMerge ? positionIdB : positionIdA;
+            uint8 makerSide = leg.splitOrMerge ? side : 1 - side;
+            // A selling maker must hold what it sells.
+            if (makerSide == 1) _fundActorPosition(leg.makerIndex, position, leg.fill);
+
+            LibDoefinOrder.DoefinOrder memory maker =
+                _buildOrder(leg.makerIndex, position, makerSide, leg.fill, leg.makerPrice, ++orderSaltCounter);
+            maker.nonce = nonceManager.getNonce(maker.maker);
+            makers[i] = maker;
+            makerSigs[i] = _sign(leg.makerIndex + 1, maker);
+            makerFills[i] = leg.fill;
+            takerFees[i] = _takerFee(leg);
+            makerFees[i] = _legFee(leg.makerPrice, leg.fill);
+            totalFees += uint256(takerFees[i]) + uint256(makerFees[i]);
+            filled += leg.fill;
+            _recordOrder(maker);
+        }
+
+        // A selling taker must hold what it sells.
+        if (side == 1) _fundActorPosition(0, positionIdA, filled);
+        LibDoefinOrder.DoefinOrder memory taker =
+            _buildOrder(0, positionIdA, side, uint128(filled), signedPrice, takerSalt);
+        taker.nonce = nonceManager.getNonce(taker.maker);
+        bytes memory takerSig = _sign(1, taker);
+        _recordOrder(taker);
+
+        try settlement.matchOrders(taker, takerSig, 0, makers, makerSigs, makerTypes, uint128(filled), makerFills, takerFees, makerFees) {
+            settled = true;
+            for (uint256 i; i < count; ++i) {
+                if (!legs[i].splitOrMerge) continue;
+                if (side == 0) {
+                    outstandingPairs += legs[i].fill;
+                } else if (outstandingPairs >= legs[i].fill) {
+                    outstandingPairs -= legs[i].fill;
+                }
+            }
+            _recordFeeAccrued(address(collateral), totalFees);
+        } catch {
+            // Acceptable.
+        }
+        _syncFeeReceiverHighWater();
+    }
+
+    // ========================================
     // FUZZ ACTIONS — CTF partition shapes (SCRUM-214, CTF-001 / CTF-002 / CTF-003)
     // ========================================
 
@@ -1360,6 +1593,23 @@ contract DoefinInvariantHarness {
         uint256 accrued = IAdminConfig(diamond).getAccruedFees(address(collateral));
         return sumFeeAccrued[address(collateral)]
             == accrued + sumFeesWithdrawn[address(collateral)];
+    }
+
+    /// @notice SCRUM-559 — a market taker's signed price is an all-in average and it holds exactly:
+    ///           buy:  cost * UNIT <= signedPrice * filled
+    ///           sell: proceeds * UNIT >= signedPrice * filled
+    ///         where cost and proceeds are the taker's real balance change, fees included.
+    /// @dev Exercised by `fuzz_matchMarketTaker`, whose legs need not cross the signed price.
+    function echidna_market_taker_average_holds() external view returns (bool) {
+        return !marketAverageBroken;
+    }
+
+    /// @notice SCRUM-559 — a limit taker never settles a leg that misses its signed price: the
+    ///         per-fill crossing check holds on Complementary, Mint and Merge alike.
+    /// @dev Exercised by `fuzz_matchLimitTaker`, whose legs need not cross. The `fuzz_match*`
+    ///      wrappers above cannot show this: they always pick prices that cross.
+    function echidna_limit_taker_only_settles_crossing_legs() external view returns (bool) {
+        return !limitNonCrossingSettled;
     }
 
     /// @notice The reentrancy guard is back to "not entered" after any top-level

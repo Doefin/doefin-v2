@@ -116,6 +116,19 @@ insolvency a partial registration leads to (CTF-001) is covered by
   index 4 (the partial `[1, 2]` on the 3-outcome condition) and `nested` to false in the scratch
   copy: the property must still fail.
 
+**Market and limit takers.** `fuzz_matchMarketTaker` and `fuzz_matchLimitTaker` settle one taker
+against two independent legs on any mix of paths, with prices steered onto and one raw past each
+boundary (SCRUM-559). `echidna_market_taker_average_holds` checks a market taker's real balance
+change against its signed all-in average, and `echidna_limit_taker_only_settles_crossing_legs`
+that a limit taker never settles a leg that misses its price. The deterministic cases, on real
+Safes with signature type 1, are in `test/unit/SettlementFacet/SettlementFacet.market-orders*.test.js`.
+
+- **Expected result:** every property passes.
+- **Negative control (manual):** fuzz a scratch copy of `contracts/` as above. Removing the
+  `TakerPriceBreached` revert, or adding `+ takerUnit - 1` to the buy bound, **must fail**
+  `echidna_market_taker_average_holds`. Disabling the crossing checks in `_settleComplementary`,
+  `_settleMint` and `_settleMerge` **must fail** `echidna_limit_taker_only_settles_crossing_legs`.
+
 All tool output lands under `audit/output/` (a Docker named volume; gitignored).
 Scope exclusions (`audit-exclusion-guidance.md`) are encoded in
 `slither.config.json`, `.solhintignore`, and `.solcover.js`.
