@@ -559,7 +559,7 @@ contract SettlementFacet is ISettlement {
         // upstream in `_settleAgainstMaker` (taker) / `matchOrders` (maker). Signature
         // authorizes the spend — same pattern as 0x, Polymarket V2, Seaport.
         // slither-disable-next-line arbitrary-send-erc20
-        IERC20(taker.collateralToken).safeTransferFrom(buyerAddr, sellerAddr, collateralAmount);
+        IERC20(taker.collateralToken).safeTransferFrom(buyerAddr, sellerAddr, collateralAmount - sellerFee);
 
         // SCRUM-236: per-party fees are pulled into the Diamond and credited to
         // `accruedFees`. The `fee > 0` guard preserves the symmetric no-op for
@@ -576,7 +576,7 @@ contract SettlementFacet is ISettlement {
         if (sellerFee > 0) {
             LibAdminConfigStorage.AdminConfigStorage storage acs = LibAdminConfigStorage.adminConfigStorage();
             // slither-disable-next-line arbitrary-send-erc20
-            IERC20(taker.collateralToken).safeTransferFrom(sellerAddr, address(this), sellerFee);
+            IERC20(taker.collateralToken).safeTransferFrom(buyerAddr, address(this), sellerFee);
             acs.accruedFees[taker.collateralToken] += sellerFee;
             emit Events.FeeAccrued(taker.collateralToken, sellerFee, LibConstants.FEE_KIND_TRADING);
         }
