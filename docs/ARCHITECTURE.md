@@ -221,7 +221,9 @@ struct MiningDurationQuestion {
 1. The authorized operator calls `SettlementFacet.matchOrders()` with the signed taker and
    maker orders, fill amounts, and operator-supplied fee amounts.
 2. The contract verifies every signature, validates each order, enforces fill caps and the
-   fee ceiling, and executes the appropriate settlement path per maker.
+   fee ceiling, and executes the appropriate settlement path per maker. A limit taker's
+   every leg must cross its price. A market taker, marked in its signed salt, must instead
+   hold its exact all-in average, checked after the legs.
 3. Collateral and ERC1155 position tokens are transferred atomically.
 
 ### Condition Resolution & Redemption
@@ -256,6 +258,8 @@ Trading fees follow the operator-supplied Polymarket V2 pattern:
   **fail-closed** — a `maxFeeRateBps` of 0 forbids any non-zero fee.
 - `maxFeeRateBps` is set via `AdminConfigFacet.setMaxFeeRate`, bounded by the hard ceiling
   constant `MAX_FEE_RATE_BPS_CAP = 1000` (10%).
+- On Complementary legs the seller's fee comes out of proceeds: the buyer pays it on the
+  seller's behalf, so a seller needs no ERC-20 allowance.
 - Fees are paid to the admin-configurable `feeReceiver` (set via
   `AdminConfigFacet.setFeeReceiver`). The operator is the authorized `msg.sender` for
   settlement but never receives fees.

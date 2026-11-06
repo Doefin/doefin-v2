@@ -85,6 +85,10 @@ cannot leave stale signatures valid.
 - **`amount`** — the total outcome tokens the order is willing to trade.
 - **`expiration`** — a UNIX timestamp; `0` means no expiry.
 - **`nonce`** — used by `NonceManagerFacet` for bulk cancellation.
+- **`salt`** — marks a market order when bits 32..63 hold `0xef860c2e`:
+  `salt = (ms << 64) | (marker << 32) | rand32`. It is signed, so it cannot be added or
+  stripped without breaking the signature. A market order's `pricePerToken` is its all-in
+  average, fees included.
 
 There is no on-chain order-type field. There is no on-chain minimum-fill enforcement.
 
@@ -125,13 +129,17 @@ Where the effective price/return per match type is:
 | SELL | Complementary | BUY same outcome @ P_m | P_m |
 | SELL | Merge | SELL complement @ P_m | unit - P_m |
 
+The contract enforces this rule on every leg of a limit taker. A market taker is exempt:
+its legs may sit on either side of its signed price as long as the all-in average holds
+(see Stage 3).
+
 ## Stage 3: On-Chain Settlement
 
 The authorized operator submits matched orders to `SettlementFacet`. There are two entry
 points:
 
 - **`matchOrders()`** — settle one taker against one or more makers.
-- **`fillOrder()`** — settle a single order leg.
+- **`fillOrder()`** — settle a single order leg. A market order is refused here.
 
 Both are `onlyOperator`, `notPaused`, and `nonReentrant`.
 
@@ -205,6 +213,11 @@ For the taker once, and for every maker:
   `pricePerToken <= unit`, not expired, not cancelled.
 - **Fill cap** — the new fill must not overfill the order's remaining capacity.
 - **Aggregate invariant** — `sum(makerFillAmounts) == takerFillAmount`.
+- **Taker price** — a limit taker's every leg must cross (`InvalidMatch`). A market taker's
+  exact all-in average is checked after the legs (`TakerPriceBreached`): for a buy
+  `(cash + fees) * unit <= pricePerToken * filled`, for a sell
+  `(cash - fees) * unit >= pricePerToken * filled`.
+- **No market makers** — a market order as a maker reverts `OrderCancelled`.
 
 ### Fee Enforcement
 
@@ -226,8 +239,9 @@ fee <= proceeds
 
 Taker and maker trade the same outcome on opposite sides. The buyer pays collateral and
 receives position tokens; the seller delivers positions and receives collateral. The fill
-price is the maker's `pricePerToken`. Each party's own fee is transferred to `feeReceiver`
-from their side of the trade.
+price is the maker's `pricePerToken`. The buyer pays their own fee on top. The seller's fee
+comes out of proceeds: the buyer pays the seller `collateralAmount - sellerFee` and pays
+`sellerFee` to the Diamond, so a seller needs no ERC-20 allowance.
 
 ### 2. Mint Settlement
 
@@ -266,9 +280,11 @@ Common settlement reverts (`Errors.sol`):
 - `MismatchedInputLengths` — per-leg array lengths disagree, or the aggregate fill
   invariant fails.
 - `InvalidOrderSignature` — signature does not recover to the order signer.
-- `OrderCancelled` — the order was cancelled off-chain.
+- `OrderCancelled` — the order was cancelled off-chain, or is a market order used as a maker
+  or in `fillOrder`.
 - `OrderOverfilled` — the requested fill exceeds remaining capacity.
-- `InvalidMatch` — the match type or crossing condition is invalid.
+- `InvalidMatch` — the match type is invalid, or a limit taker's leg does not cross.
+- `TakerPriceBreached` — a market taker's all-in total breaks its signed average.
 - `ZeroAmount` — a fill amount is zero.
 - `FeeExceedsMaxRate` — an operator-supplied fee exceeds the admin ceiling.
 - `FeeExceedsProceeds` — a fee exceeds the leg's proceeds.
