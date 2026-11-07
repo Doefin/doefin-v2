@@ -235,6 +235,22 @@ describe("SettlementFacet — wallet griefing against a market taker", function 
       });
     });
 
+    it("one maker on two buy legs whose ERC-20 allowance covers each but not the sum reverts ERC20InsufficientAllowance", async function () {
+      await snapshotted(async () => {
+        // Each leg costs the maker 400,000 cash plus a 4,000 fee: 404,000 alone, 808,000 together.
+        await ctx.exec(G, W.token.address, tokenCall("approve", [ctx.diamond, 600000]));
+
+        const both = await ctx.bundle(W, TS, SELL, [compSell(G, 400000n), compSell(G, 400000n)], { market: true });
+        expect((await ctx.simulate(both)).name).to.equal("ERC20InsufficientAllowance");
+        expect((await ctx.send(both, await liveTx())).name).to.equal("ERC20InsufficientAllowance");
+
+        const oneAlone = await ctx.bundle(W, TS, SELL, [compSell(G, 400000n)], { market: true });
+        expect((await ctx.simulate(oneAlone)).name).to.equal("OK");
+        expect((await ctx.send(oneAlone, await liveTx())).name).to.equal("OK");
+        expect(await W.token.allowance(G.address, ctx.diamond)).to.equal(196000);
+      });
+    });
+
     describe("other hostile wallet shapes", function () {
       it("a handler that returns the wrong selector reverts ERC1155ReceiverRejectedTokens", async function () {
         await snapshotted(async () => {
