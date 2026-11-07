@@ -4561,6 +4561,17 @@
     "type": "error"
   },
   {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "orderHash",
+        "type": "bytes32"
+      }
+    ],
+    "name": "TakerPriceBreached",
+    "type": "error"
+  },
+  {
     "inputs": [],
     "name": "TokenAlreadyAllowed",
     "type": "error"

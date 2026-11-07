@@ -32,6 +32,13 @@ contract SettlementFacet is ISettlement {
     uint8 internal constant MATCH_MINT = 2;
     uint8 internal constant MATCH_MERGE = 3;
 
+    /// @dev Market-order marker: bits 32..63 of the signed salt. The value is
+    ///      bytes4(keccak256("doefin.market-order.v1")). Salt layout for clients:
+    ///      (ms << 64) | (MARKER << 32) | rand32, which keeps the time ordering the
+    ///      salt floor relies on. Signed, so neither the operator nor a relayer can
+    ///      add or remove it without invalidating the signature.
+    uint32 internal constant MARKET_ORDER_MARKER = 0xef860c2e;
+
     // ========================================
     // MODIFIERS
     // ========================================
@@ -77,9 +84,13 @@ contract SettlementFacet is ISettlement {
      *      supplies a per-leg fee amount; `_validateFee` enforces the admin-set maximum
      *      rate (fail-closed: a 0 rate forbids any non-zero fee) and that the fee never
      *      exceeds the contract-derived per-party collateral.
+     * @dev SCRUM-559 — a taker whose signed salt carries {MARKET_ORDER_MARKER} is a market order. Its
+     *      `pricePerToken` is the all-in average for the settlement, enforced exactly after the legs
+     *      and fees are known, in place of the per-leg check a limit taker gets. A market order can
+     *      never be a maker. One settlement per market order and a real expiry are off-chain rules.
      * @custom:reverts TradingIsPaused, UnauthorizedOperator, MismatchedInputLengths, FillAmountMismatch,
      *                 InvalidOrderSignature, OrderCancelled, OrderOverfilled, InvalidMatch, ZeroAmount,
-     *                 FeeExceedsMaxRate, FeeExceedsProceeds
+     *                 FeeExceedsMaxRate, FeeExceedsProceeds, TakerPriceBreached
      */
     function matchOrders(
         LibDoefinOrder.DoefinOrder calldata takerOrder,
@@ -138,11 +149,13 @@ contract SettlementFacet is ISettlement {
         // value types in memory but explicit `= 0` documents intent and silences the gate.
         uint128 totalMakerFill = 0;
         uint128 totalTakerFee = 0;
+        // `takerCash` is what the taker pays (buy) or receives (sell) before fees.
+        uint256 takerCash = 0;
         uint256 makerCount = makerOrders.length;
         for (uint256 i; i < makerCount;) {
             uint128 fill = makerFillAmounts[i];
             totalMakerFill += fill;
-            _settleAgainstMaker(
+            takerCash += _settleAgainstMaker(
                 takerOrder,
                 makerOrders[i],
                 makerSignatures[i],
@@ -162,6 +175,16 @@ contract SettlementFacet is ISettlement {
         }
         // Router-input invariant: total maker fill equals declared taker fill.
         if (totalMakerFill != takerFillAmount) revert Errors.FillAmountMismatch(totalMakerFill, takerFillAmount);
+
+        // A market taker skips the per-leg check, so this is its only price check:
+        // the exact all-in average, no rounding allowance.
+        if (_isMarketOrder(takerOrder)) {
+            uint256 bound = uint256(takerOrder.pricePerToken) * takerFillAmount;
+            bool priceOk = takerOrder.side == 0
+                ? (takerCash + totalTakerFee) * takerUnit <= bound
+                : (takerCash - totalTakerFee) * takerUnit >= bound;
+            if (!priceOk) revert Errors.TakerPriceBreached(takerHash);
+        }
 
         // Update taker fill state
         ss.orderHashToFilledAmount[takerHash] += takerFillAmount;
@@ -192,11 +215,12 @@ contract SettlementFacet is ISettlement {
         uint16 maxFeeRateBps,
         LibSettlementStorage.SettlementStorage storage ss,
         LibDoefinStorage.AppStorage storage ds
-    ) private {
+    ) private returns (uint256 takerCash) {
         if (fillAmount == 0) revert Errors.ZeroAmount();
         if (makerOrder.maker == takerOrder.maker) revert Errors.SelfTrade();
 
         bytes32 makerHash = LibDoefinOrder.hashOrderCalldata(makerOrder, domainSep);
+        if (_isMarketOrder(makerOrder)) revert Errors.OrderCancelled(makerHash);
         LibSignature.verifyOrderSignature(makerOrder, makerHash, makerSignature, makerSignatureType);
         _validateOrder(ss, makerOrder, makerHash);
         _checkFillAmount(ss, makerHash, makerOrder.amount, fillAmount);
@@ -205,7 +229,7 @@ contract SettlementFacet is ISettlement {
         // and validated inside each settle helper against the per-party collateral.
         uint8 matchType = _determineMatchType(takerOrder, makerOrder);
 
-        _executeSettlement(
+        takerCash = _executeSettlement(
             takerOrder,
             makerOrder,
             fillAmount,
@@ -279,6 +303,7 @@ contract SettlementFacet is ISettlement {
         LibSettlementStorage.SettlementStorage storage ss = LibSettlementStorage.settlementStorage();
         bytes32 domainSep = _getDomainSeparator();
         bytes32 orderHash = LibDoefinOrder.hashOrderCalldata(order, domainSep);
+        if (_isMarketOrder(order)) revert Errors.OrderCancelled(orderHash);
 
         LibSignature.verifyOrderSignature(order, orderHash, signature, signatureType);
         _validateOrder(ss, order, orderHash);
@@ -301,6 +326,11 @@ contract SettlementFacet is ISettlement {
     // ========================================
     // VIEW FUNCTIONS
     // ========================================
+
+    /// @dev True when the signed salt carries the market-order marker in bits 32..63.
+    function _isMarketOrder(LibDoefinOrder.DoefinOrder calldata order) private pure returns (bool) {
+        return uint32(order.salt >> 32) == MARKET_ORDER_MARKER;
+    }
 
     /// @notice Get filled amount for an order hash
     function getFilledAmount(bytes32 orderHash) external view returns (uint256) {
@@ -485,13 +515,13 @@ contract SettlementFacet is ISettlement {
         uint256 unit,
         uint16 maxFeeRateBps,
         LibDoefinStorage.AppStorage storage ds
-    ) internal {
+    ) internal returns (uint256 takerCash) {
         if (matchType == MATCH_COMPLEMENTARY) {
-            _settleComplementary(taker, maker, fillAmount, takerFee, makerFee, unit, maxFeeRateBps);
+            takerCash = _settleComplementary(taker, maker, fillAmount, takerFee, makerFee, unit, maxFeeRateBps);
         } else if (matchType == MATCH_MINT) {
-            _settleMint(taker, maker, fillAmount, takerFee, makerFee, unit, maxFeeRateBps, ds);
+            takerCash = _settleMint(taker, maker, fillAmount, takerFee, makerFee, unit, maxFeeRateBps, ds);
         } else if (matchType == MATCH_MERGE) {
-            _settleMerge(taker, maker, fillAmount, takerFee, makerFee, unit, maxFeeRateBps, ds);
+            takerCash = _settleMerge(taker, maker, fillAmount, takerFee, makerFee, unit, maxFeeRateBps, ds);
         }
     }
 
@@ -519,7 +549,7 @@ contract SettlementFacet is ISettlement {
         uint128 makerFee,
         uint256 unit,
         uint16 maxFeeRateBps
-    ) internal {
+    ) internal returns (uint256 takerCash) {
         if (taker.collateralToken != maker.collateralToken) revert Errors.InvalidMatch();
 
         // Determine buyer/seller and their respective fees
@@ -529,10 +559,11 @@ contract SettlementFacet is ISettlement {
         uint128 buyerFee = takerIsBuyer ? takerFee : makerFee;
         uint128 sellerFee = takerIsBuyer ? makerFee : takerFee;
 
-        // Verify price compatibility: buyer's price must be >= seller's price
+        // Verify price compatibility: buyer's price must be >= seller's price.
+        // A market taker's signed price is an average, checked in matchOrders instead.
         uint128 buyerPrice = takerIsBuyer ? taker.pricePerToken : maker.pricePerToken;
         uint128 sellerPrice = takerIsBuyer ? maker.pricePerToken : taker.pricePerToken;
-        if (buyerPrice < sellerPrice) revert Errors.InvalidMatch();
+        if (buyerPrice < sellerPrice && !_isMarketOrder(taker)) revert Errors.InvalidMatch();
 
         // Use maker's price as execution price (maker is passive, taker is aggressor).
         // GAS-006: unchecked — `_validateOrder` enforces `pricePerToken <= unit` (BIZ-004)
@@ -559,7 +590,7 @@ contract SettlementFacet is ISettlement {
         // upstream in `_settleAgainstMaker` (taker) / `matchOrders` (maker). Signature
         // authorizes the spend — same pattern as 0x, Polymarket V2, Seaport.
         // slither-disable-next-line arbitrary-send-erc20
-        IERC20(taker.collateralToken).safeTransferFrom(buyerAddr, sellerAddr, collateralAmount);
+        IERC20(taker.collateralToken).safeTransferFrom(buyerAddr, sellerAddr, collateralAmount - sellerFee);
 
         // SCRUM-236: per-party fees are pulled into the Diamond and credited to
         // `accruedFees`. The `fee > 0` guard preserves the symmetric no-op for
@@ -576,13 +607,14 @@ contract SettlementFacet is ISettlement {
         if (sellerFee > 0) {
             LibAdminConfigStorage.AdminConfigStorage storage acs = LibAdminConfigStorage.adminConfigStorage();
             // slither-disable-next-line arbitrary-send-erc20
-            IERC20(taker.collateralToken).safeTransferFrom(sellerAddr, address(this), sellerFee);
+            IERC20(taker.collateralToken).safeTransferFrom(buyerAddr, address(this), sellerFee);
             acs.accruedFees[taker.collateralToken] += sellerFee;
             emit Events.FeeAccrued(taker.collateralToken, sellerFee, LibConstants.FEE_KIND_TRADING);
         }
 
         // Seller transfers position tokens to buyer
         LibERC1155.safeTransferFrom(address(this), sellerAddr, buyerAddr, uint256(taker.positionId), fillAmount, "");
+        takerCash = collateralAmount;
     }
 
     /**
@@ -604,15 +636,15 @@ contract SettlementFacet is ISettlement {
         uint256 unit,
         uint16 maxFeeRateBps,
         LibDoefinStorage.AppStorage storage ds
-    ) internal {
+    ) internal returns (uint256 takerCash) {
         if (taker.collateralToken != maker.collateralToken) revert Errors.InvalidMatch();
 
         // Validate crossing: taker's ceiling >= effective price (unit - maker.price)
-        if (uint256(taker.pricePerToken) + uint256(maker.pricePerToken) < unit) revert Errors.InvalidMatch();
+        if (uint256(taker.pricePerToken) + uint256(maker.pricePerToken) < unit && !_isMarketOrder(taker)) revert Errors.InvalidMatch();
 
         // Maker pays their committed price; taker pays the complement (effective price = unit - P_m).
-        // GAS-007: `fillAmount - makerCollateral` is guarded by the crossing check above —
-        // when `P_t + P_m >= unit`, `makerCollateral = (P_m * fill) / unit <= fill`.
+        // GAS-007: `fillAmount - makerCollateral` cannot underflow: `_validateOrder`
+        // enforces `P_m <= unit`, so `makerCollateral = (P_m * fill) / unit <= fill`.
         // GAS-006: unchecked — `pricePerToken <= unit` (BIZ-004) bounds the product.
         uint256 makerCollateral;
         unchecked { makerCollateral = (uint256(maker.pricePerToken) * uint256(fillAmount)) / unit; }
@@ -678,6 +710,7 @@ contract SettlementFacet is ISettlement {
         // Transfer minted positions to respective buyers
         LibERC1155.safeTransferFrom(address(this), address(this), taker.maker, uint256(taker.positionId), fillAmount, "");
         LibERC1155.safeTransferFrom(address(this), address(this), maker.maker, uint256(maker.positionId), fillAmount, "");
+        takerCash = takerCollateral;
     }
 
     /**
@@ -695,18 +728,15 @@ contract SettlementFacet is ISettlement {
         uint256 unit,
         uint16 maxFeeRateBps,
         LibDoefinStorage.AppStorage storage ds
-    ) internal {
+    ) internal returns (uint256 takerCash) {
         if (taker.collateralToken != maker.collateralToken) revert Errors.InvalidMatch();
 
         // BIZ-002: validate the crossing (taker's floor <= effective return = unit - P_m)
-        // BEFORE any state mutation, mirroring `_settleMint`. Pre-fix the check ran after
-        // the CTF burn — atomic revert still ensured no fund loss, but the effects-before-
-        // checks ordering was inconsistent and harder to reason about.
-        if (uint256(taker.pricePerToken) + uint256(maker.pricePerToken) > unit) revert Errors.InvalidMatch();
+        if (uint256(taker.pricePerToken) + uint256(maker.pricePerToken) > unit && !_isMarketOrder(taker)) revert Errors.InvalidMatch();
 
         // Maker receives their committed price; taker receives the complement (effective return = unit - P_m).
-        // GAS-007: `fillAmount - makerPayout` is guarded by the crossing check above —
-        // when `P_t + P_m <= unit`, `makerPayout = (P_m * fill) / unit <= fill`.
+        // GAS-007: `fillAmount - makerPayout` cannot underflow: `_validateOrder`
+        // enforces `P_m <= unit`, so `makerPayout = (P_m * fill) / unit <= fill`.
         // GAS-006: unchecked — `pricePerToken <= unit` (BIZ-004) bounds the product.
         uint256 makerPayout;
         unchecked { makerPayout = (uint256(maker.pricePerToken) * uint256(fillAmount)) / unit; }
@@ -776,6 +806,7 @@ contract SettlementFacet is ISettlement {
                 emit Events.FeeAccrued(taker.collateralToken, makerFee, LibConstants.FEE_KIND_TRADING);
             }
         }
+        takerCash = takerPayout;
     }
 
     /**

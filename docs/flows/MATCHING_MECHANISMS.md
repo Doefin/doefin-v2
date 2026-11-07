@@ -63,8 +63,10 @@ Crossing condition (the same rule for all match types):
 - **BUY**: `effective_price <= taker.pricePerToken`
 - **SELL**: `effective_return >= taker.pricePerToken`
 
-`pricePerToken` is the only enforcement bound the matcher needs: the maximum average price
-for a BUY, or the minimum average return for a SELL.
+`pricePerToken` is the only enforcement bound the matcher needs. On-chain, a limit taker's
+every leg must cross it (`InvalidMatch`). A market taker, marked in its signed salt, signs
+the all-in average instead: the maximum for a BUY, the minimum for a SELL, fees included,
+enforced exactly after the legs (`TakerPriceBreached`), so its legs may sit on either side.
 
 ## The 1:Many Walk
 
@@ -107,6 +109,7 @@ allowed to be small.
 
 Direct trade on the same outcome. The buyer pays collateral and receives positions; the
 seller delivers positions and receives collateral. Settled at the maker's `pricePerToken`.
+The seller's fee comes out of proceeds, so a seller needs no ERC-20 allowance.
 
 ```mermaid
 graph LR
@@ -189,5 +192,5 @@ handling) see `docs/proposal-budget-model-and-1-to-many-matching-v1.2.md`.
   grouping without on-chain gas constraints.
 - **Trustless settlement** — although matching is off-chain, every order is EIP-712
   signed, and the contract independently re-verifies signatures, order validity, fill
-  caps, and the fee ceiling before any transfer. The operator cannot fabricate fills or
-  overcharge fees.
+  caps, the taker's signed price, and the fee ceiling. The operator cannot fabricate fills
+  or overcharge fees.

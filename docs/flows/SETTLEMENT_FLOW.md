@@ -75,6 +75,19 @@ non-zero `unit`, `pricePerToken <= unit`, not expired, not cancelled), and the f
 (the new fill must not overfill the order's remaining capacity). After the loop, the
 contract asserts `sum(makerFillAmounts) == takerFillAmount`.
 
+### Taker Price Checks
+
+- **Limit taker** — every leg must cross the taker's `pricePerToken` on its own, or the
+  whole call reverts `InvalidMatch`.
+- **Market taker** — a taker whose signed salt has the marker `0xef860c2e` in bits 32..63,
+  so `salt = (ms << 64) | (marker << 32) | rand32`. It skips the per-leg check, and its
+  `pricePerToken` is enforced after the legs as the exact all-in average, or the call
+  reverts `TakerPriceBreached(takerHash)`:
+  - buy: `(cash + fees) * unit <= pricePerToken * filled`
+  - sell: `(cash - fees) * unit >= pricePerToken * filled`
+- A market order as a maker or in `fillOrder` reverts `OrderCancelled(hash)`. One
+  settlement per market order and a real expiry are off-chain rules.
+
 ## Complementary Settlement
 
 ### Use Case
@@ -92,14 +105,16 @@ sequenceDiagram
 
     Settlement->>Settlement: _validateFee(buyerFee), _validateFee(sellerFee)
     Settlement->>ERC1155: transfer positions (seller -> buyer)
-    Settlement->>ERC20: transfer collateral (buyer -> seller)
+    Settlement->>ERC20: transfer collateral - sellerFee (buyer -> seller)
     Settlement->>Fee: transfer buyerFee (from buyer)
-    Settlement->>Fee: transfer sellerFee (from seller)
+    Settlement->>Fee: transfer sellerFee (from buyer, out of the seller's proceeds)
 ```
 
 The fill price is the maker's `pricePerToken`. The buyer pays
 `collateralAmount = maker.pricePerToken * fillAmount / unit` plus their own fee; the seller
-delivers positions and receives the collateral minus their own fee.
+delivers positions and receives the collateral minus their own fee. The seller's fee comes
+out of proceeds, paid by the buyer on the seller's behalf, so a seller needs no ERC-20
+allowance.
 
 ## Mint Settlement
 
@@ -226,7 +241,7 @@ After a successful `matchOrders` call, the taker's filled amount is incremented 
 Each `matchOrders` call is atomic — any failing leg reverts the whole transaction. Common
 reverts: `TradingIsPaused`, `UnauthorizedOperator`, `MismatchedInputLengths`,
 `InvalidOrderSignature`, `OrderCancelled`, `OrderOverfilled`, `InvalidMatch`, `ZeroAmount`,
-`FeeExceedsMaxRate`, `FeeExceedsProceeds`.
+`FeeExceedsMaxRate`, `FeeExceedsProceeds`, `TakerPriceBreached`.
 
 This settlement system gives reliable, atomic, and trustless execution of all three trade
 types while keeping order creation and matching off-chain.
