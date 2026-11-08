@@ -1,0 +1,98 @@
+{
+  "ticket": "SCRUM-560",
+  "contractChange": "SCRUM-559",
+  "network": "baseSepolia",
+  "chainId": 84532,
+  "diamond": "0x2f03d47520fb8bc8adaab392bf280d99de7cae3f",
+  "owner": "0x01249C1cCb65d67f6490D6FC45ee0592d5c3cC37",
+  "cutRoute": "safe",
+  "gitCommit": "afeacf0be2916769dc859f9b46086ea6f6f5fa32",
+  "gitUncommitted": [],
+  "build": {
+    "id": "66e87492cd119a1ed4da6e9dfe99e389",
+    "solc": "0.8.20+commit.a1b79de6",
+    "sources": 109,
+    "sha256": "34c47bca38afe6edf72a868eb814329d0e0df965d76b4eafc3c4ad0be4d3bcbd",
+    "kept": "scrum559-market-orders-2026-11-08T14-59-10-254Z.build-info.json.gz",
+    "facetBytes": 15376,
+    "facetInitBytes": 15404,
+    "facetRuntimeKeccak": "0xe35ea8c61d06797efa2b60ffbae4c069dede7a4289fb754365ee7e744ebd0f57"
+  },
+  "facets": {
+    "settlement": "0x8F9B048514D2E543Ded554D163C803bba3F88361"
+  },
+  "cut": [
+    {
+      "facetAddress": "0x8F9B048514D2E543Ded554D163C803bba3F88361",
+      "action": "Replace",
+      "functionSelectors": [
+        "0xe3fe8744",
+        "0xcc527775",
+        "0xe81d20c4"
+      ]
+    }
+  ],
+  "previousRouting": {
+    "0xe3fe8744": "0x67beccd695b7725ac16ee0f0279b94d75c950402",
+    "0xcc527775": "0x67beccd695b7725ac16ee0f0279b94d75c950402",
+    "0xe81d20c4": "0x67beccd695b7725ac16ee0f0279b94d75c950402"
+  },
+  "cutTxHash": "0xbf7bbaab6416404a320c23d4c70df5220c4d6adbe0a23801e2f4b234c3474d53",
+  "cutBlock": 56140405,
+  "safeTxHash": "0x97cbf704b3a380ec9d24b35add2bd9072c0de817874e2adb0e09ff51a118c1f0",
+  "preflight": {
+    "operator": "0xc99BdBE077BD060646aF7902b7612ecdDB7B2901",
+    "paused": false,
+    "maxFeeRateBps": 100,
+    "feeReceiver": "0x01249C1cCb65d67f6490D6FC45ee0592d5c3cC37",
+    "resolutionFeeBps": 0,
+    "domainSeparator": "0xab126750ef414ce0df29cad97e947cf5925beb0bdce0ec55ca5c091cba560cae",
+    "units": {
+      "mUSDT": "1000000",
+      "mWBTC": "100000000"
+    },
+    "accruedFees": {
+      "mUSDT": "842875",
+      "mWBTC": "87676315"
+    }
+  },
+  "postCheck": {
+    "ok": true,
+    "notes": []
+  },
+  "timestamp": "2026-11-08T14:59:10.254Z",
+  "aroundCut": {
+    "before": {
+      "operator": "0xc99BdBE077BD060646aF7902b7612ecdDB7B2901",
+      "paused": false,
+      "maxFeeRateBps": 100,
+      "feeReceiver": "0x01249C1cCb65d67f6490D6FC45ee0592d5c3cC37",
+      "resolutionFeeBps": 0,
+      "domainSeparator": "0xab126750ef414ce0df29cad97e947cf5925beb0bdce0ec55ca5c091cba560cae",
+      "units": {
+        "mUSDT": "1000000",
+        "mWBTC": "100000000"
+      },
+      "accruedFees": {
+        "mUSDT": "842875",
+        "mWBTC": "87676315"
+      }
+    },
+    "after": {
+      "operator": "0xc99BdBE077BD060646aF7902b7612ecdDB7B2901",
+      "paused": false,
+      "maxFeeRateBps": 100,
+      "feeReceiver": "0x01249C1cCb65d67f6490D6FC45ee0592d5c3cC37",
+      "resolutionFeeBps": 0,
+      "domainSeparator": "0xab126750ef414ce0df29cad97e947cf5925beb0bdce0ec55ca5c091cba560cae",
+      "units": {
+        "mUSDT": "1000000",
+        "mWBTC": "100000000"
+      },
+      "accruedFees": {
+        "mUSDT": "842875",
+        "mWBTC": "87676315"
+      }
+    }
+  }
+}
