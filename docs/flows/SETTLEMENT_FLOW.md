@@ -106,15 +106,15 @@ sequenceDiagram
     Settlement->>Settlement: _validateFee(buyerFee), _validateFee(sellerFee)
     Settlement->>ERC1155: transfer positions (seller -> buyer)
     Settlement->>ERC20: transfer collateral - sellerFee (buyer -> seller)
-    Settlement->>Fee: transfer buyerFee (from buyer)
-    Settlement->>Fee: transfer sellerFee (from buyer, out of the seller's proceeds)
+    Settlement->>Fee: transfer buyerFee + sellerFee in one payment (from buyer)
 ```
 
 The fill price is the maker's `pricePerToken`. The buyer pays
 `collateralAmount = maker.pricePerToken * fillAmount / unit` plus their own fee; the seller
 delivers positions and receives the collateral minus their own fee. The seller's fee comes
 out of proceeds, paid by the buyer on the seller's behalf, so a seller needs no ERC-20
-allowance.
+allowance. Both fees reach the Diamond's fee bank in one transfer from the buyer, and each
+non-zero fee still emits its own `FeeAccrued`.
 
 ## Mint Settlement
 

@@ -241,7 +241,8 @@ Taker and maker trade the same outcome on opposite sides. The buyer pays collate
 receives position tokens; the seller delivers positions and receives collateral. The fill
 price is the maker's `pricePerToken`. The buyer pays their own fee on top. The seller's fee
 comes out of proceeds: the buyer pays the seller `collateralAmount - sellerFee` and pays
-`sellerFee` to the Diamond, so a seller needs no ERC-20 allowance.
+`sellerFee` to the Diamond, in one transfer with its own fee, so a seller needs no ERC-20
+allowance.
 
 ### 2. Mint Settlement
 

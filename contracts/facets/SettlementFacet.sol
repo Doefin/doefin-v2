@@ -527,10 +527,11 @@ contract SettlementFacet is ISettlement {
 
     /**
      * @dev Complementary settlement: Buy vs Sell on same position.
-     *      Buyer pays collateral to seller. Each party's fee is pulled INTO the
-     *      Diamond and credited to `accruedFees[token]` (SCRUM-236 pull-payment
-     *      model — fees are swept later by the owner via
-     *      `AdminConfigFacet.withdrawFees`). Seller transfers position tokens to buyer.
+     *      The buyer pays the seller `collateralAmount - sellerFee`, and pays both fees (its
+     *      own, and the seller's out of the seller's proceeds) INTO the Diamond in one
+     *      transfer, credited to `accruedFees[token]` (SCRUM-236 pull-payment model — fees
+     *      are swept later by the owner via `AdminConfigFacet.withdrawFees`). The seller
+     *      therefore needs no ERC-20 allowance. Seller transfers position tokens to buyer.
      * @custom:security SEC-001 — both orders must be denominated in the same collateral
      *      token. Without this guard a compromised operator could pair a maker SELL signed
      *      in token A with a taker BUY in token B; settlement would execute wholly in token B
@@ -540,6 +541,9 @@ contract SettlementFacet is ISettlement {
      *      transfer to it per-trade. They credit `acs.accruedFees[token]` and emit
      *      `Events.FeeAccrued(token, fee, FEE_KIND_TRADING)`. When `fee == 0` there is
      *      NO accrual increment and NO emission — symmetric no-op.
+     * @custom:audit SCRUM-559 — the seller's fee comes out of proceeds, and both fees reach the
+     *      Diamond in one `transferFrom` from the buyer, with one `FeeAccrued` per non-zero fee.
+     *      Every party's amounts are the same as when each fee moved on its own.
      */
     function _settleComplementary(
         LibDoefinOrder.DoefinOrder calldata taker,
@@ -585,31 +589,26 @@ contract SettlementFacet is ISettlement {
         _validateFee(sellerFee, collateralAmount, maxFeeRateBps);
         if (sellerFee > collateralAmount) revert Errors.FeeExceedsProceeds();
 
-        // Buyer pays collateral to seller.
+        // Buyer pays the seller its proceeds, net of the seller's fee.
         // `buyerAddr` is the maker of an EIP-712 order whose signature was verified
         // upstream in `_settleAgainstMaker` (taker) / `matchOrders` (maker). Signature
         // authorizes the spend — same pattern as 0x, Polymarket V2, Seaport.
         // slither-disable-next-line arbitrary-send-erc20
         IERC20(taker.collateralToken).safeTransferFrom(buyerAddr, sellerAddr, collateralAmount - sellerFee);
 
-        // SCRUM-236: per-party fees are pulled into the Diamond and credited to
-        // `accruedFees`. The `fee > 0` guard preserves the symmetric no-op for
-        // fee-zero settlements (no transfer, no SSTORE, no event — CR-3291973203
-        // regression check on the trading side).
-        if (buyerFee > 0) {
+        // SCRUM-236: both fees are pulled into the Diamond and credited to `accruedFees`.
+        // SCRUM-559: the buyer pays both, so they move in one transfer; each non-zero fee
+        // still emits its own FeeAccrued. The `> 0` guards preserve the symmetric no-op for
+        // fee-zero settlements (no transfer, no SSTORE, no event — CR-3291973203 regression
+        // check on the trading side).
+        uint256 totalFee = uint256(buyerFee) + uint256(sellerFee);
+        if (totalFee > 0) {
             LibAdminConfigStorage.AdminConfigStorage storage acs = LibAdminConfigStorage.adminConfigStorage();
             // slither-disable-next-line arbitrary-send-erc20
-            IERC20(taker.collateralToken).safeTransferFrom(buyerAddr, address(this), buyerFee);
-            acs.accruedFees[taker.collateralToken] += buyerFee;
-            emit Events.FeeAccrued(taker.collateralToken, buyerFee, LibConstants.FEE_KIND_TRADING);
-        }
-
-        if (sellerFee > 0) {
-            LibAdminConfigStorage.AdminConfigStorage storage acs = LibAdminConfigStorage.adminConfigStorage();
-            // slither-disable-next-line arbitrary-send-erc20
-            IERC20(taker.collateralToken).safeTransferFrom(buyerAddr, address(this), sellerFee);
-            acs.accruedFees[taker.collateralToken] += sellerFee;
-            emit Events.FeeAccrued(taker.collateralToken, sellerFee, LibConstants.FEE_KIND_TRADING);
+            IERC20(taker.collateralToken).safeTransferFrom(buyerAddr, address(this), totalFee);
+            acs.accruedFees[taker.collateralToken] += totalFee;
+            if (buyerFee > 0) emit Events.FeeAccrued(taker.collateralToken, buyerFee, LibConstants.FEE_KIND_TRADING);
+            if (sellerFee > 0) emit Events.FeeAccrued(taker.collateralToken, sellerFee, LibConstants.FEE_KIND_TRADING);
         }
 
         // Seller transfers position tokens to buyer
