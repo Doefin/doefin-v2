@@ -159,6 +159,9 @@ library Errors {
     /// @notice Thrown when invalid match between positions
     error InvalidMatch();
 
+    /// @notice Thrown when a market taker's all-in total for the settlement breaks its signed average.
+    error TakerPriceBreached(bytes32 orderHash);
+
     /// @notice Thrown when complement position is invalid
     error InvalidComplement();
 
