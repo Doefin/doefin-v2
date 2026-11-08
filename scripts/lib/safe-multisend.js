@@ -8,9 +8,12 @@
  * LibDiamond.enforceIsContractOwner() expects when the Safe is the Diamond owner).
  *
  * Returns the hash of the on-chain execution transaction once the Safe
- * threshold has been met. On 1-of-1 Safes this is effectively synchronous;
- * on N-of-M Safes the function polls the Safe Transaction Service until the
- * remaining signers confirm via the Safe app.
+ * threshold has been met. A 1-of-1 Safe whose signer is this script executes
+ * directly with that one signature and never calls the Safe Transaction Service
+ * (SCRUM-569: its keyless API rate-limits and has rejected proposals; the Safe
+ * app still lists the execution, which it indexes from the chain). On N-of-M
+ * Safes the function proposes through the Transaction Service and polls it
+ * until the remaining signers confirm via the Safe app.
  *
  * Usage:
  *   const { proposeAndExecute } = require("./lib/safe-multisend");
@@ -33,9 +36,32 @@ const POLL_TIMEOUT_MS = 60 * 60 * 1000; // 1 hour
 const { utils: ethersUtils, providers: ethersProviders } = require("ethers");
 const EXECUTION_SUCCESS = ethersUtils.id("ExecutionSuccess(bytes32,uint256)");
 const EXECUTION_FAILURE = ethersUtils.id("ExecutionFailure(bytes32,uint256)");
+const SAFE_READ_ABI = [
+  "function getOwners() view returns (address[])",
+  "function getThreshold() view returns (uint256)",
+  "function nonce() view returns (uint256)",
+  "function VERSION() view returns (string)",
+];
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Wait for the execution receipt and confirm the Safe ran the inner calls. protocol-kit does not throw
+ * on a reverted receipt, and Safe.execTransaction succeeds at the outer level even when the inner
+ * MultiSend fails (ExecutionFailure), so check both.
+ */
+async function confirmExecution({ rpcUrl, safeAddress, safeTxHash, txHash }) {
+  const provider = new ethersProviders.JsonRpcProvider(rpcUrl);
+  const receipt = await provider.waitForTransaction(txHash, 1, 10 * 60 * 1000);
+  if (!receipt || receipt.status !== 1) throw new Error(`Safe execution tx ${txHash} reverted (status ${receipt && receipt.status})`);
+  const fromSafe = receipt.logs.filter((l) => l.address.toLowerCase() === safeAddress.toLowerCase());
+  if (fromSafe.some((l) => l.topics[0] === EXECUTION_FAILURE) || !fromSafe.some((l) => l.topics[0] === EXECUTION_SUCCESS)) {
+    throw new Error(`Safe tx ${safeTxHash} executed in ${txHash} but the inner calls FAILED (no ExecutionSuccess) — nothing was applied`);
+  }
+  console.log(`  ✅ Executed: ${txHash} (block ${receipt.blockNumber}, ExecutionSuccess)`);
+  return { safeTxHash, executionTxHash: txHash, blockNumber: receipt.blockNumber };
 }
 
 async function proposeAndExecute({
@@ -56,15 +82,12 @@ async function proposeAndExecute({
   // Lazy-load so the script still parses even if @safe-global/* isn't installed
   // yet (helps `--help` and similar).
   const Safe = require("@safe-global/protocol-kit").default;
-  const SafeApiKit = require("@safe-global/api-kit").default;
 
   const protocolKit = await Safe.init({
     provider: rpcUrl,
     signer: signerKey,
     safeAddress,
   });
-
-  const apiKit = new SafeApiKit({ chainId: BigInt(chainId) });
 
   const deployerAddress = await protocolKit.getSafeProvider().getSignerAddress();
   const owners = await protocolKit.getOwners();
@@ -110,7 +133,24 @@ async function proposeAndExecute({
     throw new Error("Failed to obtain deployer signature for Safe tx");
   }
 
-  // Propose to the Safe Transaction Service
+  // A 1-of-1 Safe needs no co-signer: this signature meets the threshold, so execute it directly and
+  // leave the Transaction Service out (SCRUM-569). The owner check above makes this signer that owner.
+  if (Number(threshold) === 1) {
+    console.log("\n  1-of-1 Safe: executing directly with this signature (no Safe Transaction Service)…");
+    let directTxHash;
+    try {
+      const execResp = await protocolKit.executeTransaction(signedTx);
+      directTxHash = execResp.hash || execResp.transactionResponse?.hash;
+    } catch (err) {
+      err.message = `${err.message}\n  The Safe tx ${safeTxHash} was signed but NOT executed, and nothing was proposed. Re-run to try again.`;
+      throw err;
+    }
+    return confirmExecution({ rpcUrl, safeAddress, safeTxHash, txHash: directTxHash });
+  }
+
+  // Propose to the Safe Transaction Service, created only on this multi-signer path.
+  const SafeApiKit = require("@safe-global/api-kit").default;
+  const apiKit = new SafeApiKit({ chainId: BigInt(chainId) });
   await apiKit.proposeTransaction({
     safeAddress,
     safeTransactionData: safeTransaction.data,
@@ -165,40 +205,50 @@ async function proposeAndExecute({
     }
   }
 
-  // protocol-kit does not throw on a reverted receipt, and Safe.execTransaction succeeds at the
-  // outer level even when the inner MultiSend fails (ExecutionFailure). Check both.
-  const provider = new ethersProviders.JsonRpcProvider(rpcUrl);
-  const receipt = await provider.waitForTransaction(txHash, 1, 10 * 60 * 1000);
-  if (!receipt || receipt.status !== 1) throw new Error(`Safe execution tx ${txHash} reverted (status ${receipt && receipt.status})`);
-  const fromSafe = receipt.logs.filter((l) => l.address.toLowerCase() === safeAddress.toLowerCase());
-  if (fromSafe.some((l) => l.topics[0] === EXECUTION_FAILURE) || !fromSafe.some((l) => l.topics[0] === EXECUTION_SUCCESS)) {
-    throw new Error(`Safe tx ${safeTxHash} executed in ${txHash} but the inner calls FAILED (no ExecutionSuccess) — nothing was applied`);
-  }
-
-  console.log(`  ✅ Executed: ${txHash} (block ${receipt.blockNumber}, ExecutionSuccess)`);
-  return { safeTxHash, executionTxHash: txHash, blockNumber: receipt.blockNumber };
+  return confirmExecution({ rpcUrl, safeAddress, safeTxHash, txHash });
 }
 
 /**
- * Read-only Safe pre-flight, to run BEFORE deploying anything: the Transaction Service answers,
- * `signer` is an owner, and no proposal is already queued (a queued tx at the next nonce would
- * conflict with the new proposal).
+ * Read-only Safe pre-flight, to run BEFORE deploying anything: owners, threshold and nonce read from
+ * the Safe on-chain, whether `signer` is an owner, and, for a Safe above a threshold of 1, that the
+ * Transaction Service answers with no proposal already queued (a queued tx at the next nonce would
+ * conflict with the new proposal). A 1-of-1 Safe executes directly, so it never asks the service
+ * (`direct: true`). `provider` defaults to Hardhat's `ethers.provider`.
  */
-async function safePreflight({ safeAddress, chainId, signer }) {
+async function safePreflight({ safeAddress, chainId, signer, provider }) {
+  // eslint-disable-next-line no-undef
+  const reader = provider || (typeof ethers !== "undefined" ? ethers.provider : null);
+  if (!reader) throw new Error("safePreflight needs a provider (run it under Hardhat or pass one)");
+  const { Contract } = require("ethers");
+  const safe = new Contract(safeAddress, SAFE_READ_ABI, reader);
+  let owners;
+  let threshold;
+  let nonce;
+  let version;
+  try {
+    owners = await safe.getOwners();
+    threshold = Number(await safe.getThreshold());
+    nonce = Number(await safe.nonce());
+    version = await safe.VERSION();
+  } catch (err) {
+    throw new Error(`Could not read Safe ${safeAddress} on chain ${chainId} — nothing was deployed or proposed (${err.message})`);
+  }
+  if (!owners.length) throw new Error(`Safe ${safeAddress} reports no owners — nothing was deployed or proposed`);
+  const isOwner = owners.map((o) => o.toLowerCase()).includes(signer.toLowerCase());
+  if (threshold === 1) return { owners, threshold, nonce, version, pending: 0, isOwner, direct: true };
+
+  // Above a threshold of 1 the cut goes through the Transaction Service, so it must answer. One
+  // request only: the keyless service rejects concurrent requests (Too Many Requests).
   const SafeApiKit = require("@safe-global/api-kit").default;
   const apiKit = new SafeApiKit({ chainId: BigInt(chainId) });
-  let info;
   let pending;
   try {
-    [info, pending] = await Promise.all([apiKit.getSafeInfo(safeAddress), apiKit.getPendingTransactions(safeAddress)]);
+    pending = await apiKit.getPendingTransactions(safeAddress);
   } catch (err) {
     throw new Error(`Safe Transaction Service unreachable for ${safeAddress} on chain ${chainId} — nothing was deployed or proposed (${err.message})`);
   }
-  const owners = info.owners || [];
-  if (!owners.length) throw new Error(`Safe service returned no owners for ${safeAddress} — nothing was deployed or proposed`);
   const queued = pending.count ?? (pending.results || []).length;
-  const isOwner = owners.map((o) => o.toLowerCase()).includes(signer.toLowerCase());
-  return { owners, threshold: Number(info.threshold), nonce: Number(info.nonce), version: info.version, pending: queued, isOwner };
+  return { owners, threshold, nonce, version, pending: queued, isOwner, direct: false };
 }
 
 /** Map chainId → Safe app network prefix used in the UI URLs. */
@@ -212,4 +262,4 @@ function safeNetworkPrefix(chainId) {
   return `chain-${id}`;
 }
 
-module.exports = { proposeAndExecute, safePreflight, safeNetworkPrefix };
+module.exports = { proposeAndExecute, safePreflight, safeNetworkPrefix, confirmExecution };

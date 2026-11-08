@@ -31,12 +31,13 @@
  *   2. npm run upgrade:scrum559:rehearse:sepolia
  *      Every check must PASS. Note the printed build id and facet runtime keccak.
  *   3. DRY_RUN=true npm run upgrade:scrum559:baseSepolia
- *      Sends nothing but does query the Safe service. Confirm Replace 3, Add 0, the old facet
- *      0x67BeccD695B7725AC16ee0f0279b94d75c950402, no queued Safe proposal, and the same build id and
- *      runtime keccak as step 2.
+ *      Sends nothing. It reads the Safe on-chain, and above a threshold of 1 also asks the Safe service
+ *      for queued proposals. Confirm Replace 3, Add 0, the old facet
+ *      0x67BeccD695B7725AC16ee0f0279b94d75c950402, and the same build id and runtime keccak as step 2.
  *   4. npm run upgrade:scrum559:baseSepolia
- *      Deploys the facet, verifies it, then proposes and executes the cut through the Safe. Above a
- *      threshold of 1 it waits for the other signers to confirm in the Safe app. It writes the record
+ *      Deploys the facet, verifies it, then executes the cut through the Safe. A 1-of-1 Safe signs and
+ *      executes directly, with no Safe Transaction Service (SCRUM-569). Above a threshold of 1 it
+ *      proposes through that service and waits for the other signers in the Safe app. It writes the record
  *      and the kept build-info under deployments/baseSepolia/ as soon as the cut is mined, and exits
  *      non-zero after that if the post-check finds a problem. To resume after a failure between the
  *      deployment and the cut, export the printed NEW_SETTLEMENT_FACET_ADDRESS.
@@ -385,8 +386,9 @@ async function chooseRoute({ cfg, chainId, owner, deployer, minBalance, safeClie
     // Discover Safe service problems before deploying anything.
     const preflight = safeClient ? safeClient.preflight : safePreflight;
     const sp = await preflight({ safeAddress: owner, chainId, signer: deployer.address });
-    console.log(`  Safe:      ${sp.threshold}-of-${sp.owners.length}, nonce ${sp.nonce}, v${sp.version}, queued proposals ${sp.pending}`);
-    if (!sp.isOwner) throw new Error(`Deployer ${deployer.address} is not an owner per the Safe service`);
+    const via = sp.direct ? "executed directly, no Safe Transaction Service" : `queued proposals ${sp.pending}`;
+    console.log(`  Safe:      ${sp.threshold}-of-${sp.owners.length}, nonce ${sp.nonce}, v${sp.version}, ${via}`);
+    if (!sp.isOwner) throw new Error(`Deployer ${deployer.address} is not an owner of Safe ${owner}`);
     if (sp.pending > 0) throw new Error(`The Safe has ${sp.pending} queued proposal(s); execute or reject them first — a new proposal would share their nonce`);
   }
   if (!cfg.local) {
