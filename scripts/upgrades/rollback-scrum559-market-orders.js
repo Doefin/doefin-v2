@@ -10,15 +10,25 @@
  *      cloudformation-templates environments/ApiServiceEcsConfig-<account>.json and
  *      MatchEngineServiceConfig-<account>.json). The API then refuses new market orders.
  *   2. Wait out expiry plus a margin: MARKET_ORDER_TTL_SECONDS (default 60 s) plus 5 minutes, counted
- *      from when the last API task with the switch on stopped. Confirm no order in status Working
- *      (order_states.status = 6) has a signed expiry still ahead (order_intents.expiration).
- *   3. Only then run this script.
+ *      from when the last API task with the switch on stopped.
+ *   3. Close every marked order the previous facet could still settle. This query must return no
+ *      rows. It covers every open status, not only Working (6), and expiry 0, which never expires:
+ *      until the API's marker check is deployed, today's API accepts a marked salt on a limit order at
+ *      any expiry. Cancel each row it returns through the API, so the match engine never offers it.
  *
- * Why: the previous facet has no market-order check. A marked order still inside its expiry settles on
- * it and pays fees on top of its signed all-in price (signed 400000, charged 401600) instead of
- * reverting. Reversing this order overcharges market orders still in flight. Past its expiry, a marked
- * order reverts OrderCancelled on either facet, which is what the wait relies on. The rehearsal proves
- * both.
+ *        SELECT i.order_hash, i.maker, s.status, i.expiration
+ *          FROM order_intents i JOIN order_states s ON s.order_hash = i.order_hash
+ *         WHERE s.status IN (0, 1, 6)                                          -- Open, PartiallyFilled, Working
+ *           AND mod(div(i.salt::numeric, 4294967296), 4294967296) = 4018539566  -- marker 0xef860c2e
+ *           AND (i.expiration = 0 OR i.expiration > extract(epoch FROM now()));
+ *
+ *   4. Only then run this script.
+ *
+ * Why: the previous facet has no market-order check. A marked order it can still settle pays fees on
+ * top of its signed all-in price (signed 400000, charged 401600) instead of reverting. Reversing this
+ * order overcharges market orders still in flight. Past its expiry, a marked order reverts
+ * OrderCancelled on either facet, which is what the wait relies on; a marked order at expiry 0 never
+ * gets there, which is why step 3 closes it instead. The rehearsal proves all three.
  *
  * Pre-flight, with nothing sent until all of it passes: the switch-off confirmed, no Base mainnet,
  * the record is for this network and Diamond, previousRouting is exactly the cut's three selectors on
@@ -69,7 +79,9 @@ function printOrderWarning() {
   console.log("  ORDER MATTERS. Before this rollback:");
   console.log("    1. MARKET_ORDERS_ENABLED must be switched off on the API and the match engine.");
   console.log("    2. Expiry plus a margin must have passed since then: MARKET_ORDER_TTL_SECONDS");
-  console.log("       (default 60 s) plus 5 minutes, with no Working order (status 6) still inside its expiry.");
+  console.log("       (default 60 s) plus 5 minutes.");
+  console.log("    3. No marked order the previous facet could settle may stay open: in any open status,");
+  console.log("       including expiry 0, which never expires (the query is in this script's header).");
   console.log("  The previous facet has no market-order check. Reversing this order overcharges");
   console.log("  market orders still in flight (signed 400000, charged 401600).");
   console.log("==========================================================");

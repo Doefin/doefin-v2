@@ -21,7 +21,8 @@
  *   - the rollback: it refuses without the switch-off confirmation and on a wrong record, it restores
  *     the routing exactly, fills and accrued fees are retained, every behaviour matches before the cut,
  *     and a marked order is overcharged inside its expiry but reverts past it, which is why the switch
- *     goes off and expiry is waited out first.
+ *     goes off and expiry is waited out first. A marked order at expiry 0 is still overcharged a year
+ *     on, which is why every open marked order is closed before a rollback.
  *
  * Run:  npm run upgrade:scrum559:rehearse:sepolia
  * Needs BASE_SEPOLIA_RPC_ENDPOINT. FORK_BLOCK_NUMBER pins the fork, otherwise it forks LOOKBACK blocks
@@ -666,6 +667,20 @@ async function main() {
     return { inside, after: result.name, paid: paidBefore - toBigInt(await collateral.balanceOf(T.address)) };
   });
   check(pastExpiry.inside === "OK" && pastExpiry.after === "OrderCancelled" && pastExpiry.paid === 0n, `past its expiry the same order reverts ${pastExpiry.after} and pays ${pastExpiry.paid}, so the wait closes that gap`);
+  const neverExpires = await snapshotted(async () => {
+    const order = { ...ord(T, posA, BUY, U, p4, marketSalt()), expiration: 0 };
+    const maker = { ...ord(M, posA, SELL, U, p4), expiration: 0 };
+    const args = await matchArgs(T, order, [{ safe: M, order: maker, fill: U, takerFee: fee40(p4) }]);
+    await network.provider.send("evm_increaseTime", [365 * 86400]);
+    await network.provider.send("evm_mine");
+    const paidBefore = toBigInt(await collateral.balanceOf(T.address));
+    const result = await sendMatch(args);
+    return { after: result.name, paid: paidBefore - toBigInt(await collateral.balanceOf(T.address)) };
+  });
+  check(
+    neverExpires.after === "OK" && neverExpires.paid === p4 + fee40(p4),
+    `a marked order at expiry 0 never expires: a year on it still settles here and pays ${neverExpires.paid} against signed ${p4}, so the wait cannot close it and the rollback closes every open marked order first`
+  );
   err = await refusal(() => runRollback({ recordFile: upgrade.recordFile, switchOffConfirmed: true }), "already rolled back");
   check(err === null, `a second rollback refuses: the routing no longer matches the record${err ? `: ${err}` : ""}`);
 
