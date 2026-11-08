@@ -22,7 +22,19 @@
  *           AND mod(div(i.salt::numeric, 4294967296), 4294967296) = 4018539566  -- marker 0xef860c2e
  *           AND (i.expiration = 0 OR i.expiration > extract(epoch FROM now()));
  *
- *   4. Only then run this script.
+ *   4. Export the wallets with open sells, and the collateral each sells for:
+ *
+ *        psql "$DATABASE_URL" -At -F, -c "SELECT DISTINCT i.maker, i.collateral_token
+ *          FROM order_intents i JOIN order_states s ON s.order_hash = i.order_hash
+ *          WHERE s.status IN (0, 1, 6) AND i.side = 1" > sellers.csv
+ *
+ *      and pass the file as ROLLBACK_SELLERS. The previous facet takes a Complementary seller's fee
+ *      from the seller's own balance, so a seller with no ERC-20 allowance to the Diamond reverts
+ *      ERC20InsufficientAllowance on every sell that carries a fee. The pre-flight reads each pair's
+ *      allowance on-chain and refuses while any is zero: have those wallets approve, or set
+ *      SELLERS_WITHOUT_ALLOWANCE_ACCEPTED=true to roll back knowing their sells revert until they do.
+ *      ROLLBACK_SELLERS=none states that no wallet has an open sell.
+ *   5. Only then run this script.
  *
  * Why: the previous facet has no market-order check. A marked order it can still settle pays fees on
  * top of its signed all-in price (signed 400000, charged 401600) instead of reverting. Reversing this
@@ -32,20 +44,23 @@
  *
  * Pre-flight, with nothing sent until all of it passes: the switch-off confirmed, no Base mainnet,
  * the record is for this network and Diamond, previousRouting is exactly the cut's three selectors on
- * one facet that has code, and those selectors still route to the record's facet (anything else means
- * already rolled back, or a newer cut that this record must not undo).
+ * one facet that has code, those selectors still route to the record's facet (anything else means
+ * already rolled back, or a newer cut that this record must not undo), and every open seller has an
+ * allowance on the collateral it sells for, unless that is accepted.
  *
  * Route as in upgrade-scrum559-market-orders.js. On a real run it writes
  * deployments/<network>/scrum559-rollback-<timestamp>.json as soon as the cut is mined.
  *
  * Env:
  *   ROLLBACK_RECORD                  path of the upgrade record to roll back
- *   MARKET_ORDERS_OFF_CONFIRMED=true you have done steps 1 and 2 above
+ *   MARKET_ORDERS_OFF_CONFIRMED=true you have done steps 1 to 3 above
+ *   ROLLBACK_SELLERS                 the step 4 file of "maker,collateral" lines, or none
+ *   SELLERS_WITHOUT_ALLOWANCE_ACCEPTED=true  roll back although an open seller has no allowance
  *   BASE_SEPOLIA_RPC_ENDPOINT, SAFE_ADDRESS, PRIVATE_KEY, DRY_RUN=true
  *
  * Usage:
  *   ROLLBACK_RECORD=deployments/baseSepolia/scrum559-market-orders-<timestamp>.json \
- *   MARKET_ORDERS_OFF_CONFIRMED=true npm run upgrade:scrum559:rollback:baseSepolia
+ *   ROLLBACK_SELLERS=sellers.csv MARKET_ORDERS_OFF_CONFIRMED=true npm run upgrade:scrum559:rollback:baseSepolia
  *
  * Afterwards confirm the routing, and leave the switch off:
  *   cast call 0x2f03d47520fb8bc8aDAab392BF280D99De7cAe3f "facetAddress(bytes4)(address)" 0xe81d20c4 \
@@ -82,9 +97,48 @@ function printOrderWarning() {
   console.log("       (default 60 s) plus 5 minutes.");
   console.log("    3. No marked order the previous facet could settle may stay open: in any open status,");
   console.log("       including expiry 0, which never expires (the query is in this script's header).");
+  console.log("    4. Open sellers need an ERC-20 allowance again: the previous facet takes a seller's fee");
+  console.log("       from the seller's own balance (ROLLBACK_SELLERS, checked below).");
   console.log("  The previous facet has no market-order check. Reversing this order overcharges");
   console.log("  market orders still in flight (signed 400000, charged 401600).");
   console.log("==========================================================");
+}
+
+const ALLOWANCE_ABI = ["function allowance(address owner, address spender) view returns (uint256)"];
+
+/**
+ * The open sellers to check, as { seller, token } pairs from a ROLLBACK_SELLERS file of
+ * "maker,collateral" lines (a header line is skipped), or none. Fails closed on anything it cannot read,
+ * because a sellers list that silently drops a wallet would pass a check it should fail.
+ */
+function readSellers(spec) {
+  if (!spec) throw new Error("Set ROLLBACK_SELLERS to the open-sellers file (step 4 in this script's header), or to none if no wallet has an open sell");
+  if (spec.trim().toLowerCase() === "none") return [];
+  if (!fs.existsSync(spec)) throw new Error(`ROLLBACK_SELLERS file not found: ${spec}`);
+  const pairs = new Map();
+  fs.readFileSync(spec, "utf8")
+    .split(/\r?\n/)
+    .forEach((line, i) => {
+      const cells = line.split(/[,\t|]/).map((c) => c.trim()).filter(Boolean);
+      if (!cells.length) return;
+      if (i === 0 && !ethers.utils.isAddress(cells[0])) return; // header
+      if (cells.length !== 2 || !cells.every((c) => ethers.utils.isAddress(c))) {
+        throw new Error(`ROLLBACK_SELLERS line ${i + 1} is not "maker,collateral": ${line}`);
+      }
+      const [seller, token] = cells.map((c) => ethers.utils.getAddress(c));
+      pairs.set(`${seller}:${token}`, { seller, token });
+    });
+  return [...pairs.values()];
+}
+
+/** Each pair's allowance to the Diamond, read on-chain. */
+async function sellerAllowances(diamond, pairs) {
+  const rows = [];
+  for (const { seller, token } of pairs) {
+    const allowance = await new ethers.Contract(token, ALLOWANCE_ABI, ethers.provider).allowance(seller, diamond);
+    rows.push({ seller, token, allowance: BigInt(allowance.toString()) });
+  }
+  return rows;
 }
 
 /** The one facet a record's previousRouting points the cut's selectors back to, or a refusal. */
@@ -102,6 +156,8 @@ function rollbackTarget(rec) {
  * @param {object} opts
  * @param {string}  [opts.recordFile]          default: ROLLBACK_RECORD
  * @param {boolean} [opts.switchOffConfirmed]  default: MARKET_ORDERS_OFF_CONFIRMED=true
+ * @param {string}  [opts.sellers]             default: ROLLBACK_SELLERS
+ * @param {boolean} [opts.sellersWithoutAllowanceAccepted]  default: SELLERS_WITHOUT_ALLOWANCE_ACCEPTED=true
  * @param {boolean} [opts.dryRun]
  * @param {string}  [opts.recordDir]           rehearsal only, as in runUpgrade
  * @param {object}  [opts.safeClient]          rehearsal only, as in runUpgrade
@@ -142,6 +198,19 @@ async function runRollback(opts = {}) {
   }
   if ((await ethers.provider.getCode(target)) === "0x") throw new Error(`No bytecode at the previous facet ${target}`);
   const stateBefore = await readState(diamond);
+
+  // The previous facet takes a Complementary seller's fee from the seller's own balance.
+  const allowances = await sellerAllowances(diamond, readSellers(opts.sellers ?? process.env.ROLLBACK_SELLERS));
+  const withoutAllowance = allowances.filter((r) => r.allowance === 0n);
+  const sellersAccepted = Boolean(opts.sellersWithoutAllowanceAccepted ?? process.env.SELLERS_WITHOUT_ALLOWANCE_ACCEPTED === "true");
+  console.log(`  Sellers:   ${allowances.length} open seller/collateral pair(s), ${withoutAllowance.length} with no allowance to the Diamond`);
+  for (const r of withoutAllowance) console.log(`    ✘ ${r.seller} on ${r.token}`);
+  if (withoutAllowance.length && !sellersAccepted) {
+    throw new Error(
+      `${withoutAllowance.length} open seller(s) have no ERC-20 allowance to the Diamond: ${withoutAllowance.map((r) => `${r.seller} on ${r.token}`).join(", ")}. ` +
+        "On the previous facet their sells revert ERC20InsufficientAllowance as soon as a fee is charged. Have them approve, or set SELLERS_WITHOUT_ALLOWANCE_ACCEPTED=true to roll back anyway."
+    );
+  }
 
   console.log(`  Network:   ${cfg.name} (chainId ${chainId})`);
   console.log(`  Diamond:   ${diamond}`);
@@ -189,6 +258,11 @@ async function runRollback(opts = {}) {
     cutBlock,
     safeTxHash,
     preflight: stateBefore,
+    sellers: {
+      checked: allowances.length,
+      withoutAllowance: withoutAllowance.map((r) => ({ seller: r.seller, token: r.token })),
+      accepted: withoutAllowance.length > 0 && sellersAccepted,
+    },
     postCheck: "pending",
     timestamp,
   };
@@ -242,4 +316,4 @@ if (require.main === module) {
     });
 }
 
-module.exports = { runRollback };
+module.exports = { runRollback, _test: { readSellers } };

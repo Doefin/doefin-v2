@@ -18,7 +18,9 @@
  *     collaterals; nonce, salt floor and cancelOrder stop a marked order;
  *   - the Safe route: the cut and the rollback through the real owner Safe's execTransaction on the
  *     fork. Only the Safe service is left out, because a proposal must not be created by a rehearsal;
- *   - the rollback: it refuses without the switch-off confirmation and on a wrong record, it restores
+ *   - the rollback: it refuses without the switch-off confirmation, on a wrong record, without the
+ *     open-sellers list, on a sellers list it cannot read, and while an open seller has no allowance
+ *     unless that is accepted, because the previous facet takes a seller's fee from the seller; it restores
  *     the routing exactly, fills and accrued fees are retained, every behaviour matches before the cut,
  *     and a marked order is overcharged inside its expiry but reverts past it, which is why the switch
  *     goes off and expiry is waited out first. A marked order at expiry 0 is still overcharged a year
@@ -37,7 +39,7 @@ const os = require("os");
 const path = require("path");
 const zlib = require("zlib");
 const { runUpgrade, CUT_SELECTORS, COLLATERALS, FacetCutAction, refuseMainnet, impersonate, readRouting, routingDiff, _test } = require("./upgrade-scrum559-market-orders.js");
-const { runRollback } = require("./rollback-scrum559-market-orders.js");
+const { runRollback, _test: rollbackTest } = require("./rollback-scrum559-market-orders.js");
 const { BASE_MAINNET_DIAMOND, BASE_SEPOLIA_DIAMOND } = require("./upgrade-scrum521-oracle-reorg-underflow.js");
 const { SAFE, safeInterface, BUY, SELL, MARKET_ORDER_MARKER, pad, toBigInt, ceilDiv, snapshotted, decodeRevert } = require("../../test/utils/safeSettlementFixture.js");
 
@@ -181,7 +183,7 @@ function forkSafeClient() {
 async function main() {
   if (network.name !== "hardhat") throw new Error(`Run on the in-process hardhat network (the script forks Base Sepolia itself), not "${network.name}"`);
   // hardhat.config.js loads .env, and a ceremony variable left in it must not steer a rehearsal.
-  for (const k of ["DRY_RUN", "SKIP_VERIFY", "DIAMOND_ADDRESS", "NEW_SETTLEMENT_FACET_ADDRESS", "MARKET_ORDERS_OFF_CONFIRMED", "ROLLBACK_RECORD"]) delete process.env[k];
+  for (const k of ["DRY_RUN", "SKIP_VERIFY", "DIAMOND_ADDRESS", "NEW_SETTLEMENT_FACET_ADDRESS", "MARKET_ORDERS_OFF_CONFIRMED", "ROLLBACK_RECORD", "ROLLBACK_SELLERS", "SELLERS_WITHOUT_ALLOWANCE_ACCEPTED"]) delete process.env[k];
   const deploymentsBefore = listDeployments();
 
   const forkBlock = await forkBaseSepolia();
@@ -603,8 +605,13 @@ async function main() {
   // ---------------------------------------------------------------- Safe route
   section("The Safe route, through the real owner Safe on the fork");
   const safeClient = forkSafeClient();
+  // The open sellers a rollback checks, in the shape the runbook's psql export writes: the Safes that
+  // sell in this rehearsal, each on its own collateral, all approved for the maximum.
+  const sellersFile = path.join(recordDir, "sellers.csv");
+  const sellerLine = (safe, token) => `${safe.address.toLowerCase()},${token.toLowerCase()}`;
+  fs.writeFileSync(sellersFile, [sellerLine(USDT.M, COLLATERALS.mUSDT), sellerLine(USDT.N, COLLATERALS.mUSDT), sellerLine(WBTC.M, COLLATERALS.mWBTC)].join("\n") + "\n");
   await snapshotted(async () => {
-    const down = await runRollback({ recordFile: upgrade.recordFile, switchOffConfirmed: true, safeClient, dryRun: false });
+    const down = await runRollback({ recordFile: upgrade.recordFile, switchOffConfirmed: true, sellers: sellersFile, safeClient, dryRun: false });
     check(down.cutRoute === "safe" && Boolean(down.safeTxHash) && routingDiff(routingBefore, await readRouting(loupe)).length === 0, `rollback executes through Safe ${ownerAddress} (${safeSummary})`);
     const up = await runUpgrade({ diamond: d, facetAddress: newFacet, safeClient });
     const routing = await readRouting(loupe);
@@ -618,6 +625,24 @@ async function main() {
 
   err = await refusal(() => runRollback({ recordFile: upgrade.recordFile, dryRun: true }), "MARKET_ORDERS_OFF_CONFIRMED");
   check(err === null, `refuses without the switch-off confirmation${err ? `: ${err}` : ""}`);
+  err = await refusal(() => runRollback({ recordFile: upgrade.recordFile, switchOffConfirmed: true, dryRun: true }), "ROLLBACK_SELLERS");
+  check(err === null, `refuses without the open-sellers list${err ? `: ${err}` : ""}`);
+  const unreadable = path.join(recordDir, "sellers-unreadable.csv");
+  fs.writeFileSync(unreadable, `maker,collateral_token\n${sellerLine(M, COLLATERALS.mUSDT)}\n${M.address},not-an-address\n`);
+  err = await refusal(() => runRollback({ recordFile: upgrade.recordFile, switchOffConfirmed: true, sellers: unreadable, dryRun: true }), 'is not "maker,collateral"');
+  check(err === null, `refuses a sellers list it cannot read in full, rather than check part of it${err ? `: ${err}` : ""}`);
+  const withHeader = path.join(recordDir, "sellers-with-header.csv");
+  fs.writeFileSync(withHeader, `maker,collateral_token\n${fs.readFileSync(sellersFile, "utf8")}${sellerLine(USDT.M, COLLATERALS.mUSDT)}\n`);
+  check(rollbackTest.readSellers(withHeader).length === 3 && rollbackTest.readSellers("none").length === 0, "reads a sellers list with a header and a repeated line as 3 pairs, and none as no pairs");
+  await snapshotted(async () => {
+    await exec(M, COLLATERALS.mUSDT, collateral.interface.encodeFunctionData("approve", [d, 0]));
+    err = await refusal(() => runRollback({ recordFile: upgrade.recordFile, switchOffConfirmed: true, sellers: sellersFile, dryRun: true }), M.address);
+    check(err === null, `refuses while an open seller has no allowance, and names it${err ? `: ${err}` : ""}`);
+    const accepted = await runRollback({ recordFile: upgrade.recordFile, switchOffConfirmed: true, sellers: sellersFile, sellersWithoutAllowanceAccepted: true, dryRun: true });
+    check(accepted.dryRun === true, "goes ahead when a seller without an allowance is accepted");
+  });
+  const noSellers = await runRollback({ recordFile: upgrade.recordFile, switchOffConfirmed: true, sellers: "none", dryRun: true });
+  check(noSellers.dryRun === true, "goes ahead with ROLLBACK_SELLERS=none");
   const writeVariant = (name, changes) => {
     const file = path.join(recordDir, name);
     fs.writeFileSync(file, JSON.stringify({ ...rec, ...changes }));
@@ -637,9 +662,13 @@ async function main() {
     check(err === null, `refuses ${label}${err ? `: ${err}` : ""}`);
   }
 
-  const { result: rolled, log: rollbackLog } = await capturingLog(() => runRollback({ recordFile: upgrade.recordFile, switchOffConfirmed: true, recordDir }));
-  check(rollbackLog.includes("MARKET_ORDERS_ENABLED must be switched off") && rollbackLog.includes("Expiry plus a margin") && rollbackLog.includes("overcharges"), "its log states the switch-off, the expiry wait and the overcharge");
-  check(rolled.postCheck.ok === true && Boolean(rolled.recordFile) && JSON.parse(fs.readFileSync(rolled.recordFile, "utf8")).to === oldFacet, "rollback record written, post-check passed");
+  const { result: rolled, log: rollbackLog } = await capturingLog(() => runRollback({ recordFile: upgrade.recordFile, switchOffConfirmed: true, sellers: sellersFile, recordDir }));
+  check(
+    rollbackLog.includes("MARKET_ORDERS_ENABLED must be switched off") && rollbackLog.includes("Expiry plus a margin") && rollbackLog.includes("including expiry 0") && rollbackLog.includes("Open sellers need an ERC-20 allowance") && rollbackLog.includes("overcharges"),
+    "its log states the switch-off, the expiry wait, the expiry-0 orders, the sellers' allowance and the overcharge"
+  );
+  const rolledRecord = rolled.recordFile ? JSON.parse(fs.readFileSync(rolled.recordFile, "utf8")) : {};
+  check(rolled.postCheck.ok === true && rolledRecord.to === oldFacet && rolledRecord.sellers?.checked === 3 && rolledRecord.sellers.withoutAllowance.length === 0, "rollback record written with the 3 sellers checked, post-check passed");
   const routingRolledBack = await readRouting(loupe);
   check(routingDiff(routingBefore, routingRolledBack).length === 0, `the routing is restored exactly: all ${Object.keys(routingRolledBack).length} selectors as before the cut`);
   check((await loupe.facets()).length === facetCountBefore && (await loupe.facetAddress(CUT_SELECTORS.matchOrders)).toLowerCase() === oldFacet, "facetAddress(matchOrders) is the previous facet, facet count unchanged");

@@ -54,9 +54,12 @@
  *   2. Wait out expiry plus a margin: MARKET_ORDER_TTL_SECONDS (default 60 s) plus 5 minutes.
  *   3. Close every marked order still open, in any open status and at expiry 0 too (the query is in
  *      the rollback script's header).
- *   4. ROLLBACK_RECORD=deployments/baseSepolia/scrum559-market-orders-<timestamp>.json \
- *      MARKET_ORDERS_OFF_CONFIRMED=true npm run upgrade:scrum559:rollback:baseSepolia
- *   5. The cast call in step 5 must print the previous facet again. Commit the rollback record.
+ *   4. Export the open sellers to a file (query in the rollback script's header). The previous facet
+ *      takes a seller's fee from the seller's own balance, so the rollback refuses while an open
+ *      seller has no ERC-20 allowance, unless SELLERS_WITHOUT_ALLOWANCE_ACCEPTED=true.
+ *   5. ROLLBACK_RECORD=deployments/baseSepolia/scrum559-market-orders-<timestamp>.json \
+ *      ROLLBACK_SELLERS=sellers.csv MARKET_ORDERS_OFF_CONFIRMED=true npm run upgrade:scrum559:rollback:baseSepolia
+ *   6. The cast call in step 5 must print the previous facet again. Commit the rollback record.
  *
  * What the script does:
  *   1. Pre-flight, with nothing sent until all of it passes: network and chain ID, Diamond, owner, git
